@@ -1,0 +1,5 @@
+bechefaa.db
+*.zip
+__pycache__/
+BECHEFAA_POS_V0.5.*/
+static/static/

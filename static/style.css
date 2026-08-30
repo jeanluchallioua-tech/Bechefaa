@@ -1,0 +1,590 @@
+*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f4f5f7;color:#151515;display:flex;height:100vh;overflow:hidden}aside{width:220px;background:#111;color:#fff;padding:20px;display:flex;flex-direction:column;gap:10px}.brand{font-size:24px;font-weight:900;margin-bottom:18px}.brand small{font-size:9px;color:#aaa}.nav{background:#222;color:white;border:0;text-align:left;padding:14px;border-radius:10px}.nav.active,.primary,.channel.active{background:#f2b705;color:#111}.status{margin-top:auto;background:#1b1b1b;padding:12px;border-radius:10px;color:#76d28c}main{flex:1;overflow:auto}.view{padding:20px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.sub{font-size:13px;color:#777}button{cursor:pointer;border:1px solid #ddd;background:white;padding:10px 12px;border-radius:9px;font-weight:700}.layout{display:grid;grid-template-columns:1fr 370px;gap:16px}.cats{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.cats .active{background:#111;color:white}.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px}.product{padding:0;overflow:hidden;text-align:left;border-radius:14px;background:white}.product img{width:100%;height:125px;object-fit:cover;display:block;background:#eee}.pbody{padding:11px}.pname{font-size:15px;font-weight:800;min-height:35px}.price{font-size:19px;font-weight:900;margin-top:7px}.cart,.panel{background:white;border-radius:14px;padding:16px}.cart{position:sticky;top:0;height:max-content}.cart input,.panel input,.modalbox input{width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;margin:6px 0}.line{border-bottom:1px solid #eee;padding:10px 0}.lineTop{display:flex;justify-content:space-between;gap:8px}.actions{display:flex;gap:6px;margin-top:7px}.danger{color:#9b1c1c;background:#fff0f0}.total{display:flex;justify-content:space-between;font-size:22px;font-weight:900;padding:17px 0}.primary{width:100%}.match,.clientrow{padding:9px;border:1px solid #eee;border-radius:8px;margin-top:5px;cursor:pointer}.selected{padding:10px;background:#f7f0cc;border-radius:8px;margin:8px 0}.clientsgrid{display:grid;grid-template-columns:340px 1fr;gap:16px}.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.col{background:#e8eaed;border-radius:13px;padding:11px;min-height:65vh}.order{background:white;border-radius:11px;padding:13px;margin-bottom:9px;border-left:6px solid #f2b705}.badge{font-size:11px;background:#eee;padding:4px 6px;border-radius:10px}.modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:20}.modalbox{background:white;padding:20px;border-radius:15px;width:min(480px,90vw)}.hidden{display:none!important}.empty{text-align:center;color:#777;padding:18px}@media(max-width:950px){aside{width:170px}.layout,.clientsgrid,.board{grid-template-columns:1fr}.cart{position:static}}
+.optionbox{width:min(800px,95vw);max-height:92vh;overflow:auto}.modalhead{display:flex;justify-content:space-between;align-items:start;gap:10px}
+.optgroup{border-top:1px solid #eee;padding-top:13px;margin-top:13px}.optgroup h3{margin:0 0 7px}.optchoices{display:flex;flex-wrap:wrap;gap:7px}
+.optchoice{padding:9px 11px}.optchoice.selected{background:#111;color:#fff}.optmeta{font-size:12px;color:#777;margin-bottom:8px}
+.lineopts{font-size:12px;color:#666;margin-top:5px;line-height:1.35}
+
+body.offline .brand small:after{content:" · HORS CONNEXION";color:#f2b705;font-weight:900}
+
+/* V0.5 Cloud */
+.cloud-kcheck{width:32px;height:32px;margin-right:12px;vertical-align:middle;cursor:pointer}
+.kitchen-done{opacity:.5;text-decoration:line-through}
+.cloud-progress{margin-top:12px;padding:10px;border-radius:10px;font-weight:800;text-align:center;background:#eef0f2}
+.kitchen-ready{outline:3px solid #111;outline-offset:2px}
+.cloud-offline .status::after{content:" · HORS LIGNE";color:#f2b705;font-weight:900}
+.mode-kitchen aside{display:none}
+.mode-kitchen main{width:100%}
+.mode-kitchen #kitchen{padding:14px}
+@media(max-width:900px){
+  body{display:block;overflow:auto}
+  aside{width:100%;flex-direction:row;overflow-x:auto;padding:10px}
+  aside .brand{min-width:165px;margin:0}
+  aside .status{margin:0 0 0 auto;min-width:150px}
+  .nav{white-space:nowrap}
+  main{width:100%}
+  .view{padding:12px}
+  .layout,.clientsgrid,.board{grid-template-columns:1fr}
+  .products{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cart{position:static}
+  button,input,select{min-height:46px}
+}
+@media(max-width:520px){
+  .products{grid-template-columns:1fr 1fr}
+  .product img{height:105px}
+  header{align-items:flex-start;flex-direction:column}
+}
+
+/* === V0.5.2 TABLETTE : panier lisible + navigation non bloquante === */
+@media (max-width: 900px){
+  .layout{
+    display:grid !important;
+    grid-template-columns: minmax(0,1fr) !important;
+    gap:12px !important;
+  }
+
+  .cart{
+    position:relative !important;
+    max-height:68vh !important;
+    overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:150px !important;
+    border:1px solid #e5e7eb;
+  }
+
+  #cartItems{
+    max-height:38vh;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    padding-right:4px;
+  }
+
+  .cart .total{
+    position:sticky;
+    bottom:76px;
+    background:#fff;
+    z-index:5;
+    margin:0;
+    padding:12px 0;
+    border-top:1px solid #eee;
+  }
+
+  #validate{
+    position:sticky !important;
+    bottom:12px !important;
+    z-index:6 !important;
+    width:100% !important;
+    min-height:58px !important;
+    font-size:18px !important;
+    box-shadow:0 -4px 14px rgba(0,0,0,.08);
+  }
+
+  #clear{
+    width:100%;
+    margin-top:8px;
+  }
+
+  .product{
+    min-height:180px;
+  }
+
+  .pbody{
+    padding:10px;
+  }
+
+  .pname{
+    min-height:auto;
+    line-height:1.25;
+  }
+
+  .optionbox{
+    max-height:82vh !important;
+    overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:110px !important;
+  }
+
+  #addConfigured{
+    position:sticky;
+    bottom:8px;
+    z-index:10;
+    min-height:58px;
+    font-size:17px;
+  }
+
+  .cats{
+    position:sticky;
+    top:0;
+    z-index:4;
+    background:#f4f5f7;
+    padding:6px 0;
+  }
+}
+
+/* Petit indicateur visuel de défilement du panier */
+.cart::after{
+  content:"↕ Faites défiler la commande";
+  display:none;
+}
+@media (max-width:900px){
+  .cart::after{
+    display:block;
+    position:sticky;
+    bottom:0;
+    text-align:center;
+    font-size:12px;
+    color:#777;
+    background:linear-gradient(transparent,#fff 35%);
+    padding-top:16px;
+  }
+}
+
+/* Cuisine tactile */
+#kitchenBoard .order{
+  overflow:visible;
+}
+.cloud-kcheck{
+  width:38px !important;
+  height:38px !important;
+  min-width:38px !important;
+  margin-right:12px !important;
+}
+
+#tabletQuickNav{
+  display:none;
+}
+@media (max-width:900px){
+  #tabletQuickNav{
+    position:sticky;
+    bottom:0;
+    z-index:999;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:4px;
+    background:#111;
+    padding:6px;
+    border-top:1px solid #333;
+  }
+  #tabletQuickNav button{
+    background:#222;
+    color:#fff;
+    border:0;
+    border-radius:8px;
+    min-height:50px;
+    font-size:14px;
+  }
+}
+
+/* === V0.5.3 : correctif tablette paysage / Chrome mode ordinateur === */
+
+/* Le ticket de droite dispose TOUJOURS de son propre défilement */
+.cart{
+  max-height:calc(100vh - 40px) !important;
+  overflow-y:auto !important;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-gutter:stable;
+  padding-bottom:110px !important;
+}
+
+/* La liste d'articles peut défiler sans faire disparaître les actions */
+#cartItems{
+  max-height:42vh;
+  overflow-y:auto !important;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding-right:8px;
+}
+
+/* Le total et le bouton Cuisine restent disponibles en bas du ticket */
+.cart .total{
+  position:sticky !important;
+  bottom:66px !important;
+  z-index:8;
+  background:#fff;
+  border-top:1px solid #e5e5e5;
+  padding:12px 0 !important;
+}
+
+#validate{
+  position:sticky !important;
+  bottom:8px !important;
+  z-index:9 !important;
+  min-height:58px !important;
+  width:100% !important;
+  font-size:17px !important;
+  box-shadow:0 -5px 15px rgba(0,0,0,.10);
+}
+
+/* L'ajout depuis une fenêtre d'options reste toujours atteignable */
+.optionbox{
+  overflow-y:auto !important;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:90px !important;
+}
+#addConfigured{
+  position:sticky !important;
+  bottom:6px !important;
+  z-index:30 !important;
+  min-height:58px !important;
+}
+
+/* Scrollbar volontairement visible sur écrans assez larges */
+@media (min-width:901px){
+  .cart::-webkit-scrollbar,
+  #cartItems::-webkit-scrollbar{
+    width:12px;
+  }
+  .cart::-webkit-scrollbar-thumb,
+  #cartItems::-webkit-scrollbar-thumb{
+    background:#a9a9a9;
+    border-radius:10px;
+    border:3px solid #fff;
+  }
+  .cart::-webkit-scrollbar-track,
+  #cartItems::-webkit-scrollbar-track{
+    background:#f2f2f2;
+  }
+}
+
+/* Tablette paysage : on conserve produits + ticket côte à côte,
+   mais avec un ticket un peu plus large et autonome. */
+@media (min-width:901px) and (max-width:1400px){
+  .layout{
+    grid-template-columns:minmax(0,1fr) minmax(340px,38vw) !important;
+  }
+  aside{
+    width:190px;
+  }
+  .view{
+    padding:14px;
+  }
+}
+
+/* Navigation : reste au-dessus des autres surfaces */
+aside,.nav{
+  position:relative;
+  z-index:50;
+}
+
+/* === V0.5.4 : fenêtre options tablette + priorité tactile === */
+
+/* La fenêtre de configuration doit passer DEVANT la barre latérale.
+   V0.5.3 avait remonté la barre à z-index 50 alors que la modale restait à 20. */
+.modal{
+  z-index:3000 !important;
+  padding:12px !important;
+  box-sizing:border-box;
+  overflow:auto;
+  align-items:center;
+  justify-content:center;
+}
+
+.optionbox{
+  width:min(900px, calc(100vw - 24px)) !important;
+  max-width:calc(100vw - 24px) !important;
+  max-height:calc(100dvh - 24px) !important;
+  box-sizing:border-box;
+  margin:auto !important;
+}
+
+/* Sur tablette paysage, aucune partie de la modale ne passe sous le menu gauche */
+@media (min-width:700px) and (max-width:1400px){
+  .optionbox{
+    width:min(860px, calc(100vw - 40px)) !important;
+  }
+}
+
+/* Les actions cuisine doivent toujours recevoir les taps */
+.order [data-m]{
+  position:relative;
+  z-index:20;
+  min-height:48px;
+  touch-action:manipulation;
+  pointer-events:auto !important;
+}
+
+/* Cases cuisine alignées sans puce parasite */
+#kitchenBoard .order ul{
+  list-style:none;
+  padding-left:0;
+}
+#kitchenBoard .order li{
+  display:block;
+  margin:12px 0;
+}
+.cloud-kcheck{
+  vertical-align:middle;
+}
+
+/* V0.5.4 FINAL : titres des groupes d'options plus lisibles */
+.group h3,
+.group > strong,
+.option-group h3,
+.option-group > strong,
+.optionbox h3 {
+  font-weight: 800 !important;
+}
+
+/* Titres "Retirer / garniture" et "Paiement" : contraste renforcé */
+.optionbox .group h3,
+.optionbox .option-group h3 {
+  color: #111 !important;
+  font-size: 19px !important;
+}
+
+/* === V0.5.5 === */
+.opt-display{margin-top:6px;line-height:1.35}
+.opt-display strong{display:block;font-weight:900;color:#9a1f1f;margin-bottom:3px}
+.opt-display span{display:block;padding-left:10px}
+.kitchen-options{margin-top:6px;font-size:13px}
+#kitchenBoard.board{align-items:start}
+#kitchenBoard .col{max-height:72vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#kitchenBoard .col>h2{position:sticky;top:0;z-index:5;background:#e8eaed;padding:8px 0;margin-top:0}
+.history-tools{display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:12px}
+.history-tools input,.history-tools select{padding:12px;border:1px solid #ccc;border-radius:9px;font-size:16px}
+.history-list{display:grid;gap:10px}.history-card{background:#fff;border-radius:12px;padding:14px}
+.history-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.history-actions{display:flex;flex-wrap:wrap;gap:7px}
+.ordereditbox{width:min(900px,calc(100vw - 24px))!important;max-height:calc(100dvh - 24px)!important;overflow:auto!important}
+.edit-client-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.edit-client-grid label{font-weight:800}.edit-client-grid input,.edit-client-grid select{width:100%;padding:10px;margin-top:4px}
+.edit-item{border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:8px}
+.edit-item-main{display:grid;grid-template-columns:70px 1fr auto;gap:10px;align-items:start}
+.edit-qty{width:64px;padding:8px}
+.orderedit-actions{position:sticky;bottom:0;background:#fff;padding-top:10px;display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
+@media(max-width:900px){
+ #kitchenBoard.board{grid-template-columns:repeat(3,minmax(260px,1fr))!important;overflow-x:auto;gap:10px}
+ #kitchenBoard .col{min-width:260px;max-height:68vh}
+ .history-tools{grid-template-columns:1fr}.history-head{align-items:flex-start;flex-direction:column}
+ .edit-client-grid{grid-template-columns:1fr}.edit-item-main{grid-template-columns:60px 1fr}
+ .edit-item-main>strong:last-child{grid-column:2}.orderedit-actions{grid-template-columns:1fr}
+ #tabletQuickNav{grid-template-columns:repeat(5,1fr)!important}
+}
+
+/* V0.5.6 */
+#cpostal,#ccity{min-width:0}
+
+/* === V0.5.7 client complet === */
+.clientbox{width:min(560px,calc(100vw - 24px))!important}
+.client-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.client-form input{width:100%;box-sizing:border-box;padding:13px;border:1px solid #ccc;border-radius:9px;font-size:16px}
+#caddress{grid-column:1/-1}
+#ccity{grid-column:auto}
+@media(max-width:700px){.client-form{grid-template-columns:1fr}.client-form input,#caddress{grid-column:auto}}
+
+/* === V0.5.8 : empêcher les overlays cachés de bloquer les clics === */
+.hidden{display:none !important}
+.modal.hidden{display:none !important;pointer-events:none !important}
+.modal:not(.hidden){pointer-events:auto}
+aside,.nav{pointer-events:auto !important}
+.nav{cursor:pointer;touch-action:manipulation}
+
+/* V0.5.11 */
+.order-customer{font-weight:800}
+
+/* V0.5.13 client actif */
+.active-client-banner,.selected-client-title{
+  font-weight:900;
+  color:#0b6b2f;
+  margin-bottom:8px;
+}
+#selected{
+  border:2px solid #0b6b2f;
+}
+
+/* === V0.5.15 modification complète commande === */
+.edit-order-banner{background:#fff1b8;border:2px solid #b77900;border-radius:10px;padding:10px;margin-bottom:10px;font-weight:900;text-align:center}
+.change-summary{border:2px solid #b77900;background:#fff8dc;border-radius:8px;padding:8px;margin:8px 0;font-size:13px}
+.change-summary>strong{display:block;margin-bottom:5px}
+.change-added{font-weight:900;margin:3px 0}
+.change-modified{font-weight:900;margin:3px 0}
+.change-removed{font-weight:900;text-decoration:line-through;margin:3px 0}
+
+/* V0.5.17 : options + case à cocher sur articles ajoutés */
+#kitchenBoard .order li{position:relative;padding-left:2px}
+#kitchenBoard .kitchen-options{margin-left:50px}
+
+/* === V0.5.18 cuisine : checkbox natif + scroll complet === */
+#kitchen{
+  height:auto !important;
+  min-height:100vh !important;
+  overflow:visible !important;
+  padding-bottom:140px !important;
+}
+#kitchenBoard{
+  height:auto !important;
+  max-height:none !important;
+  overflow:visible !important;
+  align-items:start;
+  padding-bottom:120px !important;
+}
+#kitchenBoard .col{
+  min-height:0 !important;
+  height:auto !important;
+  max-height:none !important;
+  overflow:visible !important;
+}
+#kitchenBoard .order{
+  overflow:visible !important;
+  max-height:none !important;
+}
+#kitchenBoard .order ul{
+  overflow:visible !important;
+  max-height:none !important;
+}
+#kitchenBoard .order li{
+  display:flex !important;
+  align-items:flex-start !important;
+  gap:10px !important;
+  overflow:visible !important;
+}
+.native-kcheck{
+  width:26px !important;
+  height:26px !important;
+  min-width:26px !important;
+  margin-top:2px !important;
+  flex:0 0 26px !important;
+}
+.kitchen-item-content{min-width:0;flex:1}
+#kitchenBoard .kitchen-options{
+  margin:6px 0 0 0 !important;
+  overflow:visible !important;
+  white-space:normal !important;
+}
+#kitchenBoard .opt-display strong{display:block !important;font-weight:900 !important}
+#kitchenBoard .opt-display span{display:block !important;margin-left:8px !important}
+body{overflow-y:auto !important}
+main{overflow:visible !important}
+@media(max-width:1100px){
+ #kitchenBoard{display:block !important}
+ #kitchenBoard .col{width:100% !important;margin-bottom:18px !important}
+}
+
+/* V0.5.19 */
+[data-edit-options]{font-weight:800}#ordersBoard.board{grid-template-columns:repeat(4,minmax(240px,1fr));overflow-x:auto}
+
+/* V0.5.21 : impression optimisée Epson TM-m30 80 mm via fenêtre d'impression navigateur */
+
+/* === V0.5.25 CLEAN notifications === */
+.notify-enable{
+  width:100%;
+  margin:10px 0;
+  padding:11px 10px;
+  border:1px solid #444;
+  border-radius:10px;
+  background:#202020;
+  color:#fff;
+  font-weight:800;
+  cursor:pointer;
+}
+.notify-enable.enabled{outline:2px solid currentColor}
+.nav-order-badge,
+.order-notification-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:22px;
+  height:22px;
+  padding:0 6px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  background:#fff;
+  color:#111;
+  margin-left:6px;
+}
+.order-notification-badge{
+  position:fixed;
+  right:16px;
+  top:16px;
+  z-index:9998;
+  background:#111;
+  color:#fff;
+}
+.hidden{display:none!important}
+.order-toast-host{
+  position:fixed;
+  right:18px;
+  top:70px;
+  width:min(360px,calc(100vw - 36px));
+  z-index:9999;
+  pointer-events:none;
+}
+.order-arrival-toast{
+  pointer-events:auto;
+  background:#fff;
+  color:#111;
+  border:2px solid #111;
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:10px;
+  box-shadow:0 8px 30px rgba(0,0,0,.22);
+}
+.toast-source{font-size:12px;font-weight:900}
+.toast-title{font-size:18px;font-weight:900;margin-top:4px}
+.toast-customer{font-weight:700;margin-top:3px}
+.toast-total{font-size:17px;font-weight:900;margin-top:5px}
+.order-arrival-toast button{
+  margin-top:10px;
+  width:100%;
+  padding:10px;
+  border:0;
+  border-radius:8px;
+  font-weight:900;
+  cursor:pointer;
+}
+
+/* V0.5.26 CLEAN : cloche notifications toujours visible dans la barre des canaux */
+.top-notify-button{
+  border:1px solid #d7d7d7;
+  border-radius:10px;
+  background:#fff;
+  color:#111;
+  padding:11px 13px;
+  font-weight:800;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.top-notify-button.enabled{
+  background:#111;
+  color:#fff;
+}
+@media (max-width:900px){
+  .top-notify-button{
+    padding:10px 11px;
+    font-size:13px;
+  }
+}
+
+/* V0.5.27 CLEAN — Catalogue central */
+.catalog-admin-view{padding:24px}.catalog-admin-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.catalog-admin-head h1{margin:0}.catalog-admin-actions{display:flex;gap:8px}.catalog-admin-actions button,.catalog-save{background:#111;color:#fff}
+.catalog-admin-toolbar{display:flex;gap:10px;margin:18px 0}.catalog-admin-toolbar input,.catalog-admin-toolbar select{padding:11px;border:1px solid #ccc;border-radius:9px}
+.catalog-admin-toolbar input{flex:1}.catalog-admin-grid{display:grid;grid-template-columns:1fr 2fr 1fr;gap:14px}.catalog-box{background:#fff;border:1px solid #e4e4e4;border-radius:14px;padding:15px}.catalog-row,.catalog-product-row,.channel-status{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #eee}.catalog-row small,.catalog-product-main small{display:block;color:#666;margin-top:3px}.catalog-product-row{justify-content:flex-start}.catalog-product-main{flex:1}.catalog-thumb{width:46px;height:46px;border-radius:8px;background:#eee;display:grid;place-items:center;overflow:hidden}.catalog-thumb img{width:100%;height:100%;object-fit:cover}.catalog-chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}.catalog-chips span{font-size:10px;padding:3px 6px;border-radius:99px;background:#eee}.catalog-note{font-size:12px;color:#666}.catalog-modal{position:fixed;inset:0;background:#0009;z-index:10000;display:grid;place-items:center;padding:16px}.catalog-modal.hidden{display:none!important}.catalog-modal-card{background:#fff;border-radius:14px;padding:18px;width:min(600px,100%);max-height:90vh;overflow:auto}.catalog-modal-head{display:flex;justify-content:space-between;align-items:center}.catalog-modal-head button{font-size:24px}.catalog-modal-card label{display:grid;gap:5px;margin:10px 0;font-weight:700}.catalog-modal-card input,.catalog-modal-card select,.catalog-modal-card textarea{width:100%;padding:10px;border:1px solid #bbb;border-radius:8px}.catalog-modal-card textarea{min-height:80px}.catalog-channel-form{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:10px;background:#f5f5f5;border-radius:8px}.catalog-channel-form label,.checkline{display:flex!important;align-items:center;gap:7px}.catalog-channel-form input,.checkline input{width:auto}.catalog-save{width:100%;margin-top:12px}
+@media(max-width:1050px){.catalog-admin-grid{grid-template-columns:1fr}.catalog-admin-head{align-items:flex-start;flex-direction:column}}
+
+/* V0.5.32 CLEAN — options dans Catalogue central */
+.catalog-options-editor{margin:14px 0;padding:12px;background:#f5f5f5;border-radius:10px}
+.catalog-options-title{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}
+.catalog-options-title button{font-size:12px}
+.catalog-option-admin-group{background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}
+.catalog-option-admin-head{display:flex;justify-content:space-between;gap:10px}
+.catalog-option-admin-head small{display:block;color:#666;margin-top:3px}
+.catalog-option-admin-choices{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.catalog-option-admin-choices span{font-size:11px;background:#eee;border-radius:99px;padding:4px 7px}
+.catalog-empty-options{font-size:12px;color:#777}
+
+.catalog-maintenance{margin:0 0 14px;background:#f6f6f6;border:1px solid #ddd;border-radius:10px;padding:10px}.catalog-maintenance summary{cursor:pointer;font-weight:800}.catalog-maintenance>div{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px}.catalog-maintenance small{flex-basis:100%;color:#666}.catalog-option-fields{display:grid;grid-template-columns:2fr 1fr 90px auto;gap:6px;align-items:end}.catalog-choice-edit{display:grid;grid-template-columns:1fr 100px 40px;gap:6px;margin:5px 0}@media(max-width:700px){.catalog-option-fields{grid-template-columns:1fr 1fr}}
+
+.site-order-toast{position:fixed;right:18px;top:18px;z-index:9999;background:#111;color:#fff;border:3px solid #d99418;border-radius:12px;padding:14px 18px;display:grid;gap:5px;box-shadow:0 8px 30px #0006}.site-order-toast strong{color:#d99418}
+
+.kitchen-options-lines{display:grid;gap:3px;margin:6px 0;color:#a10f0f;font-size:14px;line-height:1.25}
+.kitchen-options-lines>div{display:block}.kitchen-options-lines strong{font-weight:900}
+.site-order-alert{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:20000;width:min(720px,94vw);background:#111;color:#fff;border:4px solid #f0ad00;border-radius:14px;padding:15px;display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:0 12px 40px #0008}
+.site-order-alert.hidden{display:none!important}.site-order-alert>div{display:grid;gap:4px}.site-order-alert strong{font-size:18px;color:#ffc107}.site-order-alert span{font-weight:800}.site-order-alert button{background:#ffc107;color:#111;font-weight:900;white-space:nowrap}
+
+/* V0.5.38 */
+.opt-display{display:block!important;margin:3px 0!important;line-height:1.3}
+.opt-display strong{display:inline-block;margin-right:4px}
+.opt-display span{display:inline!important}
+.site-order-alert:not(.hidden){display:flex!important;animation:siteAlertPulse .8s ease-in-out infinite alternate}
+@keyframes siteAlertPulse{from{box-shadow:0 8px 28px #0008}to{box-shadow:0 8px 42px #ffb400cc}}
