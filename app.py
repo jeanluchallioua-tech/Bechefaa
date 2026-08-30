@@ -92,24 +92,85 @@ def ensure_catalog_admin_table(c):
 def public_catalog():
     with conn() as c:
         ensure_catalog_admin_table(c)
-        row=c.execute("SELECT data_json, updated_at FROM catalog_admin WHERE id=1").fetchone()
+        row = c.execute(
+            "SELECT data_json, updated_at FROM catalog_admin WHERE id=1"
+        ).fetchone()
+
         if not row:
-            return jsonify({"categories":[],"products":[],"updatedAt":0})
+            return jsonify({
+                "categories": [],
+                "products": [],
+                "updatedAt": 0
+            })
+
         try:
-            data=json.loads(row["data_json"])
+            data = json.loads(row["data_json"])
         except Exception:
-            data={}
-        categories=[
+            data = {}
+
+        categories = [
             x for x in (data.get("categories") or [])
-            if x.get("active",True)
+            if x.get("active", True)
         ]
-        products=[
-            x for x in (data.get("products") or [])
-            if x.get("active",True) and (x.get("channels") or {}).get("site",False)
+
+        products = [
+            x.copy() for x in (data.get("products") or [])
+            if x.get("active", True)
+            and (x.get("channels") or {}).get("site", False)
         ]
-        allowed={x.get("name") for x in categories}
-        products=[x for x in products if x.get("category") in allowed]
-        return jsonify({"categories":categories,"products":products,"updatedAt":row["updated_at"]})
+
+        allowed = {x.get("name") for x in categories}
+        products = [
+            x for x in products
+            if x.get("category") in allowed
+        ]
+
+        # Récupération automatique des photos déjà utilisées par la caisse
+        try:
+            index_path = BASE / "static" / "index.html"
+            html = index_path.read_text(encoding="utf-8")
+
+            marker = "window.PRODUCTS="
+            start = html.find(marker)
+
+            if start >= 0:
+                start += len(marker)
+                end = html.find("];window.CATEGORIES=", start)
+
+                if end >= 0:
+                    raw = html[start:end + 1]
+                    pos_products = json.loads(raw)
+
+                    photos_by_id = {
+                        str(p.get("id")): p.get("image", "")
+                        for p in pos_products
+                    }
+
+                    photos_by_name = {
+                        str(p.get("name", "")).strip().lower(): p.get("image", "")
+                        for p in pos_products
+                    }
+
+                    for p in products:
+                        photo = photos_by_id.get(str(p.get("id")), "")
+
+                        if not photo:
+                            photo = photos_by_name.get(
+                                str(p.get("name", "")).strip().lower(),
+                                ""
+                            )
+
+                        if photo:
+                            p["photo"] = photo
+
+        except Exception as e:
+            print("Photos catalogue :", e)
+
+        return jsonify({
+            "categories": categories,
+            "products": products,
+            "updatedAt": row["updated_at"]
+        })
 
 @app.get("/api/catalog-admin")
 def get_catalog_admin():
