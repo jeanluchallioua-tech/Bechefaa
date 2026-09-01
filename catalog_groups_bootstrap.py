@@ -1,9 +1,10 @@
-# BÉCHÉFAA V0.5.50 — lien sûr vers le gestionnaire de listes d'options isolé
-# Aucun JavaScript expérimental n'est chargé dans le POS.
+# BÉCHÉFAA V0.5.54 — lien sûr options + garde-fou produits POS
 from pathlib import Path
+import re
 
 BASE = Path(__file__).resolve().parent
 INDEX = BASE / "static" / "index.html"
+APP_JS = BASE / "static" / "app.js"
 
 try:
     src = INDEX.read_text(encoding="utf-8")
@@ -26,7 +27,20 @@ try:
     if 'id="catalogOptionsManager"' not in src and anchor in src:
         src = src.replace(anchor, link, 1)
 
+    # Garde-fou : si le Catalogue central renvoie 0 produit, ne jamais écraser
+    # les 85 produits embarqués dans index.html. Cela évite un POS vide.
+    js = APP_JS.read_text(encoding="utf-8")
+    guard_marker = 'V0.5.54 EMPTY CENTRAL CATALOG SAFETY'
+    target = 'if(!data||!Array.isArray(data.products)||!Array.isArray(data.categories))return;'
+    if guard_marker not in js and target in js:
+        guard = target + '\n  /* V0.5.54 EMPTY CENTRAL CATALOG SAFETY */\n  if(data.products.length===0){\n   console.warn("BÉCHÉFAA: catalogue central vide, conservation de la carte embarquée.");\n   rc();rp();\n   return;\n  }'
+        js = js.replace(target, guard, 1)
+        APP_JS.write_text(js, encoding="utf-8")
+
+    # Force le navigateur à reprendre le JS corrigé après déploiement.
+    src = re.sub(r'app\.js\?v=\d+', 'app.js?v=0554', src, count=1)
+
     INDEX.write_text(src, encoding="utf-8")
-    print("BÉCHÉFAA V0.5.50: gestionnaire de listes d'options isolé disponible.")
+    print("BÉCHÉFAA V0.5.54: garde-fou catalogue vide actif, POS protégé.")
 except Exception as exc:
-    print("BÉCHÉFAA V0.5.50 bootstrap ignoré:", exc)
+    print("BÉCHÉFAA V0.5.54 bootstrap ignoré:", exc)
