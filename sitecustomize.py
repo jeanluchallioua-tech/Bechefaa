@@ -10,7 +10,12 @@ _APP_JS = Path(__file__).resolve().parent / "static" / "app.js"
 def _patch_pos_catalog_options():
     try:
         src = _APP_JS.read_text(encoding="utf-8")
-        if _PATCH_MARKER in src:
+
+        # Important Clever Cloud : static/app.js peut déjà contenir le marqueur
+        # d'un déploiement précédent alors que le vrai remplacement de profile()
+        # n'a pas été conservé dans Git. On ne considère donc le patch installé
+        # que si la fonction centrale elle-même est réellement présente.
+        if "async function loadCentralCatalogOptions()" in src and "CENTRAL_PROFILE_BY_ID" in src:
             return
 
         needle = "function profile(p){\n let ek=exactKey(p);"
@@ -67,7 +72,6 @@ function profile(p){
         _APP_JS.write_text(patched, encoding="utf-8")
         print("BÉCHÉFAA catalogue POS: options centrales activées (V0.5.39).")
     except Exception as exc:
-        # Le POS doit rester démarrable même si ce correctif ne peut pas s'appliquer.
         print("BÉCHÉFAA catalogue POS: patch ignoré:", exc)
 
 
