@@ -1,0 +1,1 @@
+Force a clean Clever Cloud redeploy of the last stable POS state (V0.5.56). The V0.5.57 pricing patch is not imported by app.py in this state.
