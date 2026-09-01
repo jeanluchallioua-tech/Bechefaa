@@ -1,4 +1,4 @@
-# BÉCHÉFAA V0.5.45 — Catalogue central source unique + groupes réutilisables + photo importée
+# BÉCHÉFAA V0.5.44 — Catalogue central source unique + options persistantes + photo importée
 from pathlib import Path
 import re
 
@@ -36,7 +36,7 @@ async function loadCentralCatalogMaster(){
    if(fe && (!Array.isArray(fe.options)||!fe.options.length)){
     fe.options=[
      {key:"choix_tender",title:"Choix du Tender",required:true,max:1,choices:[["Tender classique",0],["Tender Crispy",0]]},
-     {key:"boisson_hors_caprisun",title:"Boisson",required:false,max:1,choices:[["Caprisun",0],["Coca cola",1.5],["Coca Zero",1.5],["Orangina",1.5]]}
+     {key:"boisson_hors_caprisun",title:"Boisson",required:false,max:1,choices:[["Coca cola",1.5],["Coca Zero",1.5],["Orangina",1.5]]}
     ];
    }
    data._migrations.formuleEnfantOptionsV1=true;
@@ -88,7 +88,7 @@ function profile(p){
 
     # Photo : URL cachée mais valeur conservée, import direct visible.
     old_photo = '<label>Photo / URL<input id="pfPhoto" value="${p.photo||""}" placeholder="Photo du produit"></label>'
-    new_photo = '''<input id="pfPhoto" type="hidden" value="${p.photo||"}">
+    new_photo = '''<input id="pfPhoto" type="hidden" value="${p.photo||""}">
    <label>Photo du produit<input id="pfPhotoFile" type="file" accept="image/*"></label>
    <div id="pfPhotoPreview" class="catalog-photo-preview">${p.photo?`<img src="${p.photo}" alt="Aperçu">`:`<small>Aucune photo</small>`}</div>'''
     src = src.replace(old_photo, new_photo)
@@ -96,58 +96,6 @@ function profile(p){
     # Supprime définitivement caisse -> catalogue.
     src = src.replace('<button type="button" id="pfAddOptionGroup">+ Groupe</button><button type="button" id="pfReloadOptions">↻ Reprendre caisse</button>','<button type="button" id="pfAddOptionGroup">+ Groupe</button>')
     src = re.sub(r'\n\s*\$\("pfReloadOptions"\)\.onclick=\(\)=>\{.*?\n\s*\};','',src,count=1,flags=re.S)
-
-    # V0.5.45 : bibliothèque de groupes réutilisables.
-    if "V0.5.45 REUSABLE OPTION GROUPS" not in src:
-        product_needle = " function productForm(p){"
-        library_helpers = r''' /* === V0.5.45 REUSABLE OPTION GROUPS === */
- function cloneOptionGroup(g){
-  return {key:"custom_"+Date.now()+"_"+Math.random().toString(36).slice(2),title:String(g?.title||"Options"),required:!!g?.required,max:Math.max(0,Number(g?.max??1)),choices:(Array.isArray(g?.choices)?g.choices:[]).map(c=>Array.isArray(c)?[String(c[0]??"Option"),Number(c[1]||0)]:[String(c?.name??c?.label??"Option"),Number(c?.price??c?.extra??0)])};
- }
- function optionGroupSignature(g){
-  const c=(Array.isArray(g?.choices)?g.choices:[]).map(x=>Array.isArray(x)?[String(x[0]||""),Number(x[1]||0)]:[String(x?.name||x?.label||""),Number(x?.price||x?.extra||0)]);
-  return JSON.stringify([String(g?.title||"Options").trim().toLowerCase(),!!g?.required,Math.max(0,Number(g?.max??1)),c]);
- }
- function ensureOptionLibrary(){
-  state.optionTemplates=Array.isArray(state.optionTemplates)?state.optionTemplates:[];
-  const known=new Set(state.optionTemplates.map(optionGroupSignature));
-  (state.products||[]).forEach(prod=>(prod.options||[]).forEach(g=>{
-   const sig=optionGroupSignature(g);if(known.has(sig))return;
-   const x=cloneOptionGroup(g);x.id="tpl_"+Date.now()+"_"+Math.random().toString(36).slice(2);state.optionTemplates.push(x);known.add(sig);
-  }));
-  return state.optionTemplates;
- }
- function rememberProductGroups(groups){
-  const lib=ensureOptionLibrary(),known=new Set(lib.map(optionGroupSignature));
-  (groups||[]).forEach(g=>{const sig=optionGroupSignature(g);if(known.has(sig))return;const x=cloneOptionGroup(g);x.id="tpl_"+Date.now()+"_"+Math.random().toString(36).slice(2);lib.push(x);known.add(sig);});
- }
-'''
-        if product_needle in src:
-            src = src.replace(product_needle, library_helpers + product_needle, 1)
-
-        title_old = '<div class="catalog-options-title"><b>Options du produit</b><div><button type="button" id="pfAddOptionGroup">+ Groupe</button></div></div>\n    <div id="pfOptionsList"></div>'
-        title_new = '''<div class="catalog-options-title"><b>Options du produit</b><div><button type="button" id="pfAddOptionGroup">+ Nouveau groupe</button></div></div>
-    <div class="catalog-option-library"><select id="pfSavedGroup"><option value="">Ajouter un groupe enregistré…</option></select><button type="button" id="pfUseSavedGroup">Ajouter</button></div>
-    <div id="pfOptionsList"></div>'''
-        src = src.replace(title_old, title_new)
-
-        render_marker = '   renderPfOptions();\n   $("pfAddOptionGroup").onclick='
-        if render_marker in src:
-            handler = r'''   const refreshSavedGroups=()=>{
-    const sel=$("pfSavedGroup");if(!sel)return;const lib=ensureOptionLibrary();
-    sel.innerHTML='<option value="">Ajouter un groupe enregistré…</option>'+lib.map((g,i)=>`<option value="${i}">${g.title} — ${(g.choices||[]).length} choix</option>`).join("");
-   };
-   refreshSavedGroups();
-   $("pfUseSavedGroup")?.addEventListener("click",()=>{
-    const sel=$("pfSavedGroup"),idx=Number(sel?.value);if(!sel||sel.value===""||!Number.isInteger(idx))return;
-    captureOptions();const tpl=ensureOptionLibrary()[idx];if(!tpl)return;p.options.push(cloneOptionGroup(tpl));renderPfOptions();
-   });
-   renderPfOptions();
-   $("pfAddOptionGroup").onclick='''
-            src = src.replace(render_marker, handler, 1)
-
-        # Tous les groupes utilisés sur un produit deviennent réutilisables lors de l'enregistrement.
-        src = src.replace('captureOptions();p.name=$("pfName").value.trim();','captureOptions();rememberProductGroups(p.options);p.name=$("pfName").value.trim();',1)
 
     marker = '   renderPfOptions();\n   $("pfAddOptionGroup").onclick='
     if 'pfPhotoFile' in src and 'compressCatalogPhoto' not in src and marker in src:
@@ -186,7 +134,7 @@ function profile(p){
 
     pf_pattern = r'\$\("pfSave"\)\.onclick=\(\)=>\{captureOptions\(\);.*?if\(isNew\)state\.products\.push\(p\);save\(\);close\(\);render\(\)\};'
     pf_replacement = r'''$("pfSave").onclick=async()=>{
-    captureOptions();rememberProductGroups(p.options);p.name=$("pfName").value.trim();p.category=$("pfCat").value;p.price=Number($("pfPrice").value||0);p.photo=$("pfPhoto").value;p.ingredients=$("pfIngredients").value.trim();p.schedule=$("pfSchedule").value;p.active=$("pfActive").checked;
+    captureOptions();p.name=$("pfName").value.trim();p.category=$("pfCat").value;p.price=Number($("pfPrice").value||0);p.photo=$("pfPhoto").value;p.ingredients=$("pfIngredients").value.trim();p.schedule=$("pfSchedule").value;p.active=$("pfActive").checked;
     p.channels={caisse:$("chCaisse").checked,site:$("chSite").checked,ubereats:$("chUber").checked,deliveroo:$("chDeliveroo").checked};if(!p.name)return alert("Nom obligatoire");if(isNew)state.products.push(p);
     const btn=$("pfSave");if(btn){btn.disabled=true;btn.textContent="ENREGISTREMENT…";}const ok=await save();if(btn){btn.disabled=false;btn.textContent="Enregistrer";}
     if(!ok){if(isNew)state.products=state.products.filter(x=>x!==p);return alert("La sauvegarde n'a pas abouti. La fiche reste ouverte.");}close();render();
@@ -198,13 +146,13 @@ function profile(p){
 
 def patch_index():
     src = INDEX.read_text(encoding="utf-8")
-    src = re.sub(r'app\.js\?v=\d+', 'app.js?v=0545', src, count=1)
+    src = re.sub(r'app\.js\?v=\d+', 'app.js?v=0544', src, count=1)
     src = src.replace('<button id="catSyncOptions">⚙ Synchroniser les options</button>\n','')
     INDEX.write_text(src, encoding="utf-8")
 
 
 try:
     patch_app_js();patch_index()
-    print("BÉCHÉFAA V0.5.45: groupes réutilisables + source unique catalogue + photo importée")
+    print("BÉCHÉFAA V0.5.44: source unique catalogue + options persistantes + photo importée")
 except Exception as exc:
-    print("BÉCHÉFAA V0.5.45 patch error:", exc)
+    print("BÉCHÉFAA V0.5.44 patch error:", exc)
