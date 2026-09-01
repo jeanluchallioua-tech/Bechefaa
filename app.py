@@ -2,7 +2,8 @@
 from flask import Flask, jsonify, request, send_from_directory
 import sqlite3, json, os, time
 from pathlib import Path
-import startup_patch  # V0.5.42 applique les correctifs statiques avant de servir le POS
+import startup_patch  # V0.5.44 applique les correctifs statiques avant de servir le POS
+import catalog_groups_bootstrap  # V0.5.46 charge l'UI Groupes enregistrés sans toucher au moteur POS
 
 BASE = Path(__file__).resolve().parent
 DB = Path(os.getenv("BECHEFAA_DB", BASE / "bechefaa.db"))
