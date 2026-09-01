@@ -2,6 +2,7 @@
 from flask import Flask, jsonify, request, send_from_directory
 import sqlite3, json, os, time
 from pathlib import Path
+import startup_patch  # V0.5.42 applique les correctifs statiques avant de servir le POS
 
 BASE = Path(__file__).resolve().parent
 DB = Path(os.getenv("BECHEFAA_DB", BASE / "bechefaa.db"))
