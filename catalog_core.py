@@ -48,6 +48,10 @@ def normalize_group(group):
 
 def normalize_product(product):
     p = dict(product or {})
+    availability = str(p.get("availability") or ("available" if p.get("active", True) else "disabled")).strip().lower()
+    if availability not in {"available", "soldout", "disabled"}:
+        availability = "available"
+    active = availability != "disabled"
     return {
         "id": str(p.get("id") or "").strip(),
         "category": str(p.get("category") or p.get("cat") or "").strip(),
@@ -55,7 +59,8 @@ def normalize_product(product):
         "price": float(p.get("price") or 0),
         "photo": str(p.get("photo") or p.get("image") or ""),
         "ingredients": str(p.get("ingredients") or p.get("desc") or ""),
-        "active": bool(p.get("active", True)),
+        "active": active,
+        "availability": availability,
         "channels": dict(p.get("channels") or {"caisse": True, "site": True, "ubereats": False, "deliveroo": False}),
         "options": [normalize_group(g) for g in (p.get("options") or [])],
         "optionSelections": deepcopy(p.get("optionSelections") or {}),
@@ -89,7 +94,6 @@ def normalize_catalogue(data):
         "optionListDefs": deepcopy(src.get("optionListDefs") or {}),
         "schemaVersion": 1,
     }
-    # Preserve unrelated metadata without allowing it to override normalized fields.
     for key, value in src.items():
         if key not in out:
             out[key] = deepcopy(value)
