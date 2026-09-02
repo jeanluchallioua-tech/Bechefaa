@@ -25,6 +25,7 @@ def test_absolute_quantity_price_replaces_base():
             },
         ],
     }
+    assert product_unit_price(product, {"nombre_tender": [{"name": "5 pièces", "price": 8}]}) == 8
     assert product_unit_price(product, {"nombre_tender": [{"name": "10 pièces", "price": 15}]}) == 15
     assert product_unit_price(product, {
         "nombre_tender": [{"name": "10 pièces", "price": 15}],
@@ -73,3 +74,72 @@ def test_absolute_group_must_be_single_choice():
         }],
     }
     assert any("choix unique" in x for x in validate_catalogue(data))
+
+
+def test_classic_burger_options_are_preserved():
+    data = {
+        "categories": [{"id": "burgers", "name": "Burger", "active": True}],
+        "products": [{
+            "id": "classic-burger",
+            "name": "Classic Burger",
+            "category": "Burger",
+            "price": 12,
+            "ingredients": "Ketchup, mayonnaise, salade verte, cornichons, tomate, oignons rouges",
+            "options": [
+                {
+                    "key": "cuisson",
+                    "title": "Cuisson",
+                    "required": False,
+                    "max": 1,
+                    "priceMode": "extra",
+                    "choices": [["Bleu", 0], ["Saignant", 0], ["À point", 0], ["Bien cuit", 0]],
+                },
+                {
+                    "key": "retirer_garniture",
+                    "title": "Retirer garniture",
+                    "required": False,
+                    "max": 6,
+                    "priceMode": "extra",
+                    "choices": [["Sans salade verte", 0], ["Sans tomate", 0], ["Sans oignons rouges", 0]],
+                },
+                {
+                    "key": "supplements",
+                    "title": "Suppléments",
+                    "required": False,
+                    "max": 0,
+                    "priceMode": "extra",
+                    "choices": [["Avocat", 2], ["Cheddar", 2]],
+                },
+            ],
+        }],
+    }
+    clean = normalize_catalogue(data)
+    assert validate_catalogue(clean) == []
+    product = clean["products"][0]
+    assert product["name"] == "Classic Burger"
+    assert [g["key"] for g in product["options"]] == ["cuisson", "retirer_garniture", "supplements"]
+    assert product_unit_price(product, {
+        "cuisson": [{"name": "À point", "price": 0}],
+        "retirer_garniture": [{"name": "Sans tomate", "price": 0}],
+        "supplements": [{"name": "Avocat", "price": 2}],
+    }) == 14
+
+
+def test_uber_deliveroo_markup_is_channel_only():
+    product = {
+        "id": "classic-burger",
+        "name": "Classic Burger",
+        "category": "Burger",
+        "price": 12,
+        "options": [{
+            "key": "supplements",
+            "title": "Suppléments",
+            "max": 0,
+            "priceMode": "extra",
+            "choices": [["Avocat", 2]],
+        }],
+    }
+    selections = {"supplements": [{"name": "Avocat", "price": 2}]}
+    assert product_unit_price(product, selections, channel="CAISSE") == 14
+    assert product_unit_price(product, selections, channel="UBER EATS") == 16.10
+    assert product_unit_price(product, selections, channel="DELIVEROO") == 16.10
