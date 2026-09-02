@@ -52,6 +52,9 @@ def normalize_product(product):
     if availability not in {"available", "soldout", "disabled"}:
         availability = "available"
     active = availability != "disabled"
+    channels = dict(p.get("channels") or {"caisse": True, "site": True, "ubereats": False, "deliveroo": False})
+    raw_soldout = dict(p.get("channelSoldout") or {})
+    channel_soldout = {key: bool(raw_soldout.get(key, False)) for key in ("caisse", "site", "ubereats", "deliveroo")}
     return {
         "id": str(p.get("id") or "").strip(),
         "category": str(p.get("category") or p.get("cat") or "").strip(),
@@ -61,7 +64,8 @@ def normalize_product(product):
         "ingredients": str(p.get("ingredients") or p.get("desc") or ""),
         "active": active,
         "availability": availability,
-        "channels": dict(p.get("channels") or {"caisse": True, "site": True, "ubereats": False, "deliveroo": False}),
+        "channels": channels,
+        "channelSoldout": channel_soldout,
         "options": [normalize_group(g) for g in (p.get("options") or [])],
         "optionSelections": deepcopy(p.get("optionSelections") or {}),
     }
