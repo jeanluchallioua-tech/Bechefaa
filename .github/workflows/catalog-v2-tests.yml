@@ -1,0 +1,22 @@
+name: Catalogue V2 tests
+
+on:
+  push:
+    branches: [catalogue-refactor-v1]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Run catalogue core tests
+        run: pytest -q tests/test_catalog_core.py test_catalog_store.py
+      - name: Compile refactor modules
+        run: python -m py_compile catalog_core.py catalog_store.py catalog_api_v2.py app.py
