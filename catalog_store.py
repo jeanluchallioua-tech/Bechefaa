@@ -14,15 +14,10 @@ from pathlib import Path
 
 try:
     import psycopg
-except Exception:  # pragma: no cover - local fallback can work without psycopg
+except Exception:  # pragma: no cover
     psycopg = None
 
-
-POSTGRES_ENV_KEYS = (
-    "DATABASE_URL",
-    "POSTGRESQL_ADDON_URI",
-    "POSTGRES_URL",
-)
+POSTGRES_ENV_KEYS = ("DATABASE_URL", "POSTGRESQL_ADDON_URI", "POSTGRES_URL")
 
 
 def _postgres_url(explicit=None):
@@ -70,7 +65,6 @@ class CatalogStore:
                     """)
                 conn.commit()
             return
-
         with self._connect_sqlite() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS catalog_admin_v2 (
@@ -93,11 +87,8 @@ class CatalogStore:
                 return None, 0, 1
             data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
             return data, int(row[1] or 0), int(row[2] or 1)
-
         with self._connect_sqlite() as conn:
-            row = conn.execute(
-                "SELECT data_json, updated_at, schema_version FROM catalog_admin_v2 WHERE id=1"
-            ).fetchone()
+            row = conn.execute("SELECT data_json, updated_at, schema_version FROM catalog_admin_v2 WHERE id=1").fetchone()
         if not row:
             return None, 0, 1
         return json.loads(row["data_json"]), int(row["updated_at"] or 0), int(row["schema_version"] or 1)
@@ -119,7 +110,6 @@ class CatalogStore:
                     """, (payload, now, int(schema_version or 1)))
                 conn.commit()
             return now
-
         payload = json.dumps(data, ensure_ascii=False)
         with self._connect_sqlite() as conn:
             conn.execute("""
@@ -133,31 +123,45 @@ class CatalogStore:
             conn.commit()
         return now
 
-    def seed_from_legacy_sqlite(self, legacy_path=None):
-        """Copy the legacy catalog_admin row once, without modifying the legacy table.
-
-        This is deliberately explicit and idempotent: if V2 already has data, no copy occurs.
-        It will be called only by a controlled migration step, never as an import side effect.
-        """
-        current, _, _ = self.load()
-        if current is not None:
-            return False
-
-        path = Path(legacy_path or self.sqlite_path)
-        if not path.exists():
-            return False
-        conn = sqlite3.connect(path)
-        conn.row_factory = sqlite3.Row
+    def load_legacy(self):
+        """Read legacy catalog_admin from the SAME backend, without modifying it."""
+        if self.postgres_url:
+            try:
+                with self._connect_pg() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT data_json, updated_at FROM catalog_admin WHERE id=1")
+                        row = cur.fetchone()
+            except Exception:
+                return None, 0
+            if not row:
+                return None, 0
+            data = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+            return data, int(row[1] or 0)
+        if not self.sqlite_path.exists():
+            return None, 0
+        conn = self._connect_sqlite()
         try:
-            row = conn.execute(
-                "SELECT data_json FROM catalog_admin WHERE id=1"
-            ).fetchone()
+            row = conn.execute("SELECT data_json, updated_at FROM catalog_admin WHERE id=1").fetchone()
         except sqlite3.OperationalError:
             row = None
         finally:
             conn.close()
         if not row:
-            return False
-        data = json.loads(row["data_json"] or "{}")
-        self.save(data, schema_version=int(data.get("schemaVersion") or 1))
-        return True
+            return None, 0
+        return json.loads(row["data_json"] or "{}"), int(row["updated_at"] or 0)
+
+    def seed_from_legacy(self, force=False):
+        """Copy legacy catalogue into V2 explicitly. Never deletes/changes legacy data."""
+        current, _, _ = self.load()
+        if current is not None and not force:
+            return {"copied": False, "reason": "v2_not_empty"}
+        data, legacy_updated_at = self.load_legacy()
+        if not isinstance(data, dict):
+            return {"copied": False, "reason": "legacy_missing"}
+        new_updated_at = self.save(data, schema_version=int(data.get("schemaVersion") or 1))
+        return {
+            "copied": True,
+            "legacyUpdatedAt": legacy_updated_at,
+            "updatedAt": new_updated_at,
+            "backend": self.backend,
+        }
