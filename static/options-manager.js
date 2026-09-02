@@ -23,10 +23,24 @@
   const safeKey = s => String(s||'').replace(/[^a-zA-Z0-9_-]/g,'_');
   const defs = () => ({...baseDefs,...(state?.optionListDefs||{})});
 
+  function orderMode(k){ return state.optionListOrderModes?.[k] || (k==='cuisson' ? 'manual' : 'alpha'); }
+  function normalizeManualOrder(k){
+    state.optionListOrders=state.optionListOrders||{};
+    const len=(state.optionLists[k]||[]).length;
+    const valid=new Set(Array.from({length:len},(_,i)=>i));
+    const saved=Array.isArray(state.optionListOrders[k])?state.optionListOrders[k]:[];
+    const out=saved.filter(i=>Number.isInteger(i)&&valid.has(i));
+    for(let i=0;i<len;i++) if(!out.includes(i)) out.push(i);
+    state.optionListOrders[k]=out;
+    return out;
+  }
   function visibleEntries(k){
-    return (state.optionLists[k]||[])
-      .map((x,i)=>({x:Array.isArray(x)?x:[String(x?.name||x||'Option'),Number(x?.price||0)],i}))
-      .sort((a,b)=>k==='cuisson' ? a.i-b.i : String(a.x[0]).localeCompare(String(b.x[0]),'fr',{sensitivity:'base'}));
+    const entries=(state.optionLists[k]||[]).map((x,i)=>({x:Array.isArray(x)?x:[String(x?.name||x||'Option'),Number(x?.price||0)],i}));
+    if(orderMode(k)==='manual'){
+      const pos=new Map(normalizeManualOrder(k).map((i,p)=>[i,p]));
+      return entries.sort((a,b)=>(pos.get(a.i)??999999)-(pos.get(b.i)??999999));
+    }
+    return entries.sort((a,b)=>String(a.x[0]).localeCompare(String(b.x[0]),'fr',{sensitivity:'base'}));
   }
 
   function mergeSeed(existing,seed){
@@ -39,6 +53,8 @@
   function ensure(){
     state.optionLists=state.optionLists||{};
     state.optionListDefs=state.optionListDefs||{};
+    state.optionListOrderModes=state.optionListOrderModes||{};
+    state.optionListOrders=state.optionListOrders||{};
     state.products=Array.isArray(state.products)?state.products:[];
     state.categories=Array.isArray(state.categories)?state.categories:[];
     for(const [k,d] of Object.entries(baseDefs)) state.optionLists[k]=mergeSeed(state.optionLists[k],d.seed);
@@ -47,6 +63,8 @@
       const d=state.optionListDefs[k];
       if(!['extra','absolute'].includes(d.priceMode)) d.priceMode='extra';
     }
+    if(!state.optionListOrderModes.cuisson) state.optionListOrderModes.cuisson='manual';
+    for(const k of Object.keys(defs())) if(orderMode(k)==='manual') normalizeManualOrder(k);
     for(const p of state.products) p.optionSelections=p.optionSelections||{};
   }
 
@@ -125,21 +143,52 @@
     const root=$('lists'); if(!root)return;
     const all=defs();
     root.innerHTML=Object.entries(all).map(([k,d])=>{
-      const custom=!!state.optionListDefs[k],sk=safeKey(k);
-      return `<section class="card"><h3>${esc(d.label||d.title||'Options')}${d.fixed?' <small>(fixe)</small>':''}</h3>`+
+      const custom=!!state.optionListDefs[k],sk=safeKey(k),mode=orderMode(k);
+      return `<section class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><h3>${esc(d.label||d.title||'Options')}${d.fixed?' <small>(fixe)</small>':''}</h3><select data-order-mode="${esc(k)}" title="Ordre d’affichage"><option value="alpha" ${mode==='alpha'?'selected':''}>A → Z</option><option value="manual" ${mode==='manual'?'selected':''}>Manuel</option></select></div>`+
         `${custom?`<div class="list-settings"><input data-def-label="${esc(k)}" value="${esc(d.label||d.title)}"><input type="number" min="0" data-def-max="${esc(k)}" value="${Number(d.max??1)}"><select data-def-price-mode="${esc(k)}"><option value="extra" ${(d.priceMode||'extra')==='extra'?'selected':''}>Supplément</option><option value="absolute" ${d.priceMode==='absolute'?'selected':''}>Prix total</option></select></div><label class="muted"><input type="checkbox" data-def-required="${esc(k)}" ${d.required?'checked':''}> Choix obligatoire</label>`:''}`+
         `<div class="items" id="list-${sk}"></div>${d.fixed?'':`<button type="button" data-add="${esc(k)}">+ Ajouter un élément</button>`}${custom?` <button class="danger" type="button" data-delete-list="${esc(k)}">Supprimer la liste</button>`:''}</section>`;
     }).join('');
     for(const k of Object.keys(all)) renderList(k);
-    root.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;captureList(k);state.optionLists[k].push(['Nouvel élément',0]);renderList(k);renderProduct();});
+    root.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;captureList(k);state.optionLists[k].push(['Nouvel élément',0]);if(orderMode(k)==='manual')normalizeManualOrder(k);renderList(k);renderProduct();});
     root.querySelectorAll('[data-delete-list]').forEach(b=>b.onclick=()=>deleteCustomList(b.dataset.deleteList));
+    root.querySelectorAll('[data-order-mode]').forEach(s=>s.onchange=()=>{
+      const k=s.dataset.orderMode;
+      captureList(k);
+      if(s.value==='manual' && orderMode(k)!=='manual') state.optionListOrders[k]=visibleEntries(k).map(e=>e.i);
+      state.optionListOrderModes[k]=s.value;
+      if(s.value==='manual') normalizeManualOrder(k);
+      renderList(k); renderProduct();
+    });
   }
 
   function renderList(k){
-    const box=$('list-'+safeKey(k)),d=defs()[k],arr=state.optionLists[k]||[]; if(!box||!d)return;
-    box.innerHTML=visibleEntries(k).map(({x,i})=>`<div class="row"><input type="text" data-ln-key="${esc(k)}" data-ln-index="${i}" value="${esc(x[0])}"><input type="number" step="0.01" data-lp-key="${esc(k)}" data-lp-index="${i}" value="${Number(x[1]||0)}">${d.fixed?'':`<button class="danger" type="button" data-ld-index="${i}">×</button>`}</div>`).join('');
+    const box=$('list-'+safeKey(k)),d=defs()[k]; if(!box||!d)return;
+    const manual=orderMode(k)==='manual';
+    box.innerHTML=visibleEntries(k).map(({x,i})=>`<div class="row" data-order-index="${i}" ${manual?'draggable="true"':''}>${manual?'<span title="Glisser pour déplacer" style="cursor:grab;font-size:18px;user-select:none">☰</span>':''}<input type="text" data-ln-key="${esc(k)}" data-ln-index="${i}" value="${esc(x[0])}"><input type="number" step="0.01" data-lp-key="${esc(k)}" data-lp-index="${i}" value="${Number(x[1]||0)}">${d.fixed?'':`<button class="danger" type="button" data-ld-index="${i}">×</button>`}</div>`).join('');
     box.querySelectorAll('input').forEach(el=>el.onchange=()=>{captureList(k);renderProduct();});
     box.querySelectorAll('[data-ld-index]').forEach(b=>b.onclick=()=>deleteListItem(k,Number(b.dataset.ldIndex)));
+    if(manual) enableDragOrder(k,box);
+  }
+
+  function enableDragOrder(k,box){
+    let dragged=null;
+    box.querySelectorAll('[data-order-index]').forEach(row=>{
+      row.addEventListener('dragstart',e=>{dragged=Number(row.dataset.orderIndex);e.dataTransfer.effectAllowed='move';});
+      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';});
+      row.addEventListener('drop',e=>{
+        e.preventDefault();
+        const target=Number(row.dataset.orderIndex);
+        if(dragged===null||dragged===target)return;
+        captureList(k);
+        const order=normalizeManualOrder(k).slice();
+        const from=order.indexOf(dragged),to=order.indexOf(target);
+        if(from<0||to<0)return;
+        order.splice(from,1); order.splice(to,0,dragged);
+        state.optionListOrders[k]=order;
+        renderList(k); renderProduct();
+      });
+      row.addEventListener('dragend',()=>{dragged=null;});
+    });
   }
 
   function deleteListItem(k,index){
@@ -149,6 +198,7 @@
       const ids=Array.isArray(p.optionSelections?.[k])?p.optionSelections[k]:[];
       p.optionSelections[k]=ids.filter(i=>i!==index).map(i=>i>index?i-1:i);
     }
+    if(Array.isArray(state.optionListOrders?.[k])) state.optionListOrders[k]=state.optionListOrders[k].filter(i=>i!==index).map(i=>i>index?i-1:i);
     renderList(k); renderProduct();
   }
 
@@ -199,7 +249,8 @@
     const out=[...(p.options||[]).filter(g=>!managedKeys.has(norm(g.key))&&!managedTitles.has(norm(g.title||g.key)))];
     for(const [k,d] of Object.entries(all)){
       const ids=p.optionSelections[k]||[]; if(!ids.length)continue;
-      const choices=ids.map(i=>clone(state.optionLists[k][i])).filter(Boolean);
+      const selected=new Set(ids);
+      const choices=visibleEntries(k).filter(e=>selected.has(e.i)).map(e=>clone(state.optionLists[k][e.i])).filter(Boolean);
       if(k==='garnitures') choices.forEach(c=>{if(!/^sans\s/i.test(c[0]))c[0]='Sans '+c[0];});
       out.push({key:'central_'+k,title:d.title,required:!!d.required,max:Number(d.max??1),priceMode:d.priceMode||'extra',choices});
     }
@@ -212,12 +263,13 @@
     const key='custom_'+Date.now();
     state.optionListDefs[key]={label:name,title:name,max:1,required:false,fixed:false,priceMode:'extra'};
     state.optionLists[key]=[];
+    state.optionListOrderModes[key]='alpha';
     renderLists(); renderProduct();
   }
 
   async function deleteCustomList(k){
     if(!confirm('Supprimer cette liste ? Elle sera aussi retirée des produits auxquels elle est affectée.'))return;
-    delete state.optionListDefs[k]; delete state.optionLists[k];
+    delete state.optionListDefs[k]; delete state.optionLists[k]; delete state.optionListOrderModes[k]; delete state.optionListOrders[k];
     for(const p of state.products||[]){delete p.optionSelections?.[k];p.options=(p.options||[]).filter(g=>norm(g.key)!==norm('central_'+k));}
     await save(); renderLists(); renderProduct();
   }
