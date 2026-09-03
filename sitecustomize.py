@@ -1,28 +1,31 @@
 # BÉCHÉFAA POS — démarrage V2
-# PostgreSQL est la source persistante. Aucun fallback catalogue V1 ne doit
-# recréer des produits/photos/options depuis static/index.html.
+# PostgreSQL est la source persistante. Aucun fallback catalogue Wix/V1.
 
+import os
+import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
 APP_PY = BASE / "app.py"
 
 
-def patch_database_backend():
-    """Utilise PostgreSQL dès que l'add-on Clever Cloud est présent."""
+def force_postgresql_runtime():
+    """Fait en sorte que l'ancien `import sqlite3` de app.py reçoive dbcompat.
+
+    sitecustomize est importé par Python avant l'application. Si Clever Cloud
+    fournit POSTGRESQL_ADDON_URI (ou DATABASE_URL), on charge dbcompat puis on
+    l'enregistre sous le nom de module `sqlite3` avant que app.py ne démarre.
+    Cela évite tout backend SQLite local en production.
+    """
+    if not (os.getenv("POSTGRESQL_ADDON_URI") or os.getenv("DATABASE_URL")):
+        print("BÉCHÉFAA DB: aucune URI PostgreSQL, mode local SQLite conservé.")
+        return
     try:
-        src = APP_PY.read_text(encoding="utf-8")
-        if "import dbcompat as sqlite3" in src:
-            return
-        needle = "import sqlite3, json, os, time"
-        if needle not in src:
-            print("BÉCHÉFAA DB: point d'injection introuvable.")
-            return
-        src = src.replace(needle, "import dbcompat as sqlite3, json, os, time", 1)
-        APP_PY.write_text(src, encoding="utf-8")
-        print("BÉCHÉFAA DB: PostgreSQL activé.")
+        import dbcompat
+        sys.modules["sqlite3"] = dbcompat
+        print("BÉCHÉFAA DB: backend PostgreSQL forcé avant import de app.py.")
     except Exception as exc:
-        print("BÉCHÉFAA DB: correctif ignoré:", exc)
+        print("BÉCHÉFAA DB: impossible de forcer PostgreSQL:", exc)
 
 
 def patch_public_catalog_v2():
@@ -41,8 +44,5 @@ def patch_public_catalog_v2():
         print("BÉCHÉFAA V2 public catalog: correctif ignoré:", exc)
 
 
-# IMPORTANT V2 : ne plus injecter de catalogue de secours depuis window.PRODUCTS.
-# Si catalog_admin est absent, l'API doit renvoyer un catalogue vide au lieu de
-# réactiver silencieusement la V1.
-patch_database_backend()
+force_postgresql_runtime()
 patch_public_catalog_v2()
