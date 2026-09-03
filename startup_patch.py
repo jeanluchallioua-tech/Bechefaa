@@ -48,23 +48,33 @@ function centralProductFor(p){
 }
 
 function compileCentralOptions(data,p){
- if(Array.isArray(p?.options) && p.options.length)return p.options;
  const selections=p?.optionSelections||{},lists=data?.optionLists||{},custom=data?.optionListDefs||{};
- const out=[];
- for(const [k,ids] of Object.entries(selections)){
-  if(!Array.isArray(ids)||!ids.length)continue;
-  const source=Array.isArray(lists[k])?lists[k]:[];
-  const choices=ids.map(i=>source[Number(i)]).filter(Boolean).map(c=>{
-   const x=Array.isArray(c)?c:[String(c?.name||c?.label||"Option"),Number(c?.price||0)];
-   let label=String(x[0]??"Option");
-   if(k==="garnitures"&&!/^sans\s/i.test(label))label="Sans "+label;
-   return [label,Number(x[1]||0)];
-  });
-  if(!choices.length)continue;
-  const d=custom[k]||CENTRAL_OPTION_DEFS[k]||{};
-  out.push({key:"central_"+k,title:String(d.title||d.label||k),required:!!d.required,max:Math.max(0,Number(d.max??1)),choices});
+ const selectedKeys=Object.keys(selections).filter(k=>Array.isArray(selections[k])&&selections[k].length);
+
+ // V2 a priorité : dès qu'une affectation produit existe dans optionSelections,
+ // on reconstruit les groupes depuis la bibliothèque centrale au lieu de reprendre
+ // p.options, qui peut encore contenir une ancienne copie issue de la V1.
+ if(selectedKeys.length){
+  const out=[];
+  for(const k of selectedKeys){
+   const ids=selections[k];
+   const source=Array.isArray(lists[k])?lists[k]:[];
+   const choices=ids.map(i=>source[Number(i)]).filter(Boolean).map(c=>{
+    const x=Array.isArray(c)?c:[String(c?.name||c?.label||"Option"),Number(c?.price||0)];
+    let label=String(x[0]??"Option");
+    if(k==="garnitures"&&!/^sans\s/i.test(label))label="Sans "+label;
+    return [label,Number(x[1]||0)];
+   });
+   if(!choices.length)continue;
+   const d=custom[k]||CENTRAL_OPTION_DEFS[k]||{};
+   out.push({key:"central_"+k,title:String(d.title||d.label||k),required:!!d.required,max:Math.max(0,Number(d.max??1)),choices});
+  }
+  return out;
  }
- return out;
+
+ // Compatibilité transitoire uniquement pour les produits qui n'ont pas encore
+ // d'affectation V2 enregistrée.
+ return Array.isArray(p?.options)?p.options:[];
 }
 
 async function loadCentralCatalogMaster(){
