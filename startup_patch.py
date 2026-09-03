@@ -1,13 +1,34 @@
 # BÉCHÉFAA — Catalogue V2 runtime
 # Source unique du catalogue POS : /api/catalog-admin (PostgreSQL).
-# Le moteur historique de caisse reste en place, mais ses profils Wix/V1 ne sont
-# plus consultés pour déterminer produits, photos ou options.
+# Wix/V1 ne doit plus fournir produits, photos, catégories ou options.
 
 from pathlib import Path
 import re
+import sys
+import dbcompat
 
 BASE = Path(__file__).resolve().parent
+APP_PY = BASE / "app.py"
 APP_JS = BASE / "static" / "app.js"
+
+
+def bind_postgresql_runtime():
+    """Remplace le module sqlite3 déjà importé par app.py par dbcompat.
+
+    app.py importe startup_patch avant de définir conn(). On peut donc lier ici
+    le runtime directement à dbcompat, qui utilise POSTGRESQL_ADDON_URI sur
+    Clever Cloud. Cela supprime la dépendance au patch indirect sitecustomize.
+    """
+    bound = False
+    for module in list(sys.modules.values()):
+        try:
+            module_file = getattr(module, "__file__", None)
+            if module_file and Path(module_file).resolve() == APP_PY.resolve():
+                setattr(module, "sqlite3", dbcompat)
+                bound = True
+        except Exception:
+            pass
+    print("BÉCHÉFAA DB: PostgreSQL runtime lié directement." if bound else "BÉCHÉFAA DB: module app en cours d'import, liaison différée au runtime.")
 
 
 def patch_pos_catalog_v2():
@@ -50,10 +71,6 @@ function centralProductFor(p){
 function compileCentralOptions(data,p){
  const selections=p?.optionSelections||{},lists=data?.optionLists||{},custom=data?.optionListDefs||{};
  const selectedKeys=Object.keys(selections).filter(k=>Array.isArray(selections[k])&&selections[k].length);
-
- // V2 a priorité : dès qu'une affectation produit existe dans optionSelections,
- // on reconstruit les groupes depuis la bibliothèque centrale au lieu de reprendre
- // p.options, qui peut encore contenir une ancienne copie issue de la V1.
  if(selectedKeys.length){
   const out=[];
   for(const k of selectedKeys){
@@ -71,10 +88,8 @@ function compileCentralOptions(data,p){
   }
   return out;
  }
-
- // Compatibilité transitoire uniquement pour les produits qui n'ont pas encore
- // d'affectation V2 enregistrée.
- return Array.isArray(p?.options)?p.options:[];
+ // Aucun fallback V1/Wix : une option doit être affectée dans le Catalogue V2.
+ return [];
 }
 
 async function loadCentralCatalogMaster(){
@@ -103,10 +118,12 @@ async function loadCentralCatalogMaster(){
 
   window.PRODUCTS=active.map((p,i)=>({
    id:String(p.id??("v2-"+i)),cat:String(p.category||""),name:String(p.name||"Produit"),
-   price:Number(p.price||0),image:String(p.photo||""),desc:String(p.ingredients||"")
+   price:Number(p.price||0),image:String(p.photo||""),desc:String(p.ingredients||p.description||"")
   }));
   const used=new Set(window.PRODUCTS.map(p=>p.cat));
-  window.CATEGORIES=data.categories.filter(c=>c?.active!==false&&used.has(c.name)).map(c=>c.name);
+  const cats=data.categories.map(c=>typeof c==="string"?{name:c,active:true}:c).filter(Boolean);
+  window.CATEGORIES=cats.filter(c=>c?.active!==false&&used.has(c.name)).map(c=>c.name);
+  if(!window.CATEGORIES.length)window.CATEGORIES=[...new Set(window.PRODUCTS.map(p=>p.cat).filter(Boolean))];
   if(!window.CATEGORIES.includes(cat))cat=window.CATEGORIES[0]||"";
   CENTRAL_CATALOG_READY=true;
   window.BECHEFAA_CATALOG_V2_STATUS={ok:true,products:window.PRODUCTS.length,categories:window.CATEGORIES.length,updatedAt:j?.updatedAt||0};
@@ -130,7 +147,6 @@ function profile(p){
 function rc(){'''
     src = re.sub(profile_pattern, replacement, src, count=1, flags=re.S)
 
-    # IDs du catalogue V2 sont des chaînes.
     src = src.replace(
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(+b.dataset.id))',
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(b.dataset.id))'
@@ -139,12 +155,8 @@ function rc(){'''
         'current=window.PRODUCTS.find(x=>x.id===id); selections={}; const prof=profile(current);',
         'current=window.PRODUCTS.find(x=>String(x.id)===String(id)); selections={}; const prof=profile(current);'
     )
-
-    # Les anciennes liaisons Wix ne sont plus transportées dans les nouvelles lignes caisse.
     src = src.replace('let ek=exactKey(current),ids=ek?WIX_GROUP_IDS[ek]:null;', 'let ek=null,ids=null;')
     src = src.replace('let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=exactKey(current);', 'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=null;')
-
-    # Aucun affichage initial de la carte embarquée V1 : PostgreSQL est chargé d'abord.
     src = src.replace(
         '/* V0.5.10 : rendu initial du catalogue restauré */\nrc();\nrp();',
         '/* Catalogue V2 : chargement PostgreSQL au démarrage */\nloadCentralCatalogMaster();'
@@ -155,6 +167,7 @@ function rc(){'''
 
 
 try:
+    bind_postgresql_runtime()
     patch_pos_catalog_v2()
 except Exception as exc:
-    print("BÉCHÉFAA V2 patch error:", exc)
+    print("BÉCHÉFAA V2 startup error:", exc)
