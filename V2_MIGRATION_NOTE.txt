@@ -1,0 +1,6 @@
+BÉCHÉFAA Catalogue V2 migration
+
+Objectif : static/index.html ne doit plus embarquer la carte Wix.
+Le POS doit démarrer sans catalogue statique et charger produits/catégories/options/photos depuis /api/catalog-admin (PostgreSQL V2) avant le premier rendu.
+
+Ne pas retirer le canal de commande WIX dans cette étape : seulement Wix comme source de catalogue.
