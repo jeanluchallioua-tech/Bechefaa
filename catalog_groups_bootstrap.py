@@ -42,18 +42,24 @@ try:
     if 'id="catalogOptionsManager"' not in src and anchor in src:
         src = src.replace(anchor, link, 1)
 
-    # 4) IMPORTANT : le moteur ne démarre plus avant les données.
-    # Le module V2 charge /api/catalog-admin, remplit window.PRODUCTS/CATEGORIES,
-    # puis lance app.js et cloud.js dans cet ordre.
-    scripts_pattern = r'<script src="app\.js\?v=[^"]+"></script><script src="cloud\.js\?v=[^"]+"></script>'
-    src, script_replaced = re.subn(
-        scripts_pattern,
-        '<script type="module" src="v2-preload.js?v=0604"></script>',
+    # 4) Le moteur démarre seulement après préchargement PostgreSQL V2.
+    # Compatible avec un index encore ancien (app.js + cloud.js) OU avec
+    # le préchargeur V2 précédent déjà installé.
+    preload_tag = '<script src="v2-preload-v2.js?v=0605"></script>'
+    src = re.sub(
+        r'<script type="module" src="v2-preload\.js\?v=[^"]+"></script>',
+        preload_tag,
+        src,
+        count=1,
+    )
+    src = re.sub(
+        r'<script src="app\.js\?v=[^"]+"></script><script src="cloud\.js\?v=[^"]+"></script>',
+        preload_tag,
         src,
         count=1,
     )
 
     INDEX.write_text(src, encoding="utf-8")
-    print(f"BÉCHÉFAA V2: Wix retiré={removed}, préchargeur PostgreSQL installé={script_replaced}.")
+    print(f"BÉCHÉFAA V2: Wix retiré={removed}, préchargeur PostgreSQL robuste actif.")
 except Exception as exc:
     print("BÉCHÉFAA V2 bootstrap ignoré:", exc)
