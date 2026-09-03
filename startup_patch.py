@@ -1,9 +1,10 @@
 # BÉCHÉFAA — Catalogue V2 runtime
-# Objectif : une seule source catalogue pour le POS = /api/catalog-admin (PostgreSQL).
-# Ce patch est volontairement limité au pont Catalogue V2 -> moteur POS historique.
-# Aucune donnée V1/Wix n'est utilisée comme secours.
+# Source unique du catalogue POS : /api/catalog-admin (PostgreSQL).
+# Le moteur historique de caisse reste en place, mais ses profils Wix/V1 ne sont
+# plus consultés pour déterminer produits, photos ou options.
 
 from pathlib import Path
+import re
 
 BASE = Path(__file__).resolve().parent
 APP_JS = BASE / "static" / "app.js"
@@ -15,9 +16,9 @@ def patch_pos_catalog_v2():
     if marker in src:
         return
 
-    needle = "function profile(p){\n let ek=exactKey(p);"
-    if needle not in src:
-        print("BÉCHÉFAA V2: fonction profile() introuvable, aucun patch appliqué.")
+    profile_pattern = r"function profile\(p\)\{.*?\n\}\nfunction rc\(\)\{"
+    if not re.search(profile_pattern, src, flags=re.S):
+        print("BÉCHÉFAA V2: bloc profile() introuvable, aucun patch appliqué.")
         return
 
     replacement = r'''/* === BECHEFAA_CATALOGUE_V2_SOURCE_UNIQUE === */
@@ -48,7 +49,7 @@ function centralProductFor(p){
 
 function compileCentralOptions(data,p){
  if(Array.isArray(p?.options) && p.options.length)return p.options;
- const selections=p?.optionSelections||{}, lists=data?.optionLists||{}, custom=data?.optionListDefs||{};
+ const selections=p?.optionSelections||{},lists=data?.optionLists||{},custom=data?.optionListDefs||{};
  const out=[];
  for(const [k,ids] of Object.entries(selections)){
   if(!Array.isArray(ids)||!ids.length)continue;
@@ -56,18 +57,12 @@ function compileCentralOptions(data,p){
   const choices=ids.map(i=>source[Number(i)]).filter(Boolean).map(c=>{
    const x=Array.isArray(c)?c:[String(c?.name||c?.label||"Option"),Number(c?.price||0)];
    let label=String(x[0]??"Option");
-   if(k==="garnitures" && !/^sans\s/i.test(label))label="Sans "+label;
+   if(k==="garnitures"&&!/^sans\s/i.test(label))label="Sans "+label;
    return [label,Number(x[1]||0)];
   });
   if(!choices.length)continue;
   const d=custom[k]||CENTRAL_OPTION_DEFS[k]||{};
-  out.push({
-   key:"central_"+k,
-   title:String(d.title||d.label||k),
-   required:!!d.required,
-   max:Math.max(0,Number(d.max??1)),
-   choices
-  });
+  out.push({key:"central_"+k,title:String(d.title||d.label||k),required:!!d.required,max:Math.max(0,Number(d.max??1)),choices});
  }
  return out;
 }
@@ -97,12 +92,8 @@ async function loadCentralCatalogMaster(){
   });
 
   window.PRODUCTS=active.map((p,i)=>({
-   id:String(p.id??("v2-"+i)),
-   cat:String(p.category||""),
-   name:String(p.name||"Produit"),
-   price:Number(p.price||0),
-   image:String(p.photo||""),
-   desc:String(p.ingredients||"")
+   id:String(p.id??("v2-"+i)),cat:String(p.category||""),name:String(p.name||"Produit"),
+   price:Number(p.price||0),image:String(p.photo||""),desc:String(p.ingredients||"")
   }));
   const used=new Set(window.PRODUCTS.map(p=>p.cat));
   window.CATEGORIES=data.categories.filter(c=>c?.active!==false&&used.has(c.name)).map(c=>c.name);
@@ -125,10 +116,11 @@ function profile(p){
  const central=centralProductFor(p);
  if(central!==null)return central;
  return [];
-}'''
-    src = src.replace(needle, replacement, 1)
+}
+function rc(){'''
+    src = re.sub(profile_pattern, replacement, src, count=1, flags=re.S)
 
-    # IDs V2 sont des chaînes.
+    # IDs du catalogue V2 sont des chaînes.
     src = src.replace(
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(+b.dataset.id))',
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(b.dataset.id))'
@@ -138,12 +130,15 @@ function profile(p){
         'current=window.PRODUCTS.find(x=>String(x.id)===String(id)); selections={}; const prof=profile(current);'
     )
 
-    # Le POS V2 ne transporte plus de liaisons Wix historiques dans les lignes caisse.
+    # Les anciennes liaisons Wix ne sont plus transportées dans les nouvelles lignes caisse.
     src = src.replace('let ek=exactKey(current),ids=ek?WIX_GROUP_IDS[ek]:null;', 'let ek=null,ids=null;')
     src = src.replace('let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=exactKey(current);', 'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=null;')
 
-    # Au démarrage on charge directement V2 au lieu d'afficher d'abord la carte embarquée V1.
-    src = src.replace('/* V0.5.10 : rendu initial du catalogue restauré */\nrc();\nrp();', '/* Catalogue V2 : chargement PostgreSQL au démarrage */\nloadCentralCatalogMaster();')
+    # Aucun affichage initial de la carte embarquée V1 : PostgreSQL est chargé d'abord.
+    src = src.replace(
+        '/* V0.5.10 : rendu initial du catalogue restauré */\nrc();\nrp();',
+        '/* Catalogue V2 : chargement PostgreSQL au démarrage */\nloadCentralCatalogMaster();'
+    )
 
     APP_JS.write_text(src, encoding="utf-8")
     print("BÉCHÉFAA V2: Catalogue PostgreSQL = source unique POS.")
