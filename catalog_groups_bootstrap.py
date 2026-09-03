@@ -7,6 +7,7 @@ import re
 
 BASE = Path(__file__).resolve().parent
 INDEX = BASE / "static" / "index.html"
+APP_JS = BASE / "static" / "app.js"
 
 try:
     src = INDEX.read_text(encoding="utf-8")
@@ -43,11 +44,15 @@ try:
         src = src.replace(anchor, link, 1)
 
     # 4) Le moteur démarre seulement après préchargement PostgreSQL V2.
-    # Compatible avec un index encore ancien (app.js + cloud.js) OU avec
-    # le préchargeur V2 précédent déjà installé.
-    preload_tag = '<script src="v2-preload-v2.js?v=0605"></script>'
+    preload_tag = '<script src="v2-preload-v2.js?v=0606"></script>'
     src = re.sub(
         r'<script type="module" src="v2-preload\.js\?v=[^"]+"></script>',
+        preload_tag,
+        src,
+        count=1,
+    )
+    src = re.sub(
+        r'<script src="v2-preload-v2\.js\?v=[^"]+"></script>',
         preload_tag,
         src,
         count=1,
@@ -63,3 +68,25 @@ try:
     print(f"BÉCHÉFAA V2: Wix retiré={removed}, préchargeur PostgreSQL robuste actif.")
 except Exception as exc:
     print("BÉCHÉFAA V2 bootstrap ignoré:", exc)
+
+# 5) app.js est chargé dynamiquement APRES le préchargement PostgreSQL.
+# Son ancien listener DOMContentLoaded pouvait donc être enregistré trop tard.
+# On transforme uniquement l'enveloppe principale afin qu'elle s'exécute
+# immédiatement si le DOM est déjà prêt, sinon à DOMContentLoaded.
+try:
+    js = APP_JS.read_text(encoding="utf-8")
+    marker = "BECHEFAA_V2_DOM_READY_INIT"
+    if marker not in js:
+        old_start = 'document.addEventListener("DOMContentLoaded",()=>{\n'
+        new_start = 'const __BECHEFAA_MAIN_INIT=()=>{ /* BECHEFAA_V2_DOM_READY_INIT */\n'
+        old_end = 'boards();\n\n});\n\n/* V0.5.2 : navigation tablette toujours disponible */'
+        new_end = 'boards();\n\n};\nif(document.readyState==="loading") document.addEventListener("DOMContentLoaded",__BECHEFAA_MAIN_INIT,{once:true}); else __BECHEFAA_MAIN_INIT();\n\n/* V0.5.2 : navigation tablette toujours disponible */'
+        if old_start in js and old_end in js:
+            js = js.replace(old_start, new_start, 1)
+            js = js.replace(old_end, new_end, 1)
+            APP_JS.write_text(js, encoding="utf-8")
+            print("BÉCHÉFAA V2: initialisation POS compatible précharge PostgreSQL.")
+        else:
+            print("BÉCHÉFAA V2: enveloppe app.js introuvable, init non modifiée.")
+except Exception as exc:
+    print("BÉCHÉFAA V2 init patch ignoré:", exc)
