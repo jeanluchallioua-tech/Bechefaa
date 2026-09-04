@@ -12,6 +12,15 @@ async function loadScript(src) {
   });
 }
 
+function v2Price(v) {
+  const s = String(v == null ? 0 : v)
+    .replace(/\s/g, '')
+    .replace('€', '')
+    .replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 (async () => {
   try {
     const r = await fetch('/api/catalog-admin?t=' + Date.now(), { cache: 'no-store' });
@@ -26,9 +35,11 @@ async function loadScript(src) {
       id: String(p.id != null ? p.id : ('v2-' + i)),
       cat: String(p.category || p.cat || ''),
       name: String(p.name || 'Produit'),
-      price: Number(p.price || 0),
+      price: v2Price(p.price),
       image: String(p.photo || p.image || ''),
-      desc: String(p.ingredients || p.description || p.desc || '')
+      desc: String(p.ingredients || p.description || p.desc || ''),
+      options: Array.isArray(p.options) ? p.options : [],
+      optionSelections: p.optionSelections || {}
     })).filter(p => p.name && p.cat);
 
     const used = new Set(window.PRODUCTS.map(p => p.cat));
@@ -42,8 +53,6 @@ async function loadScript(src) {
       }).filter(Boolean).filter(name => used.has(name));
     }
 
-    // Secours V2 uniquement : si le format categories ne correspond pas,
-    // on reconstruit l'ordre à partir des produits PostgreSQL eux-mêmes.
     if (!cats.length) {
       const seen = new Set();
       cats = [];
@@ -70,6 +79,6 @@ async function loadScript(src) {
     console.error('BÉCHÉFAA V2 preload:', e);
   }
 
-  await loadScript('/app.js?v=0605');
-  await loadScript('/cloud.js?v=0605');
+  await loadScript('/app.js?v=0607');
+  await loadScript('/cloud.js?v=0607');
 })();
