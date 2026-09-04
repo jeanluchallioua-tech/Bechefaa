@@ -3,20 +3,16 @@
 
 import os
 import sys
+import re
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
 APP_PY = BASE / "app.py"
+INDEX_HTML = BASE / "static" / "index.html"
 
 
 def force_postgresql_runtime():
-    """Fait en sorte que l'ancien `import sqlite3` de app.py reçoive dbcompat.
-
-    sitecustomize est importé par Python avant l'application. Si Clever Cloud
-    fournit POSTGRESQL_ADDON_URI (ou DATABASE_URL), on charge dbcompat puis on
-    l'enregistre sous le nom de module `sqlite3` avant que app.py ne démarre.
-    Cela évite tout backend SQLite local en production.
-    """
+    """Fait en sorte que l'ancien `import sqlite3` de app.py reçoive dbcompat."""
     if not (os.getenv("POSTGRESQL_ADDON_URI") or os.getenv("DATABASE_URL")):
         print("BÉCHÉFAA DB: aucune URI PostgreSQL, mode local SQLite conservé.")
         return
@@ -26,6 +22,31 @@ def force_postgresql_runtime():
         print("BÉCHÉFAA DB: backend PostgreSQL forcé avant import de app.py.")
     except Exception as exc:
         print("BÉCHÉFAA DB: impossible de forcer PostgreSQL:", exc)
+
+
+def purge_embedded_wix_catalog():
+    """Retire physiquement la vieille carte Wix embarquée de la page servie.
+
+    Le HTML ne fournit plus aucun produit, prix, photo ou catégorie. Le POS
+    démarre avec des tableaux vides, puis v2-preload-v2.js remplit la carte
+    exclusivement depuis /api/catalog-admin (PostgreSQL).
+    """
+    try:
+        src = INDEX_HTML.read_text(encoding="utf-8")
+        src, removed = re.subn(
+            r'<script>window\.PRODUCTS=.*?;window\.CATEGORIES=.*?</script>',
+            '<script>window.PRODUCTS=[];window.CATEGORIES=[];</script>',
+            src,
+            count=1,
+            flags=re.S,
+        )
+        src = src.replace('POS V0.5.38 CLEAN · TABLETTE STABLE', 'POS V2 · POSTGRESQL')
+        src = src.replace('● 85 produits Wix<br><small>After work exclu</small>', '● Catalogue V2<br><small>PostgreSQL central</small>')
+        src = src.replace('Carte Wix · groupes exacts + cache hors connexion', 'Catalogue central V2 · PostgreSQL')
+        INDEX_HTML.write_text(src, encoding="utf-8")
+        print(f"BÉCHÉFAA CLEAN: catalogue Wix embarqué supprimé={removed}.")
+    except Exception as exc:
+        print("BÉCHÉFAA CLEAN: purge catalogue Wix ignorée:", exc)
 
 
 def patch_public_catalog_v2():
@@ -45,4 +66,5 @@ def patch_public_catalog_v2():
 
 
 force_postgresql_runtime()
+purge_embedded_wix_catalog()
 patch_public_catalog_v2()
