@@ -77,6 +77,35 @@ def catalog_summary():
                     "products": len(items), "items": items, "updatedAt": updated_at})
 
 
+@app.get("/api/catalog/diagnostic/classic-burger")
+def classic_burger_diagnostic():
+    data, updated_at = load_catalog()
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "Catalogue V2 indisponible", "updatedAt": updated_at}), 404
+    for p in data.get("products") or []:
+        if not isinstance(p, dict):
+            continue
+        if str(p.get("name") or "").strip().lower() == "classic burger":
+            interesting = {}
+            for key, value in p.items():
+                lk = str(key).lower()
+                if any(token in lk for token in ("photo", "image", "picture", "media", "thumbnail")):
+                    interesting[key] = value
+            return jsonify({
+                "ok": True,
+                "source": "catalog_admin_v2",
+                "name": p.get("name"),
+                "id": p.get("id"),
+                "category": p.get("category") or p.get("cat"),
+                "price": p.get("price"),
+                "imageFields": interesting,
+                "allKeys": sorted([str(k) for k in p.keys()]),
+                "updatedAt": updated_at,
+                "readOnly": True
+            })
+    return jsonify({"ok": False, "error": "Classic Burger introuvable", "updatedAt": updated_at}), 404
+
+
 @app.get("/pos")
 def pos():
     html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
