@@ -81,4 +81,5 @@ function v2Price(v) {
 
   await loadScript('/app.js?v=0607');
   await loadScript('/cloud.js?v=0607');
+  await loadScript('/client-ticket-v2-fix.js?v=0613');
 })();
