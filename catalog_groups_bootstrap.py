@@ -44,7 +44,7 @@ try:
         src = src.replace(anchor, link, 1)
 
     # 4) Le moteur démarre seulement après préchargement PostgreSQL V2.
-    preload_tag = '<script src="v2-preload-v2.js?v=0608"></script>'
+    preload_tag = '<script src="v2-preload-v2.js?v=0609"></script>'
     src = re.sub(
         r'<script type="module" src="v2-preload\.js\?v=[^"]+"></script>',
         preload_tag,
@@ -108,12 +108,9 @@ except Exception as exc:
     print("BÉCHÉFAA V2 values patch ignoré:", exc)
 
 # 7) Correctif impératif du chemin Produit -> Options -> Panier.
-# Il s'applique même si app.js a déjà reçu le marqueur V2 : les mises à jour
-# suivantes ne doivent plus être bloquées par le garde-fou historique.
 try:
     js = APP_JS.read_text(encoding="utf-8")
 
-    # Tous les IDs V2 sont comparés comme chaînes.
     js = js.replace(
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(+b.dataset.id))',
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(String(b.dataset.id)))'
@@ -123,7 +120,6 @@ try:
         'current=window.PRODUCTS.find(x=>String(x.id)===String(id)); selections={}; const prof=current?profile(current):[];'
     )
 
-    # Prix toujours numérique dans la fiche et dans le panier.
     js = re.sub(
         r'const price=p=>\["UBER EATS","DELIVEROO"\]\.includes\(ch\)\?\+\(p\*1\.15\)\.toFixed\(2\):p;',
         'const price=p=>{const n=Number(String(p??0).replace(",","."))||0;return ["UBER EATS","DELIVEROO"].includes(ch)?+(n*1.15).toFixed(2):n;}',
@@ -131,7 +127,6 @@ try:
         count=1,
     )
 
-    # Les lignes panier comparent également les IDs comme chaînes et stockent un unit numérique.
     js = js.replace(
         'let u=price(current.price),x=cart.find(i=>i.id===current.id&&!i.optionsText&&i.unit===u);',
         'let u=Number(price(current.price))||0,x=cart.find(i=>String(i.id)===String(current.id)&&!i.optionsText&&Number(i.unit)===u);'
@@ -145,3 +140,56 @@ try:
     print("BÉCHÉFAA V2: ouverture options + prix panier corrigés.")
 except Exception as exc:
     print("BÉCHÉFAA V2 product/cart patch ignoré:", exc)
+
+# 8) SOURCE D'AUTORITÉ OPTIONS : p.options du produit V2, dans son ordre exact.
+# optionSelections n'est qu'un ancien mécanisme de listes réutilisables et ne
+# doit jamais écraser une configuration enregistrée directement sur le produit.
+try:
+    js = APP_JS.read_text(encoding="utf-8")
+    marker = "BECHEFAA_V2_PRODUCT_OPTIONS_AUTHORITY_0609"
+    if marker not in js and "function compileCentralOptions(data,p){" in js:
+        pattern = r'function compileCentralOptions\(data,p\)\{.*?\n\}\n\nasync function loadCentralCatalogMaster\(\)\{'
+        replacement = r'''function compileCentralOptions(data,p){ /* BECHEFAA_V2_PRODUCT_OPTIONS_AUTHORITY_0609 */
+ // 1. Configuration propre du produit = vérité absolue V2.
+ // L'ordre du tableau p.options est conservé strictement.
+ if(Array.isArray(p?.options)&&p.options.length){
+  return p.options.map((g,gi)=>({
+   key:String(g?.key||("product_option_"+gi)),
+   title:String(g?.title||g?.label||g?.name||g?.key||"Options"),
+   required:!!g?.required,
+   max:Math.max(0,Number(g?.max??1)),
+   choices:(Array.isArray(g?.choices)?g.choices:[]).map(c=>{
+    if(Array.isArray(c))return [String(c[0]??"Option"),Number(c[1]||0)];
+    return [String(c?.name||c?.label||"Option"),Number(c?.price||c?.extra||0)];
+   })
+  })).filter(g=>g.choices.length);
+ }
+
+ // 2. Secours V2 uniquement pour les produits qui n'ont pas encore p.options.
+ const selections=p?.optionSelections||{},lists=data?.optionLists||{},custom=data?.optionListDefs||{};
+ const selectedKeys=Object.keys(selections).filter(k=>Array.isArray(selections[k])&&selections[k].length);
+ const out=[];
+ for(const k of selectedKeys){
+  const ids=selections[k],source=Array.isArray(lists[k])?lists[k]:[];
+  const choices=ids.map(i=>source[Number(i)]).filter(Boolean).map(c=>{
+   const x=Array.isArray(c)?c:[String(c?.name||c?.label||"Option"),Number(c?.price||0)];
+   let label=String(x[0]??"Option");
+   if(k==="garnitures"&&!/^sans\s/i.test(label))label="Sans "+label;
+   return [label,Number(x[1]||0)];
+  });
+  if(!choices.length)continue;
+  const d=custom[k]||CENTRAL_OPTION_DEFS[k]||{};
+  out.push({key:"central_"+k,title:String(d.title||d.label||k),required:!!d.required,max:Math.max(0,Number(d.max??1)),choices});
+ }
+ return out;
+}
+
+async function loadCentralCatalogMaster(){'''
+        js, count = re.subn(pattern, replacement, js, count=1, flags=re.S)
+        if count:
+            APP_JS.write_text(js, encoding="utf-8")
+            print("BÉCHÉFAA V2: p.options produit = source d'autorité stricte.")
+        else:
+            print("BÉCHÉFAA V2: compileCentralOptions introuvable, priorité non modifiée.")
+except Exception as exc:
+    print("BÉCHÉFAA V2 product options authority patch ignoré:", exc)
