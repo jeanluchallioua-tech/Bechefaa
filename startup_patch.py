@@ -13,12 +13,7 @@ APP_JS = BASE / "static" / "app.js"
 
 
 def bind_postgresql_runtime():
-    """Remplace le module sqlite3 déjà importé par app.py par dbcompat.
-
-    app.py importe startup_patch avant de définir conn(). On peut donc lier ici
-    le runtime directement à dbcompat, qui utilise POSTGRESQL_ADDON_URI sur
-    Clever Cloud. Cela supprime la dépendance au patch indirect sitecustomize.
-    """
+    """Remplace le module sqlite3 déjà importé par app.py par dbcompat."""
     bound = False
     for module in list(sys.modules.values()):
         try:
@@ -88,7 +83,6 @@ function compileCentralOptions(data,p){
   }
   return out;
  }
- // Aucun fallback V1/Wix : une option doit être affectée dans le Catalogue V2.
  return [];
 }
 
@@ -166,8 +160,65 @@ function rc(){'''
     print("BÉCHÉFAA V2: Catalogue PostgreSQL = source unique POS.")
 
 
+def patch_direct_product_options():
+    """Fait de p.options la source d'autorité des options du produit V2.
+
+    Le gestionnaire Catalogue central enregistre p.options dans l'ordre voulu.
+    optionSelections reste seulement un secours pour les anciens enregistrements.
+    Cette étape s'exécute même si le patch V2 principal était déjà présent.
+    """
+    try:
+        src = APP_JS.read_text(encoding="utf-8")
+        marker = "BECHEFAA_V2_DIRECT_PRODUCT_OPTIONS_0610"
+        if marker in src:
+            return
+        pattern = r"function compileCentralOptions\(data,p\)\{.*?\n\}\n\nasync function loadCentralCatalogMaster"
+        replacement = r'''function compileCentralOptions(data,p){ /* BECHEFAA_V2_DIRECT_PRODUCT_OPTIONS_0610 */
+ const direct=Array.isArray(p?.options)?p.options:[];
+ if(direct.length){
+  return direct.map((g,gi)=>({
+   key:String(g?.key||("v2_direct_"+gi)),
+   title:String(g?.title||g?.label||g?.key||"Options"),
+   required:!!g?.required,
+   max:Math.max(0,Number(g?.max??1)),
+   choices:(Array.isArray(g?.choices)?g.choices:[]).map(c=>{
+    if(Array.isArray(c))return [String(c[0]??"Option"),Number(c[1]||0)];
+    return [String(c?.name??c?.label??"Option"),Number(c?.price??c?.extra??0)];
+   })
+  })).filter(g=>g.choices.length);
+ }
+ const selections=p?.optionSelections||{},lists=data?.optionLists||{},custom=data?.optionListDefs||{};
+ const selectedKeys=Object.keys(selections).filter(k=>Array.isArray(selections[k])&&selections[k].length);
+ const out=[];
+ for(const k of selectedKeys){
+  const ids=selections[k],source=Array.isArray(lists[k])?lists[k]:[];
+  const choices=ids.map(i=>source[Number(i)]).filter(Boolean).map(c=>{
+   const x=Array.isArray(c)?c:[String(c?.name||c?.label||"Option"),Number(c?.price||0)];
+   let label=String(x[0]??"Option");
+   if(k==="garnitures"&&!/^sans\s/i.test(label))label="Sans "+label;
+   return [label,Number(x[1]||0)];
+  });
+  if(!choices.length)continue;
+  const d=custom[k]||CENTRAL_OPTION_DEFS[k]||{};
+  out.push({key:"central_"+k,title:String(d.title||d.label||k),required:!!d.required,max:Math.max(0,Number(d.max??1)),choices});
+ }
+ return out;
+}
+
+async function loadCentralCatalogMaster'''
+        src, count = re.subn(pattern, replacement, src, count=1, flags=re.S)
+        if count:
+            APP_JS.write_text(src, encoding="utf-8")
+            print("BÉCHÉFAA V2: p.options du Catalogue central = source d'autorité POS.")
+        else:
+            print("BÉCHÉFAA V2: compileCentralOptions() introuvable pour mise à jour directe.")
+    except Exception as exc:
+        print("BÉCHÉFAA V2 direct options patch ignoré:", exc)
+
+
 try:
     bind_postgresql_runtime()
     patch_pos_catalog_v2()
+    patch_direct_product_options()
 except Exception as exc:
     print("BÉCHÉFAA V2 startup error:", exc)
