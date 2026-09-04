@@ -145,3 +145,23 @@ try:
     print("BÉCHÉFAA V2: ouverture options + prix panier corrigés.")
 except Exception as exc:
     print("BÉCHÉFAA V2 product/cart patch ignoré:", exc)
+
+# 8) Nettoyage définitif des cartes/options Wix historiques dans app.js.
+# GROUPS reste comme conteneur technique vide : il est rempli ensuite uniquement
+# avec les groupes du Catalogue V2 PostgreSQL.
+try:
+    js = APP_JS.read_text(encoding="utf-8")
+    marker = "BECHEFAA_V2_WIX_OPTIONS_REMOVED"
+    if marker not in js:
+        pattern = r'/\* Choix issus du catalogue Wix Restaurants BÉCHÉFAA \*/.*?function norm\(s\)\{'
+        replacement = '/* BECHEFAA_V2_WIX_OPTIONS_REMOVED */\nconst GROUPS={};\nfunction norm(s){'
+        js, count = re.subn(pattern, replacement, js, count=1, flags=re.S)
+        if count:
+            # exactKey() n\'a plus aucune utilité après suppression de EXACT/WIX_GROUP_IDS.
+            js = re.sub(r'function exactKey\(p\)\{.*?\n\}', '', js, count=1, flags=re.S)
+            APP_JS.write_text(js, encoding="utf-8")
+            print("BÉCHÉFAA V2: cartes d'options Wix/EXACT/WIX_GROUP_IDS supprimées.")
+        else:
+            print("BÉCHÉFAA V2: bloc Wix historique déjà absent ou introuvable.")
+except Exception as exc:
+    print("BÉCHÉFAA V2 Wix cleanup ignoré:", exc)
