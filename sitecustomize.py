@@ -68,3 +68,11 @@ def patch_public_catalog_v2():
 force_postgresql_runtime()
 purge_embedded_wix_catalog()
 patch_public_catalog_v2()
+
+# Dernière étape de démarrage : branchement direct du POS sur p.options de catalog_admin_v2.
+# Ce module modifie uniquement static/app.js avant que Flask ne le serve.
+try:
+    import pos_v2_direct_options
+    print("BÉCHÉFAA V2: branchement direct p.options activé.")
+except Exception as exc:
+    print("BÉCHÉFAA V2: branchement direct p.options ignoré:", exc)
