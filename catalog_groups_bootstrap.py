@@ -44,7 +44,7 @@ try:
         src = src.replace(anchor, link, 1)
 
     # 4) Le moteur démarre seulement après préchargement PostgreSQL V2.
-    preload_tag = '<script src="v2-preload-v2.js?v=0608"></script>'
+    preload_tag = '<script src="v2-preload-v2.js?v=0611"></script>'
     src = re.sub(
         r'<script type="module" src="v2-preload\.js\?v=[^"]+"></script>',
         preload_tag,
@@ -86,34 +86,9 @@ try:
 except Exception as exc:
     print("BÉCHÉFAA V2 init patch ignoré:", exc)
 
-# 6) Valeurs V2 : options et prix provenant du Catalogue PostgreSQL.
+# 6) Correctif impératif du chemin Produit -> Options -> Panier.
 try:
     js = APP_JS.read_text(encoding="utf-8")
-    marker = "BECHEFAA_V2_VALUES_0607"
-    if marker not in js and "BECHEFAA_CATALOGUE_V2_SOURCE_UNIQUE" in js:
-        js = js.replace(
-            'let CENTRAL_CATALOG_READY=false;',
-            'let CENTRAL_CATALOG_READY=false; /* BECHEFAA_V2_VALUES_0607 */\nfunction v2Money(v){const s=String(v??0).replace(/\\s/g,"").replace("€","").replace(",", ".");const n=Number(s);return Number.isFinite(n)?n:0;}',
-            1,
-        )
-        js = js.replace(
-            '// Aucun fallback V1/Wix : une option doit être affectée dans le Catalogue V2.\n return [];',
-            '// PostgreSQL V2 peut aussi stocker les groupes directement dans p.options.\n if(Array.isArray(p?.options)&&p.options.length)return p.options;\n return [];',
-            1,
-        )
-        js = js.replace('price:Number(p.price||0)', 'price:v2Money(p.price)', 1)
-        APP_JS.write_text(js, encoding="utf-8")
-        print("BÉCHÉFAA V2: options directes et prix V2 normalisés.")
-except Exception as exc:
-    print("BÉCHÉFAA V2 values patch ignoré:", exc)
-
-# 7) Correctif impératif du chemin Produit -> Options -> Panier.
-# Il s'applique même si app.js a déjà reçu le marqueur V2 : les mises à jour
-# suivantes ne doivent plus être bloquées par le garde-fou historique.
-try:
-    js = APP_JS.read_text(encoding="utf-8")
-
-    # Tous les IDs V2 sont comparés comme chaînes.
     js = js.replace(
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(+b.dataset.id))',
         '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(String(b.dataset.id)))'
@@ -122,16 +97,12 @@ try:
         'current=window.PRODUCTS.find(x=>x.id===id); selections={}; const prof=profile(current);',
         'current=window.PRODUCTS.find(x=>String(x.id)===String(id)); selections={}; const prof=current?profile(current):[];'
     )
-
-    # Prix toujours numérique dans la fiche et dans le panier.
     js = re.sub(
         r'const price=p=>\["UBER EATS","DELIVEROO"\]\.includes\(ch\)\?\+\(p\*1\.15\)\.toFixed\(2\):p;',
         'const price=p=>{const n=Number(String(p??0).replace(",","."))||0;return ["UBER EATS","DELIVEROO"].includes(ch)?+(n*1.15).toFixed(2):n;}',
         js,
         count=1,
     )
-
-    # Les lignes panier comparent également les IDs comme chaînes et stockent un unit numérique.
     js = js.replace(
         'let u=price(current.price),x=cart.find(i=>i.id===current.id&&!i.optionsText&&i.unit===u);',
         'let u=Number(price(current.price))||0,x=cart.find(i=>String(i.id)===String(current.id)&&!i.optionsText&&Number(i.unit)===u);'
@@ -140,15 +111,13 @@ try:
         'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=null;',
         'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=(Number(price(current.price))||0)+(Number(optionExtra())||0),ek=null;'
     )
-
     APP_JS.write_text(js, encoding="utf-8")
     print("BÉCHÉFAA V2: ouverture options + prix panier corrigés.")
 except Exception as exc:
     print("BÉCHÉFAA V2 product/cart patch ignoré:", exc)
 
-# 8) Nettoyage définitif des cartes/options Wix historiques dans app.js.
-# GROUPS reste comme conteneur technique vide : il est rempli ensuite uniquement
-# avec les groupes du Catalogue V2 PostgreSQL.
+# 7) Nettoyage définitif des cartes/options Wix historiques dans app.js.
+# GROUPS reste comme conteneur technique vide : il est rempli uniquement par V2.
 try:
     js = APP_JS.read_text(encoding="utf-8")
     marker = "BECHEFAA_V2_WIX_OPTIONS_REMOVED"
@@ -157,7 +126,6 @@ try:
         replacement = '/* BECHEFAA_V2_WIX_OPTIONS_REMOVED */\nconst GROUPS={};\nfunction norm(s){'
         js, count = re.subn(pattern, replacement, js, count=1, flags=re.S)
         if count:
-            # exactKey() n\'a plus aucune utilité après suppression de EXACT/WIX_GROUP_IDS.
             js = re.sub(r'function exactKey\(p\)\{.*?\n\}', '', js, count=1, flags=re.S)
             APP_JS.write_text(js, encoding="utf-8")
             print("BÉCHÉFAA V2: cartes d'options Wix/EXACT/WIX_GROUP_IDS supprimées.")
@@ -165,3 +133,42 @@ try:
             print("BÉCHÉFAA V2: bloc Wix historique déjà absent ou introuvable.")
 except Exception as exc:
     print("BÉCHÉFAA V2 Wix cleanup ignoré:", exc)
+
+# 8) IMPORTANT : le chargeur interne du POS doit conserver p.options.
+# Le préchargeur les possède déjà, mais loadCentralCatalogMaster() recréait ensuite
+# window.PRODUCTS sans options, ce qui expliquait leur disparition après nettoyage Wix.
+try:
+    js = APP_JS.read_text(encoding="utf-8")
+    marker = "BECHEFAA_V2_KEEP_DIRECT_OPTIONS_0611"
+    if marker not in js and "BECHEFAA_CATALOGUE_V2_SOURCE_UNIQUE" in js:
+        old = 'price:Number(p.price||0),image:String(p.photo||""),desc:String(p.ingredients||p.description||"")'
+        new = 'price:Number(p.price||0),image:String(p.photo||""),desc:String(p.ingredients||p.description||""),options:Array.isArray(p.options)?p.options:[],optionSelections:p.optionSelections||{} /* BECHEFAA_V2_KEEP_DIRECT_OPTIONS_0611 */'
+        if old in js:
+            js = js.replace(old, new, 1)
+        # compileCentralOptions doit lire p.options en premier, dans son ordre exact.
+        pattern = r'function compileCentralOptions\(data,p\)\{.*?\n\}\n\nasync function loadCentralCatalogMaster'
+        replacement = r'''function compileCentralOptions(data,p){
+ const direct=Array.isArray(p?.options)?p.options:[];
+ if(direct.length){
+  return direct.map((g,gi)=>({
+   key:String(g?.key||("v2_direct_"+gi)),
+   title:String(g?.title||g?.label||g?.key||"Options"),
+   required:!!g?.required,
+   max:Math.max(0,Number(g?.max??1)),
+   choices:(Array.isArray(g?.choices)?g.choices:[]).map(c=>Array.isArray(c)
+     ?[String(c[0]??"Option"),Number(c[1]||0)]
+     :[String(c?.name??c?.label??"Option"),Number(c?.price??c?.extra??0)])
+  })).filter(g=>g.choices.length);
+ }
+ return [];
+}
+
+async function loadCentralCatalogMaster'''
+        js, count = re.subn(pattern, replacement, js, count=1, flags=re.S)
+        if count:
+            APP_JS.write_text(js, encoding="utf-8")
+            print("BÉCHÉFAA V2: p.options conservé et utilisé directement par le POS.")
+        else:
+            print("BÉCHÉFAA V2: compileCentralOptions introuvable pour raccord direct.")
+except Exception as exc:
+    print("BÉCHÉFAA V2 direct options raccord ignoré:", exc)
