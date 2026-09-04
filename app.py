@@ -21,7 +21,7 @@ def _norm_city(v):
     s="".join(ch for ch in s if unicodedata.category(ch)!="Mn").lower()
     return _re.sub(r"[^a-z0-9]+"," ",s).strip()
 def delivery_zone_for(city):
-    n=_norm_city(city)
+    n=_norm_city(v=city)
     for z,info in DELIVERY_ZONES.items():
         if n in info["cities"]:
             return z, info["minimum"]
@@ -82,20 +82,20 @@ def order_dict(r):
         "createdAt": r["created_at"], "updatedAt": r["updated_at"], "phone": r["phone"] if "phone" in r.keys() else "", "address": r["address"] if "address" in r.keys() else "", "postalCode": r["postal_code"] if "postal_code" in r.keys() else "", "city": r["city"] if "city" in r.keys() else "", "email": r["email"] if "email" in r.keys() else "", "changeSummary": json.loads(r["change_summary"] or "{}") if "change_summary" in r.keys() else {}, "modificationFlag": bool(r["modification_flag"]) if "modification_flag" in r.keys() else False
     }
 
-def ensure_catalog_admin_table(c):
-    c.execute("""CREATE TABLE IF NOT EXISTS catalog_admin (
+def ensure_catalog_admin_v2_table(c):
+    c.execute("""CREATE TABLE IF NOT EXISTS catalog_admin_v2 (
         id INTEGER PRIMARY KEY CHECK (id=1),
         data_json TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at BIGINT NOT NULL
     )""")
 
 
 @app.get("/api/public/catalog")
 def public_catalog():
     with conn() as c:
-        ensure_catalog_admin_table(c)
+        ensure_catalog_admin_v2_table(c)
         row = c.execute(
-            "SELECT data_json, updated_at FROM catalog_admin WHERE id=1"
+            "SELECT data_json, updated_at FROM catalog_admin_v2 WHERE id=1"
         ).fetchone()
 
         if not row:
@@ -127,47 +127,6 @@ def public_catalog():
             if x.get("category") in allowed
         ]
 
-        # Récupération automatique des photos déjà utilisées par la caisse
-        try:
-            index_path = BASE / "static" / "index.html"
-            html = index_path.read_text(encoding="utf-8")
-
-            marker = "window.PRODUCTS="
-            start = html.find(marker)
-
-            if start >= 0:
-                start += len(marker)
-                end = html.find("];window.CATEGORIES=", start)
-
-                if end >= 0:
-                    raw = html[start:end + 1]
-                    pos_products = json.loads(raw)
-
-                    photos_by_id = {
-                        str(p.get("id")): p.get("image", "")
-                        for p in pos_products
-                    }
-
-                    photos_by_name = {
-                        str(p.get("name", "")).strip().lower(): p.get("image", "")
-                        for p in pos_products
-                    }
-
-                    for p in products:
-                        photo = photos_by_id.get(str(p.get("id")), "")
-
-                        if not photo:
-                            photo = photos_by_name.get(
-                                str(p.get("name", "")).strip().lower(),
-                                ""
-                            )
-
-                        if photo:
-                            p["photo"] = photo
-
-        except Exception as e:
-            print("Photos catalogue :", e)
-
         return jsonify({
             "categories": categories,
             "products": products,
@@ -177,8 +136,8 @@ def public_catalog():
 @app.get("/api/catalog-admin")
 def get_catalog_admin():
     with conn() as c:
-        ensure_catalog_admin_table(c)
-        row=c.execute("SELECT data_json, updated_at FROM catalog_admin WHERE id=1").fetchone()
+        ensure_catalog_admin_v2_table(c)
+        row=c.execute("SELECT data_json, updated_at FROM catalog_admin_v2 WHERE id=1").fetchone()
         if not row: return jsonify({"data":None,"updatedAt":0})
         try: data=json.loads(row["data_json"])
         except Exception: data=None
@@ -191,16 +150,20 @@ def put_catalog_admin():
     if not isinstance(data,dict): return jsonify({"error":"Catalogue invalide"}),400
     now=int(time.time()*1000)
     with conn() as c:
-        ensure_catalog_admin_table(c)
-        c.execute("""INSERT INTO catalog_admin(id,data_json,updated_at) VALUES(1,?,?)
+        ensure_catalog_admin_v2_table(c)
+        c.execute("""INSERT INTO catalog_admin_v2(id,data_json,updated_at) VALUES(1,?,?)
         ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,updated_at=excluded.updated_at""",
         (json.dumps(data,ensure_ascii=False),now))
         c.commit()
-    return jsonify({"ok":True,"updatedAt":now})
+    return jsonify({"ok":True,"updatedAt":now,"source":"catalog_admin_v2"})
+
+@app.get("/api/catalog-admin-v2")
+def get_catalog_admin_v2():
+    return get_catalog_admin()
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "BECHEFAA POS V0.5 Cloud"}
+    return {"ok": True, "service": "BECHEFAA POS V0.5 Cloud", "catalogue": "catalog_admin_v2"}
 
 
 @app.post("/api/public/orders")
@@ -259,7 +222,6 @@ def public_post_order():
     email=str(customer.get("email") or "").strip()
     slot=str(x.get("slot") or "DÈS QUE POSSIBLE")
     instructions=str(customer.get("instructions") or "").strip()
-    # Metadata visible in kitchen/order details without changing DB schema.
     if clean_items:
         meta=[]
         if slot: meta.append("Créneau : "+slot)
@@ -362,10 +324,7 @@ def patch_order_full(oid):
         row = c.execute("SELECT status, customer_id FROM orders WHERE id=?", (oid,)).fetchone()
         if not row:
             return jsonify({"error":"order not found"}), 404
-
-        # On conserve le statut cuisine actuel pendant une modification.
         current_status = row["status"]
-
         c.execute("""UPDATE orders SET
             customer_id=?,
             customer=?,
