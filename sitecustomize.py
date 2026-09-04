@@ -84,3 +84,10 @@ try:
     print("BÉCHÉFAA ORDERS: source unique PostgreSQL activée.")
 except Exception as exc:
     print("BÉCHÉFAA ORDERS: bootstrap source unique ignoré:", exc)
+
+# Intégrité UI Historique : fermeture Voir + édition rechargée depuis la base serveur.
+try:
+    import orders_ui_integrity_bootstrap
+    print("BÉCHÉFAA ORDERS UI: correctifs Voir/Modifier activés.")
+except Exception as exc:
+    print("BÉCHÉFAA ORDERS UI: bootstrap ignoré:", exc)
