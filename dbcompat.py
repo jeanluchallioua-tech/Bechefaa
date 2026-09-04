@@ -26,12 +26,21 @@ OperationalError = (_sqlite3.OperationalError, DuplicateColumn)
 
 
 def _pg_sql(sql: str) -> str:
-    # PostgreSQL supports most of our SQL as-is. Two compatibility fixes are
-    # required: qmark parameters and safe repeated ALTER TABLE migrations.
+    # PostgreSQL supports most of our SQL as-is. Compatibility fixes are
+    # required for qmark parameters, repeated ALTER TABLE migrations and
+    # catalog_admin_v2 where data_json may be a native JSON/JSONB column.
     out = sql.replace("?", "%s")
     out = re.sub(
         r"(?i)ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD\s+COLUMN\s+(?!IF\s+NOT\s+EXISTS)",
         r"ALTER TABLE \1 ADD COLUMN IF NOT EXISTS ",
+        out,
+    )
+    # app.py expects data_json to be text and calls json.loads(). Psycopg
+    # decodes JSON/JSONB columns to Python objects automatically, so cast the
+    # V2 catalogue payload back to text only for these reads.
+    out = re.sub(
+        r"(?i)SELECT\s+data_json\s*,\s*updated_at\s+FROM\s+catalog_admin_v2",
+        "SELECT data_json::text AS data_json, updated_at FROM catalog_admin_v2",
         out,
     )
     return out
