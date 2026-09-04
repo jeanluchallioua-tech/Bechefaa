@@ -44,7 +44,7 @@ try:
         src = src.replace(anchor, link, 1)
 
     # 4) Le moteur démarre seulement après préchargement PostgreSQL V2.
-    preload_tag = '<script src="v2-preload-v2.js?v=0607"></script>'
+    preload_tag = '<script src="v2-preload-v2.js?v=0608"></script>'
     src = re.sub(
         r'<script type="module" src="v2-preload\.js\?v=[^"]+"></script>',
         preload_tag,
@@ -70,7 +70,6 @@ except Exception as exc:
     print("BÉCHÉFAA V2 bootstrap ignoré:", exc)
 
 # 5) app.js est chargé dynamiquement APRES le préchargement PostgreSQL.
-# Son ancien listener DOMContentLoaded pouvait donc être enregistré trop tard.
 try:
     js = APP_JS.read_text(encoding="utf-8")
     marker = "BECHEFAA_V2_DOM_READY_INIT"
@@ -84,14 +83,10 @@ try:
             js = js.replace(old_end, new_end, 1)
             APP_JS.write_text(js, encoding="utf-8")
             print("BÉCHÉFAA V2: initialisation POS compatible précharge PostgreSQL.")
-        else:
-            print("BÉCHÉFAA V2: enveloppe app.js introuvable, init non modifiée.")
 except Exception as exc:
     print("BÉCHÉFAA V2 init patch ignoré:", exc)
 
-# 6) Valeurs V2 : options et prix doivent provenir du Catalogue PostgreSQL.
-# Si optionSelections n'est pas exploitable pour un produit, p.options est ici
-# une donnée V2 de la base restaurée, et non un fallback Wix.
+# 6) Valeurs V2 : options et prix provenant du Catalogue PostgreSQL.
 try:
     js = APP_JS.read_text(encoding="utf-8")
     marker = "BECHEFAA_V2_VALUES_0607"
@@ -111,3 +106,42 @@ try:
         print("BÉCHÉFAA V2: options directes et prix V2 normalisés.")
 except Exception as exc:
     print("BÉCHÉFAA V2 values patch ignoré:", exc)
+
+# 7) Correctif impératif du chemin Produit -> Options -> Panier.
+# Il s'applique même si app.js a déjà reçu le marqueur V2 : les mises à jour
+# suivantes ne doivent plus être bloquées par le garde-fou historique.
+try:
+    js = APP_JS.read_text(encoding="utf-8")
+
+    # Tous les IDs V2 sont comparés comme chaînes.
+    js = js.replace(
+        '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(+b.dataset.id))',
+        '$("products").querySelectorAll(".product").forEach(b=>b.onclick=()=>openProduct(String(b.dataset.id)))'
+    )
+    js = js.replace(
+        'current=window.PRODUCTS.find(x=>x.id===id); selections={}; const prof=profile(current);',
+        'current=window.PRODUCTS.find(x=>String(x.id)===String(id)); selections={}; const prof=current?profile(current):[];'
+    )
+
+    # Prix toujours numérique dans la fiche et dans le panier.
+    js = re.sub(
+        r'const price=p=>\["UBER EATS","DELIVEROO"\]\.includes\(ch\)\?\+\(p\*1\.15\)\.toFixed\(2\):p;',
+        'const price=p=>{const n=Number(String(p??0).replace(",","."))||0;return ["UBER EATS","DELIVEROO"].includes(ch)?+(n*1.15).toFixed(2):n;}',
+        js,
+        count=1,
+    )
+
+    # Les lignes panier comparent également les IDs comme chaînes et stockent un unit numérique.
+    js = js.replace(
+        'let u=price(current.price),x=cart.find(i=>i.id===current.id&&!i.optionsText&&i.unit===u);',
+        'let u=Number(price(current.price))||0,x=cart.find(i=>String(i.id)===String(current.id)&&!i.optionsText&&Number(i.unit)===u);'
+    )
+    js = js.replace(
+        'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=price(current.price)+optionExtra(),ek=null;',
+        'let opts=JSON.parse(JSON.stringify(selections)),txt=optionText(opts),u=(Number(price(current.price))||0)+(Number(optionExtra())||0),ek=null;'
+    )
+
+    APP_JS.write_text(js, encoding="utf-8")
+    print("BÉCHÉFAA V2: ouverture options + prix panier corrigés.")
+except Exception as exc:
+    print("BÉCHÉFAA V2 product/cart patch ignoré:", exc)
