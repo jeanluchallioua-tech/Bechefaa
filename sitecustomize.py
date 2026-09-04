@@ -76,3 +76,11 @@ try:
     print("BÉCHÉFAA V2: branchement direct p.options activé.")
 except Exception as exc:
     print("BÉCHÉFAA V2: branchement direct p.options ignoré:", exc)
+
+# Audit commandes/clients : PostgreSQL devient l'unique source persistante.
+# Le navigateur ne garde plus qu'un cache mémoire d'affichage.
+try:
+    import orders_single_source_bootstrap
+    print("BÉCHÉFAA ORDERS: source unique PostgreSQL activée.")
+except Exception as exc:
+    print("BÉCHÉFAA ORDERS: bootstrap source unique ignoré:", exc)
