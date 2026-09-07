@@ -70,7 +70,7 @@ def catalog_summary():
         direct_options = p.get("options") if isinstance(p.get("options"), list) else []
         selection_groups = p.get("optionSelections") if isinstance(p.get("optionSelections"), dict) else {}
         active_selection_groups = [k for k,v in selection_groups.items() if isinstance(v,list) and v]
-        photo = p.get("photo") if name.lower() == "classic burger" else ""
+        photo = p.get("photo") or ""
         items.append({"id": p.get("id"), "name": name, "category": p.get("category") or p.get("cat") or "",
                       "price": p.get("price",0), "optionGroups": len(direct_options) if direct_options else len(active_selection_groups),
                       "hasDirectOptions": bool(direct_options), "photo": photo})
