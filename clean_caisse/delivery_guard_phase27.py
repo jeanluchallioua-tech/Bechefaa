@@ -1,13 +1,11 @@
 """Phase 2.7 — validation serveur des commandes Livraison.
 
-Portée volontairement limitée à POST /api/orders avec ticket_type=Livraison.
-Aucun frais de livraison n'est ajouté. Le serveur vérifie seulement :
-- adresse + code postal + ville présents ;
-- ville/code postal dans une zone active ;
-- minimum de commande de la zone atteint.
+Aucun frais de livraison. Le contrôle s'applique uniquement à POST /api/orders
+pour une commande Livraison et vérifie la ville configurée ainsi que le minimum
+de commande de sa zone.
 
-Le module est enregistré après le verrouillage des prix Phase 2.6 : le total utilisé ici
-est donc composé de lignes dont le prix unitaire a déjà été validé côté serveur.
+Le code postal n'est plus obligatoire pour accepter une livraison : la ville est
+la référence métier. S'il est présent, il sert à départager d'éventuels doublons.
 """
 from decimal import Decimal, InvalidOperation
 
@@ -49,8 +47,8 @@ def register_delivery_guard_phase27(app, db):
             return None
 
         payload = request.get_json(silent=True) or {}
-        ticket_type = str(payload.get("ticket_type") or "").strip().lower()
-        if ticket_type != "livraison":
+        ticket_type = str(payload.get("ticket_type") or payload.get("source") or "").strip().lower()
+        if ticket_type not in {"livraison", "delivery"}:
             return None
 
         customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
@@ -61,8 +59,6 @@ def register_delivery_guard_phase27(app, db):
         missing = []
         if not address:
             missing.append("adresse")
-        if len(postal_code) != 5:
-            missing.append("code postal")
         if not city:
             missing.append("ville")
         if missing:
@@ -74,7 +70,7 @@ def register_delivery_guard_phase27(app, db):
 
         items = payload.get("items")
         if not isinstance(items, list) or not items:
-            return None  # create_order conserve sa validation historique.
+            return None
 
         try:
             total = Decimal("0.00")
@@ -90,37 +86,53 @@ def register_delivery_guard_phase27(app, db):
             with db() as conn:
                 _ensure_delivery_schema(conn)
                 conn.commit()
-                row = conn.execute(
+                rows = conn.execute(
                     """SELECT c.city,c.postal_code,z.code,z.minimum_order
                        FROM caisse_delivery_cities c
                        JOIN caisse_delivery_zones z ON z.code=c.zone_code
                        WHERE c.active=TRUE AND z.active=TRUE
-                         AND c.postal_code=%s
-                         AND LOWER(c.city)=LOWER(%s)
-                       LIMIT 2""",
-                    (postal_code, city),
+                         AND LOWER(TRIM(c.city))=LOWER(TRIM(%s))
+                       ORDER BY c.id""",
+                    (city,),
                 ).fetchall()
 
-            if len(row) != 1:
+            if not rows:
                 return jsonify({
                     "ok": False,
-                    "error": "Adresse hors zone de livraison",
+                    "error": "Ville hors zone de livraison",
                     "reason": "OUT_OF_ZONE",
                     "postal_code": postal_code,
                     "city": city,
                 }), 409
 
-            zone = row[0]
-            minimum = _money(zone["minimum_order"])
+            # Si plusieurs entrées portent le même nom de ville, le code postal
+            # permet de sélectionner la bonne. Sans code postal, on n'accepte
+            # que si toutes les entrées correspondent à la même zone/minimum.
+            if postal_code:
+                postal_rows = [r for r in rows if str(r["postal_code"]) == postal_code]
+                if postal_rows:
+                    rows = postal_rows
+
+            signatures = {(str(r["code"]), _money(r["minimum_order"])) for r in rows}
+            if len(signatures) != 1:
+                return jsonify({
+                    "ok": False,
+                    "error": "Ville ambiguë : précisez le code postal",
+                    "reason": "AMBIGUOUS_CITY",
+                    "city": city,
+                }), 409
+
+            zone_code, minimum = next(iter(signatures))
             if total < minimum:
                 return jsonify({
                     "ok": False,
-                    "error": "Minimum de commande non atteint pour la livraison",
+                    "error": f"Minimum de commande non atteint : {minimum:.2f} € minimum pour {city}",
                     "reason": "MINIMUM_NOT_REACHED",
-                    "zone": zone["code"],
+                    "zone": zone_code,
                     "minimum_order": float(minimum),
                     "order_total": float(total),
                     "missing_amount": float((minimum - total).quantize(Decimal("0.01"))),
+                    "city": city,
                 }), 409
 
         except ValueError as exc:
