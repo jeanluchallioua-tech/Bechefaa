@@ -96,13 +96,22 @@ def register_option_add_test_phase23(app, db):
         try:
             data = load_catalog()
             lists = data.get('optionLists') or {}
+            defs = data.get('optionListDefs') or {}
             group_keys = [k for k, v in lists.items() if isinstance(v, list)]
         except Exception as exc:
             group_keys = []
+            defs = {}
             error = error or str(exc)
 
+        def group_label(key):
+            definition = defs.get(key) if isinstance(defs, dict) else None
+            title = ''
+            if isinstance(definition, dict):
+                title = str(definition.get('title') or definition.get('name') or definition.get('label') or '').strip()
+            return title or key
+
         options_html = ''.join(
-            '<option value="{0}">{0}</option>'.format(escape(k)) for k in group_keys
+            '<option value="{0}">{1}</option>'.format(escape(k), escape(group_label(k))) for k in group_keys
         )
         message_html = f'<div class="ok">{escape(message)}</div>' if message else ''
         error_html = f'<div class="err">{escape(error)}</div>' if error else ''
