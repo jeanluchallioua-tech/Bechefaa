@@ -31,6 +31,7 @@ from clean_caisse.product_group_remove_phase25 import register_product_group_rem
 from clean_caisse.category_order_phase25 import register_category_order_phase25
 from clean_caisse.product_order_phase25 import register_product_order_phase25
 from clean_caisse.product_group_order_phase25 import register_product_group_order_phase25
+from clean_caisse.product_group_rename_phase25 import register_product_group_rename_phase25
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -61,3 +62,4 @@ register_product_group_remove_phase25(app, db)
 register_category_order_phase25(app, db)
 register_product_order_phase25(app, db)
 register_product_group_order_phase25(app, db)
+register_product_group_rename_phase25(app, db)
