@@ -14,6 +14,7 @@ from clean_caisse.printing_phase1 import register_printing_phase1
 from clean_caisse.history_print_buttons import register_history_print_buttons
 from clean_caisse.phase1_audit_guard import register_phase1_audit_guard
 from clean_caisse.history_add_product import register_history_add_product
+from clean_caisse.printing_timestamp import register_printing_timestamp
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -27,3 +28,4 @@ register_printing_phase1(app, db, ensure_order_schema, order_payload)
 register_history_print_buttons(app)
 register_phase1_audit_guard(app, db, ensure_order_schema, order_payload)
 register_history_add_product(app)
+register_printing_timestamp(app, db)
