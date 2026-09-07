@@ -1,5 +1,5 @@
-"""Phase 2.3 — affichage lecture seule des options existantes de catalog_admin_v2.
-Aucune réécriture des données catalogue.
+"""Phase 2.3 — affichage des options existantes de catalog_admin_v2.
+Les écritures de prix sont isolées dans option_price_admin_phase23.py.
 """
 import json
 from decimal import Decimal, InvalidOperation
@@ -22,7 +22,7 @@ def register_product_options_admin_phase2(app, db):
         data = json.loads(row['data_json'] or '{}')
         return data if isinstance(data, dict) else {}
 
-    def item(v):
+    def item(v, source_index):
         if isinstance(v, (list, tuple)):
             name = str(v[0] if v else '').strip(); price = v[1] if len(v)>1 else 0
         elif isinstance(v, dict):
@@ -31,7 +31,7 @@ def register_product_options_admin_phase2(app, db):
             name=str(v or '').strip(); price=0
         try: price=float(Decimal(str(price or 0)).quantize(Decimal('0.01')))
         except (InvalidOperation,ValueError,TypeError): price=0.0
-        return {'name':name,'price':price}
+        return {'name':name,'price':price,'index':source_index}
 
     @app.get('/api/admin/option-lists')
     def option_lists():
@@ -47,9 +47,9 @@ def register_product_options_admin_phase2(app, db):
                     for x in order:
                         try: i=int(x)
                         except (TypeError,ValueError): continue
-                        if 0<=i<len(vals) and i not in used: ordered.append(vals[i]); used.add(i)
-                ordered.extend(v for i,v in enumerate(vals) if i not in used)
-                options=[item(v) for v in ordered]; options=[o for o in options if o['name']]
+                        if 0<=i<len(vals) and i not in used: ordered.append((i,vals[i])); used.add(i)
+                ordered.extend((i,v) for i,v in enumerate(vals) if i not in used)
+                options=[item(v,i) for i,v in ordered]; options=[o for o in options if o['name']]
                 groups.append({'key':key,'name':str(meta.get('title') or meta.get('label') or LABELS.get(key) or key),
                                'required':bool(meta.get('required',False)),'max':meta.get('max',0) or 0,
                                'priceMode':meta.get('priceMode','extra'),'orderMode':modes.get(key,'source'),'options':options})
@@ -80,11 +80,13 @@ def register_product_options_admin_phase2(app, db):
 
     @app.get('/administration/options-produits')
     def options_admin_page():
-        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f4f5f7;color:#17191c}.top{background:#111827;color:white;padding:14px 22px}.top a{color:white;margin-left:18px}.wrap{max-width:1100px;margin:auto;padding:24px}.card,.group{background:white;border-radius:14px;padding:18px;margin:14px 0}.group{border:1px solid #d9dde3}.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:12px}.opt{border:1px solid #e4e7ec;border-radius:9px;padding:10px;display:flex;justify-content:space-between}.key,.hint{color:#667085;font-size:13px}.good{background:#e8f7ee;padding:10px;border-radius:8px}.bad{background:#fff0ee;color:#9d261d;padding:10px;border-radius:8px}select{width:100%;padding:11px}</style></head><body><div class="top"><b>BÉCHÉFAA • Administration</b><a href="/administration/produits">Produits</a><a href="/pos">Caisse</a></div><div class="wrap"><h1>Options et suppléments</h1><p class="hint">Lecture directe de catalog_admin_v2 — aucune ressaisie.</p><div id="status">Chargement…</div><div class="card"><h2>Groupes existants</h2><div id="groups"></div></div><div class="card"><h2>Affectation par produit</h2><select id="product"></select><div id="assignment"></div></div></div><script>
+        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f4f5f7;color:#17191c}.top{background:#111827;color:white;padding:14px 22px}.top a{color:white;margin-left:18px}.wrap{max-width:1100px;margin:auto;padding:24px}.card,.group{background:white;border-radius:14px;padding:18px;margin:14px 0}.group{border:1px solid #d9dde3}.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin-top:12px}.opt{border:1px solid #e4e7ec;border-radius:9px;padding:9px;display:grid;grid-template-columns:1fr 85px 74px;gap:7px;align-items:center}.opt input{width:100%;padding:8px;border:1px solid #ccd1d8;border-radius:7px}.opt button{border:0;border-radius:7px;padding:9px;background:#14804a;color:white;font-weight:700;cursor:pointer}.key,.hint{color:#667085;font-size:13px}.good{background:#e8f7ee;padding:10px;border-radius:8px}.bad{background:#fff0ee;color:#9d261d;padding:10px;border-radius:8px}select{width:100%;padding:11px}</style></head><body><div class="top"><b>BÉCHÉFAA • Administration</b><a href="/administration/produits">Produits</a><a href="/pos">Caisse</a></div><div class="wrap"><h1>Options et suppléments</h1><p class="hint">Modification sécurisée des prix. Aucun ajout, suppression ou réorganisation à cette étape.</p><div id="status">Chargement…</div><div class="card"><h2>Groupes existants</h2><div id="groups"></div></div><div class="card"><h2>Affectation par produit</h2><select id="product"></select><div id="assignment"></div></div></div><script>
 const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n||0).toFixed(2).replace('.',',')+' €';
-async function json(url){const r=await fetch(url+'?t='+Date.now(),{cache:'no-store'});let d;try{d=await r.json()}catch(e){throw Error('Réponse serveur invalide ('+r.status+')')}if(!r.ok||!d.ok)throw Error((d&&d.error)||('Erreur '+r.status));return d}
-async function groups(){const d=await json('/api/admin/option-lists');document.getElementById('groups').innerHTML=d.groups.map(g=>'<div class="group"><b>'+E(g.name)+'</b> <span class="key">('+E(g.key)+')</span><div class="opts">'+g.options.map(o=>'<div class="opt"><span>'+E(o.name)+'</span><b>'+(o.price?('+'+money(o.price)):'0,00 €')+'</b></div>').join('')+'</div></div>').join('');return d.count}
+async function json(url){const r=await fetch(url+(url.includes('?')?'&':'?')+'t='+Date.now(),{cache:'no-store'});let d;try{d=await r.json()}catch(e){throw Error('Réponse serveur invalide ('+r.status+')')}if(!r.ok||!d.ok)throw Error((d&&d.error)||('Erreur '+r.status));return d}
+async function groups(){const d=await json('/api/admin/option-lists');document.getElementById('groups').innerHTML=d.groups.map(g=>'<div class="group"><b>'+E(g.name)+'</b> <span class="key">('+E(g.key)+')</span><div class="opts">'+g.options.map(o=>'<div class="opt"><span>'+E(o.name)+'</span><input type="number" min="0" step="0.01" value="'+Number(o.price||0).toFixed(2)+'" data-price><button type="button" data-save data-group="'+E(g.key)+'" data-index="'+Number(o.index)+'">Prix</button></div>').join('')+'</div></div>').join('');return d.count}
+async function savePrice(btn){const input=btn.parentElement.querySelector('[data-price]');const price=input.value;if(price===''||Number(price)<0){alert('Prix invalide');return}btn.disabled=true;const old=btn.textContent;btn.textContent='...';try{const r=await fetch('/api/admin/option-lists/'+encodeURIComponent(btn.dataset.group)+'/'+encodeURIComponent(btn.dataset.index)+'/price',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({price})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');btn.textContent='OK';document.getElementById('status').innerHTML='<div class="good">Prix de « '+E(d.name)+' » enregistré : '+money(d.price)+'</div>';setTimeout(()=>btn.textContent=old,1200)}catch(e){btn.textContent=old;alert(e.message)}finally{btn.disabled=false}}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-save]');if(b)savePrice(b)});
 async function products(){const d=await json('/api/admin/options-products-list');const s=document.getElementById('product');s.innerHTML=d.products.map(p=>'<option value="'+E(p.id)+'">'+E(p.name)+'</option>').join('');s.onchange=assignment;if(s.value)await assignment()}
 async function assignment(){const id=document.getElementById('product').value;if(!id)return;const d=await json('/api/admin/options-product/'+encodeURIComponent(id));const s=d.optionSelections||{};const refs=Object.keys(s);const chosen=refs.filter(k=>Array.isArray(s[k])&&s[k].length);document.getElementById('assignment').innerHTML='<p><b>'+E(d.product.name)+'</b></p><p>Groupes référencés : '+(refs.length?refs.map(E).join(', '):'aucun')+'</p><p>Groupes avec choix : '+(chosen.length?chosen.map(k=>E(k)+' ('+s[k].length+')').join(', '):'aucun')+'</p>'}
 (async()=>{try{const n=await groups();await products();document.getElementById('status').innerHTML='<div class="good">'+n+' groupes chargés depuis PostgreSQL.</div>'}catch(e){document.getElementById('status').innerHTML='<div class="bad">'+E(e.message)+'</div>';document.getElementById('groups').innerHTML='<div class="bad">Impossible de charger les groupes.</div>'}})();
