@@ -3,6 +3,7 @@
 - La fiche client existante devient une fenêtre modale.
 - Trois modes de commande : Salle, Emporter, Livraison.
 - Salle n'utilise pas de coordonnées client.
+- Le client courant est effacé après envoi réussi en cuisine.
 - Aucun Wix / V1 / localStorage.
 """
 import importlib
@@ -114,6 +115,21 @@ def register_pos_touch_layout(app, db):
 
    ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});
    document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
+
+   /* Une fois l'envoi cuisine confirmé, prépare immédiatement la caisse pour le client suivant. */
+   const msg=document.getElementById('order-message');
+   if(msg){
+     const observer=new MutationObserver(function(){
+       const text=(msg.textContent||'').toLowerCase();
+       if(text.includes('envoyée en cuisine')){
+         clearCustomer();
+         shut();
+         const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'Salle';
+         if(mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
+       }
+     });
+     observer.observe(msg,{childList:true,subtree:true,characterData:true});
+   }
 
    updateSummary();applyMode('Salle');
    /* Déclenche aussi le gestionnaire natif de la caisse afin que TICKET_TYPE devienne Salle. */
