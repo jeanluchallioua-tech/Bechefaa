@@ -25,6 +25,7 @@ from clean_caisse.category_diagnostic_phase24 import register_category_diagnosti
 from clean_caisse.category_add_test_phase24 import register_category_add_test_phase24
 from clean_caisse.category_rename_test_phase24 import register_category_rename_test_phase24
 from clean_caisse.category_delete_test_phase24 import register_category_delete_test_phase24
+from clean_caisse.category_admin_phase24 import register_category_admin_phase24
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -49,3 +50,4 @@ register_category_diagnostic_phase24(app, db)
 register_category_add_test_phase24(app, db)
 register_category_rename_test_phase24(app, db)
 register_category_delete_test_phase24(app, db)
+register_category_admin_phase24(app, db)
