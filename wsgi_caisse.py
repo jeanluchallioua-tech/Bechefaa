@@ -17,6 +17,7 @@ from clean_caisse.history_add_product import register_history_add_product
 from clean_caisse.printing_timestamp import register_printing_timestamp
 from clean_caisse.product_admin_phase2 import register_product_admin_phase2
 from clean_caisse.product_options_admin_phase2 import register_product_options_admin_phase2
+from clean_caisse.options_diagnostic_phase2 import register_options_diagnostic_phase2
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -33,3 +34,4 @@ register_history_add_product(app)
 register_printing_timestamp(app, db)
 register_product_admin_phase2(app, db)
 register_product_options_admin_phase2(app, db)
+register_options_diagnostic_phase2(app, db)
