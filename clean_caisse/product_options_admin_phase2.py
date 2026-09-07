@@ -1,9 +1,13 @@
-"""Phase 2.3 — administration propre des options produits.
+"""Phase 2.3 — administration des options produits depuis catalog_admin_v2.
 
-Lit les options déjà présentes dans catalog_admin_v2 sans les recréer.
-- Format canonique : products[].options
-- Compatibilité lecture : products[].optionSelections
-- L'enregistrement écrit uniquement products[].options et conserve les données historiques.
+Lecture fidèle de la structure existante :
+- optionLists : définitions centrales des groupes/options
+- optionListDefs : métadonnées des groupes custom
+- optionListOrders / optionListOrderModes : ordre existant
+- products[].optionSelections : sélections par produit
+- products[].options : groupes matérialisés sur certains produits
+
+Cette étape affiche les groupes/options existants sans les recréer.
 Aucun Wix / V1 / localStorage.
 """
 import json
@@ -14,6 +18,20 @@ from flask import Response, jsonify, request
 
 
 def register_product_options_admin_phase2(app, db):
+    LABELS = {
+        "pain": "Pain",
+        "poulet": "Poulet",
+        "sauces": "Sauces",
+        "tender": "Type de tender",
+        "cuisson": "Cuisson",
+        "viandes": "Viandes",
+        "boissons": "Boissons",
+        "garnitures": "Garnitures",
+        "saucesSupp": "Sauces supplémentaires",
+        "supplements": "Suppléments",
+        "accompagnements": "Accompagnements",
+    }
+
     def load(conn):
         row = conn.execute(
             "SELECT data_json::text AS data_json FROM catalog_admin_v2 WHERE id=1"
@@ -33,25 +51,14 @@ def register_product_options_admin_phase2(app, db):
 
     def find_product(data, product_id):
         return next(
-            (
-                p
-                for p in data.get("products") or []
-                if isinstance(p, dict) and str(p.get("id") or "") == str(product_id)
-            ),
+            (p for p in data.get("products") or []
+             if isinstance(p, dict) and str(p.get("id") or "") == str(product_id)),
             None,
         )
 
-    def legacy_option_item(value):
-        """Normalise une option historique pour affichage sans modifier la base."""
+    def normal_item(value):
         if isinstance(value, dict):
-            name = str(
-                value.get("name")
-                or value.get("label")
-                or value.get("title")
-                or value.get("value")
-                or value.get("id")
-                or ""
-            ).strip()
+            name = str(value.get("name") or value.get("label") or value.get("title") or value.get("value") or "").strip()
             price = value.get("price", value.get("extraPrice", value.get("supplement", 0)))
         elif isinstance(value, (list, tuple)):
             name = str(value[0] if value else "").strip()
@@ -65,94 +72,59 @@ def register_product_options_admin_phase2(app, db):
             price = 0.0
         return {"name": name, "price": price}
 
-    def groups_for_admin(product):
-        """Retourne d'abord le format moderne, sinon les groupes historiques existants."""
-        direct = product.get("options")
-        if isinstance(direct, list) and direct:
-            return direct, "options"
-
-        selections = product.get("optionSelections")
-        if not isinstance(selections, dict):
-            return [], "none"
-
-        rules = product.get("optionRules") if isinstance(product.get("optionRules"), dict) else {}
-        groups = []
-        for group_name, values in selections.items():
-            if not isinstance(values, list) or not values:
+    def ordered_values(values, order):
+        if not isinstance(values, list):
+            return []
+        if not isinstance(order, list) or not order:
+            return values
+        out, used = [], set()
+        for raw in order:
+            try:
+                idx = int(raw)
+            except (ValueError, TypeError):
                 continue
-            rule = rules.get(group_name) if isinstance(rules.get(group_name), dict) else {}
-            required = bool(rule.get("required", False))
-            raw_max = rule.get("max", rule.get("maxChoices", rule.get("maximum", 0)))
-            try:
-                max_choices = max(0, int(raw_max or 0))
-            except (ValueError, TypeError):
-                max_choices = 0
-            items = [legacy_option_item(v) for v in values]
-            items = [v for v in items if v["name"]]
-            if items:
-                if max_choices > len(items):
-                    max_choices = len(items)
-                groups.append(
-                    {
-                        "name": str(group_name).strip(),
-                        "required": required,
-                        "max": max_choices,
-                        "options": items,
-                    }
-                )
-        return groups, "optionSelections"
+            if 0 <= idx < len(values) and idx not in used:
+                out.append(values[idx]); used.add(idx)
+        out.extend(v for i, v in enumerate(values) if i not in used)
+        return out
 
-    def clean_options(payload):
-        raw_groups = payload.get("groups")
-        if not isinstance(raw_groups, list):
-            return None, "Liste des groupes invalide"
+    def central_groups(data):
+        lists = data.get("optionLists") if isinstance(data.get("optionLists"), dict) else {}
+        defs = data.get("optionListDefs") if isinstance(data.get("optionListDefs"), dict) else {}
+        orders = data.get("optionListOrders") if isinstance(data.get("optionListOrders"), dict) else {}
+        modes = data.get("optionListOrderModes") if isinstance(data.get("optionListOrderModes"), dict) else {}
         groups = []
-        for raw_group in raw_groups:
-            if not isinstance(raw_group, dict):
-                return None, "Groupe d’options invalide"
-            name = str(raw_group.get("name") or "").strip()
-            if not name:
-                return None, "Nom du groupe obligatoire"
-            required = bool(raw_group.get("required", False))
-            try:
-                max_choices = int(raw_group.get("max", 0) or 0)
-            except (ValueError, TypeError):
-                return None, "Nombre maximum de choix invalide"
-            if max_choices < 0:
-                return None, "Nombre maximum de choix invalide"
-            raw_items = raw_group.get("options")
-            if not isinstance(raw_items, list) or not raw_items:
-                return None, f"Ajoutez au moins une option dans « {name} »"
-            items = []
-            seen = set()
-            for raw_item in raw_items:
-                if not isinstance(raw_item, dict):
-                    return None, f"Option invalide dans « {name} »"
-                item_name = str(raw_item.get("name") or "").strip()
-                if not item_name:
-                    return None, f"Nom d’option obligatoire dans « {name} »"
-                key = item_name.casefold()
-                if key in seen:
-                    return None, f"Option en double dans « {name} »"
-                seen.add(key)
-                try:
-                    price = Decimal(str(raw_item.get("price", 0) or 0)).quantize(Decimal("0.01"))
-                except (InvalidOperation, ValueError, TypeError):
-                    return None, f"Prix invalide pour « {item_name} »"
-                if price < 0:
-                    return None, f"Prix invalide pour « {item_name} »"
-                items.append({"name": item_name, "price": float(price)})
-            if max_choices > len(items):
-                max_choices = len(items)
-            groups.append(
-                {
-                    "name": name,
-                    "required": required,
-                    "max": max_choices,
-                    "options": items,
-                }
-            )
-        return groups, None
+        for key, raw_values in lists.items():
+            if not isinstance(raw_values, list):
+                continue
+            meta = defs.get(key) if isinstance(defs.get(key), dict) else {}
+            label = str(meta.get("title") or meta.get("label") or LABELS.get(key) or key).strip()
+            display_values = ordered_values(raw_values, orders.get(key))
+            groups.append({
+                "key": key,
+                "name": label,
+                "required": bool(meta.get("required", False)),
+                "max": int(meta.get("max", 0) or 0) if str(meta.get("max", 0) or 0).lstrip("-").isdigit() else 0,
+                "priceMode": str(meta.get("priceMode") or "extra"),
+                "orderMode": str(modes.get(key) or "source"),
+                "options": [normal_item(v) for v in display_values if normal_item(v)["name"]],
+            })
+        return groups
+
+    @app.get("/api/admin/option-lists")
+    def admin_option_lists():
+        try:
+            with db() as conn:
+                data = load(conn)
+            groups = central_groups(data)
+            return jsonify({
+                "ok": True,
+                "source": "catalog_admin_v2.optionLists",
+                "count": len(groups),
+                "groups": groups,
+            })
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Groupes d’options indisponibles", "detail": str(exc)}), 500
 
     @app.get("/api/admin/products/<product_id>/options")
     def admin_get_product_options(product_id):
@@ -162,41 +134,17 @@ def register_product_options_admin_phase2(app, db):
             product = find_product(data, product_id)
             if not product:
                 return jsonify({"ok": False, "error": "Produit introuvable"}), 404
-            groups, source_format = groups_for_admin(product)
-            return jsonify(
-                {
-                    "ok": True,
-                    "product": {
-                        "id": product.get("id"),
-                        "name": product.get("name"),
-                        "price": product.get("price", 0),
-                    },
-                    "groups": groups,
-                    "sourceFormat": source_format,
-                }
-            )
+            selections = product.get("optionSelections") if isinstance(product.get("optionSelections"), dict) else {}
+            direct = product.get("options") if isinstance(product.get("options"), list) else []
+            return jsonify({
+                "ok": True,
+                "product": {"id": product.get("id"), "name": product.get("name"), "price": product.get("price", 0)},
+                "optionSelections": selections,
+                "directOptions": direct,
+            })
         except Exception as exc:
             return jsonify({"ok": False, "error": "Options indisponibles", "detail": str(exc)}), 500
 
-    @app.put("/api/admin/products/<product_id>/options")
-    def admin_update_product_options(product_id):
-        groups, error = clean_options(request.get_json(silent=True) or {})
-        if error:
-            return jsonify({"ok": False, "error": error}), 400
-        try:
-            with db() as conn:
-                data = load(conn)
-                product = find_product(data, product_id)
-                if not product:
-                    return jsonify({"ok": False, "error": "Produit introuvable"}), 404
-                # Écrit le format propre utilisé par la nouvelle caisse.
-                # Ne supprime PAS optionSelections : aucune donnée historique n'est détruite.
-                product["options"] = groups
-                save(conn, data)
-            return jsonify({"ok": True, "product_id": product_id, "groups": groups})
-        except Exception as exc:
-            return jsonify({"ok": False, "error": "Enregistrement des options impossible", "detail": str(exc)}), 500
-
     @app.get("/administration/options-produits")
     def page_product_options():
-        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options produits</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f4f5f7;color:#17191c}.top{background:#111827;color:#fff;padding:14px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}.top a{color:#fff;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:700}.wrap{max-width:1000px;margin:auto;padding:24px}.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:18px}select,input{padding:11px;border:1px solid #ccd1d8;border-radius:9px;font-size:15px}.wide{width:100%}button{border:0;border-radius:9px;padding:10px 13px;background:#14804a;color:#fff;font-weight:800;cursor:pointer}.secondary{background:#344054}.danger{background:#9d261d}.group{border:1px solid #d9dde3;border-radius:12px;padding:14px;margin:12px 0}.ghead{display:grid;grid-template-columns:1fr 120px 130px auto;gap:8px;align-items:center}.opt{display:grid;grid-template-columns:1fr 140px auto;gap:8px;align-items:center;margin-top:8px}.check{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:700}.check input{width:auto}.msg{margin:12px 0;padding:11px;border-radius:8px}.ok{background:#e8f7ee}.err{background:#fff0ee;color:#9d261d}.hint{color:#667085;font-size:13px}@media(max-width:700px){.ghead,.opt{grid-template-columns:1fr}.ghead button,.opt button{width:100%}}</style></head><body><div class="top"><b>BÉCHÉFAA • Administration</b><a href="/administration/produits">Produits</a><a href="/pos">Caisse</a></div><div class="wrap"><h1>Options et suppléments</h1><p class="hint">Les groupes et options déjà présents dans catalog_admin_v2 sont chargés automatiquement.</p><div id="msg"></div><div class="card"><label><b>Produit</b></label><select id="product" class="wide"></select></div><div class="card"><div id="groups"></div><button id="add-group" type="button">+ Ajouter un groupe</button></div><div class="card"><button id="save" type="button">Enregistrer les options</button></div></div><script>const $=i=>document.getElementById(i);let groups=[];function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function message(t,ok){$('msg').innerHTML='<div class="msg '+(ok?'ok':'err')+'">'+esc(t)+'</div>'}function readForm(){let out=[];document.querySelectorAll('.group').forEach(g=>{let opts=[];g.querySelectorAll('.opt').forEach(o=>opts.push({name:o.querySelector('.oname').value,price:o.querySelector('.oprice').value}));out.push({name:g.querySelector('.gname').value,required:g.querySelector('.grequired').checked,max:g.querySelector('.gmax').value,options:opts})});return out}function render(){let root=$('groups');root.innerHTML=groups.map((g,gi)=>'<div class="group" data-gi="'+gi+'"><div class="ghead"><input class="gname" placeholder="Nom du groupe" value="'+esc(g.name||'')+'"><input class="gmax" type="number" min="0" value="'+Number(g.max||0)+'" title="0 = sans limite"><label class="check"><input class="grequired" type="checkbox" '+(g.required?'checked':'')+'> Obligatoire</label><button type="button" class="danger del-group">Supprimer groupe</button></div><div class="opts">'+(g.options||[]).map((o,oi)=>'<div class="opt" data-oi="'+oi+'"><input class="oname" placeholder="Nom de l’option" value="'+esc(o.name||'')+'"><input class="oprice" type="number" min="0" step="0.01" value="'+Number(o.price||0).toFixed(2)+'"><button type="button" class="danger del-opt">Supprimer</button></div>').join('')+'</div><button type="button" class="secondary add-opt" style="margin-top:10px">+ Ajouter une option</button></div>').join('');root.querySelectorAll('.group').forEach(el=>{let gi=Number(el.dataset.gi);el.querySelector('.del-group').onclick=()=>{groups=readForm();groups.splice(gi,1);render()};el.querySelector('.add-opt').onclick=()=>{groups=readForm();groups[gi].options.push({name:'',price:0});render()};el.querySelectorAll('.opt').forEach(opt=>{let oi=Number(opt.dataset.oi);opt.querySelector('.del-opt').onclick=()=>{groups=readForm();groups[gi].options.splice(oi,1);render()}})})}async function loadProducts(){let r=await fetch('/api/admin/products',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Produits indisponibles');$('product').innerHTML=(d.products||[]).map(p=>'<option value="'+esc(String(p.id||''))+'">'+esc(p.name||'')+'</option>').join('');if($('product').value)await loadOptions()}async function loadOptions(){let id=$('product').value;if(!id)return;let r=await fetch('/api/admin/products/'+encodeURIComponent(id)+'/options',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Options indisponibles');groups=Array.isArray(d.groups)?d.groups:[];render();let suffix=d.sourceFormat==='optionSelections'?' • options existantes récupérées du catalogue':'';message('Options de « '+(d.product?.name||'produit')+' » chargées'+suffix+'.',true)}$('product').onchange=()=>loadOptions().catch(e=>message(e.message,false));$('add-group').onclick=()=>{groups=readForm();groups.push({name:'',required:false,max:1,options:[{name:'',price:0}]});render()};$('save').onclick=async()=>{let id=$('product').value;if(!id)return;let payload={groups:readForm()};try{let r=await fetch('/api/admin/products/'+encodeURIComponent(id)+'/options',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');groups=d.groups||[];render();message('Options enregistrées.',true)}catch(e){message(e.message,false)}};loadProducts().catch(e=>message(e.message,false));</script></body></html>''', content_type="text/html; charset=utf-8")
+        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options produits</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f4f5f7;color:#17191c}.top{background:#111827;color:#fff;padding:14px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}.top a{color:#fff;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:700}.wrap{max-width:1050px;margin:auto;padding:24px}.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:18px}.hint{color:#667085;font-size:13px}.group{border:1px solid #d9dde3;border-radius:12px;padding:14px;margin:12px 0}.ghead{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.gkey{font-size:12px;color:#667085}.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:12px}.opt{border:1px solid #e4e7ec;border-radius:9px;padding:10px;background:#fafafa;display:flex;justify-content:space-between;gap:10px}.price{font-weight:800}.msg{margin:12px 0;padding:11px;border-radius:8px}.ok{background:#e8f7ee}.err{background:#fff0ee;color:#9d261d}select{width:100%;padding:11px;border:1px solid #ccd1d8;border-radius:9px;font-size:15px}.badge{background:#eef2f6;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:700}.selection{margin-top:10px;font-size:13px;color:#344054}</style></head><body><div class="top"><b>BÉCHÉFAA • Administration</b><a href="/administration/produits">Produits</a><a href="/pos">Caisse</a></div><div class="wrap"><h1>Options et suppléments</h1><p class="hint">Affichage direct des groupes déjà enregistrés dans catalog_admin_v2. Aucune ressaisie.</p><div id="msg"></div><div class="card"><h2>Groupes existants</h2><div id="central">Chargement…</div></div><div class="card"><h2>Affectation par produit</h2><select id="product"></select><div id="assignment" class="selection"></div></div></div><script>const $=i=>document.getElementById(i);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function money(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}function msg(t,ok){$('msg').innerHTML='<div class="msg '+(ok?'ok':'err')+'">'+esc(t)+'</div>'}async function loadGroups(){let r=await fetch('/api/admin/option-lists',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Groupes indisponibles');$('central').innerHTML=(d.groups||[]).map(g=>'<div class="group"><div class="ghead"><div><b>'+esc(g.name)+'</b><div class="gkey">'+esc(g.key)+'</div></div><div><span class="badge">'+(g.options||[]).length+' options</span></div></div><div class="opts">'+(g.options||[]).map(o=>'<div class="opt"><span>'+esc(o.name)+'</span><span class="price">'+(Number(o.price||0)?('+'+money(o.price)):'0,00 €')+'</span></div>').join('')+'</div></div>').join('');msg(d.count+' groupes existants chargés depuis le catalogue.',true)}async function loadProducts(){let r=await fetch('/api/admin/products',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Produits indisponibles');$('product').innerHTML=(d.products||[]).map(p=>'<option value="'+esc(String(p.id||''))+'">'+esc(p.name||'')+'</option>').join('');if($('product').value)await loadAssignment()}async function loadAssignment(){let id=$('product').value;if(!id)return;let r=await fetch('/api/admin/products/'+encodeURIComponent(id)+'/options',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Options produit indisponibles');let s=d.optionSelections||{},keys=Object.keys(s),active=keys.filter(k=>Array.isArray(s[k])&&s[k].length);$('assignment').innerHTML='<b>'+esc(d.product?.name||'Produit')+'</b><br>Groupes référencés : '+(keys.length?keys.map(esc).join(', '):'aucun')+'<br>Groupes avec choix enregistrés : '+(active.length?active.map(k=>esc(k)+' ('+s[k].length+')').join(', '):'aucun')+'<br>Groupes directs matérialisés : '+(Array.isArray(d.directOptions)?d.directOptions.length:0)}$('product').onchange=()=>loadAssignment().catch(e=>msg(e.message,false));Promise.all([loadGroups(),loadProducts()]).catch(e=>msg(e.message,false));</script></body></html>''', content_type="text/html; charset=utf-8")
