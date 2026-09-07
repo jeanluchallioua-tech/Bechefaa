@@ -19,6 +19,7 @@ from clean_caisse.product_admin_phase2 import register_product_admin_phase2
 from clean_caisse.product_options_admin_phase2 import register_product_options_admin_phase2
 from clean_caisse.options_diagnostic_phase2 import register_options_diagnostic_phase2
 from clean_caisse.option_price_admin_phase23 import register_option_price_admin_phase23
+from clean_caisse.option_add_test_phase23 import register_option_add_test_phase23
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -37,3 +38,4 @@ register_product_admin_phase2(app, db)
 register_product_options_admin_phase2(app, db)
 register_options_diagnostic_phase2(app, db)
 register_option_price_admin_phase23(app, db)
+register_option_add_test_phase23(app, db)
