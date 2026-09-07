@@ -111,7 +111,20 @@ def register_pos_touch_layout(app, db):
      if(mode==='Salle'){shut();clearCustomer()}
      else document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
    }
-   summary.onclick=open;close.onclick=shut;box.addEventListener('click',e=>{if(e.target===box)shut()});document.addEventListener('keydown',e=>{if(e.key==='Escape')shut()});panel.addEventListener('input',updateSummary);panel.addEventListener('click',e=>{if(e.target.closest('#cust-save')||e.target.closest('#cust-clear')||e.target.closest('.customer-result'))setTimeout(updateSummary,100)});
+   summary.onclick=open;close.onclick=shut;box.addEventListener('click',e=>{if(e.target===box)shut()});document.addEventListener('keydown',e=>{if(e.key==='Escape')shut()});panel.addEventListener('input',updateSummary);
+   panel.addEventListener('click',e=>{
+     if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);
+     if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);
+     if(e.target.closest('#cust-save'))setTimeout(updateSummary,100);
+   });
+
+   const note=document.getElementById('cust-note');
+   if(note){
+     new MutationObserver(()=>{
+       const text=(note.textContent||'').toLowerCase();
+       if(text.includes('client enregistré'))setTimeout(()=>{updateSummary();shut()},120);
+     }).observe(note,{childList:true,subtree:true,characterData:true});
+   }
 
    ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});
    document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
