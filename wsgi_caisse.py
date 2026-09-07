@@ -11,6 +11,7 @@ from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
 from clean_caisse.pos_touch_layout import register_pos_touch_layout
 from clean_caisse.printing_phase1 import register_printing_phase1
+from clean_caisse.history_print_buttons import register_history_print_buttons
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -21,3 +22,4 @@ register_customer_phase1(app, db, ensure_order_schema)
 register_delivery_zones(app, db)
 register_pos_quick_add(app)
 register_printing_phase1(app, db, ensure_order_schema, order_payload)
+register_history_print_buttons(app)
