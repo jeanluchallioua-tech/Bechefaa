@@ -1,3 +1,6 @@
+-- BÉCHÉFAA-Caisse — schéma PostgreSQL de référence Phase 1
+-- Source catalogue séparée : catalog_admin_v2 (déjà existante, non recréée ici).
+
 CREATE TABLE IF NOT EXISTS caisse_clients (
     id TEXT PRIMARY KEY,
     first_name TEXT NOT NULL DEFAULT '',
@@ -25,7 +28,7 @@ CREATE TABLE IF NOT EXISTS caisse_orders (
     city TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'CAISSE',
     payment TEXT NOT NULL DEFAULT 'À ENCAISSER',
-    status TEXT NOT NULL DEFAULT 'À préparer',
+    status TEXT NOT NULL DEFAULT 'Enregistrée',
     total NUMERIC(12,2) NOT NULL DEFAULT 0,
     modification_flag BOOLEAN NOT NULL DEFAULT FALSE,
     change_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -49,8 +52,30 @@ CREATE TABLE IF NOT EXISTS caisse_order_items (
     UNIQUE(order_id, line_id)
 );
 
+CREATE TABLE IF NOT EXISTS caisse_delivery_zones (
+    code TEXT PRIMARY KEY,
+    minimum_order NUMERIC(12,2) NOT NULL DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS caisse_delivery_cities (
+    id BIGSERIAL PRIMARY KEY,
+    zone_code TEXT NOT NULL REFERENCES caisse_delivery_zones(code) ON DELETE CASCADE,
+    postal_code TEXT NOT NULL,
+    city TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE(postal_code, city)
+);
+
+INSERT INTO caisse_delivery_zones(code, minimum_order, active)
+VALUES ('A',0,TRUE),('B',0,TRUE),('C',0,TRUE)
+ON CONFLICT(code) DO NOTHING;
+
 CREATE INDEX IF NOT EXISTS idx_caisse_orders_created_at ON caisse_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_caisse_orders_status ON caisse_orders(status);
 CREATE INDEX IF NOT EXISTS idx_caisse_orders_customer_id ON caisse_orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_caisse_clients_phone ON caisse_clients(phone);
+CREATE INDEX IF NOT EXISTS idx_caisse_clients_email_lower ON caisse_clients(LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_caisse_order_items_order_id ON caisse_order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_caisse_delivery_cities_postal ON caisse_delivery_cities(postal_code);
+CREATE INDEX IF NOT EXISTS idx_caisse_delivery_cities_zone ON caisse_delivery_cities(zone_code);
