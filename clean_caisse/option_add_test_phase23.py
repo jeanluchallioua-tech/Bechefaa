@@ -21,6 +21,41 @@ def register_option_add_test_phase23(app, db):
         data = json.loads(row['data_json'] or '{}')
         return data if isinstance(data, dict) else {}
 
+    def proven_group_metadata(data, group_key):
+        """Réutilise les métadonnées d'un groupe central déjà matérialisé dans le catalogue.
+
+        Aucun réglage n'est inventé : title/required/max/priceMode sont copiés depuis
+        un produit existant qui utilise déjà central_<group_key>. Pour les groupes
+        personnalisés seulement, optionListDefs reste le repli historique.
+        """
+        central_key = 'central_' + group_key
+        for existing_product in data.get('products') or []:
+            if not isinstance(existing_product, dict):
+                continue
+            for existing_group in existing_product.get('options') or []:
+                if not isinstance(existing_group, dict) or str(existing_group.get('key') or '') != central_key:
+                    continue
+                return {
+                    'key': central_key,
+                    'title': str(existing_group.get('title') or existing_group.get('name') or group_key),
+                    'required': bool(existing_group.get('required', False)),
+                    'max': existing_group.get('max', 0) or 0,
+                    'priceMode': existing_group.get('priceMode', 'extra'),
+                    'choices': [],
+                }
+        defs = data.get('optionListDefs') or {}
+        definition = defs.get(group_key) if isinstance(defs, dict) and isinstance(defs.get(group_key), dict) else None
+        if definition:
+            return {
+                'key': central_key,
+                'title': str(definition.get('title') or definition.get('label') or group_key),
+                'required': bool(definition.get('required', False)),
+                'max': definition.get('max', 0) or 0,
+                'priceMode': definition.get('priceMode', 'extra'),
+                'choices': [],
+            }
+        raise ValueError('Métadonnées de groupe non prouvées : affectation refusée')
+
     @app.route('/administration/options-ajout-test', methods=['GET', 'POST'], endpoint='phase23_option_add_test_page')
     def option_add_test_page():
         message = ''
@@ -78,9 +113,7 @@ def register_option_add_test_phase23(app, db):
                                 product['options'] = direct
                             group = next((g for g in direct if isinstance(g, dict) and str(g.get('key') or '') == central_key), None)
                             if group is None:
-                                defs = data.get('optionListDefs') or {}
-                                definition = defs.get(group_key) if isinstance(defs, dict) and isinstance(defs.get(group_key), dict) else {}
-                                group = {'key': central_key, 'title': str(definition.get('title') or definition.get('label') or group_key), 'required': bool(definition.get('required', False)), 'max': definition.get('max', 0) or 0, 'priceMode': definition.get('priceMode', 'extra'), 'choices': []}
+                                group = proven_group_metadata(data, group_key)
                                 direct.append(group)
                             materialized = group.get('choices')
                             if not isinstance(materialized, list):
@@ -95,7 +128,7 @@ def register_option_add_test_phase23(app, db):
                             if not exists:
                                 materialized.append([option_name, option_price])
                             conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1", (json.dumps(data, ensure_ascii=False), int(time.time() * 1000)))
-                    message = f'Option « {option_name} » affectée à « {product.get("name") or product_id} » sans modifier les autres indices.'
+                    message = f'Option « {option_name} » affectée à « {product.get("name") or product_id} » avec les métadonnées existantes du groupe.'
                 else:
                     group_key = str(request.form.get('group_key') or '').strip()
                     name = str(request.form.get('name') or '').strip()
