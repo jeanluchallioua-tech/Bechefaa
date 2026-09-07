@@ -127,8 +127,6 @@ def _validate_delivery_payload(payload, db):
 
 
 def register_delivery_guard_phase27(app, db):
-    # Verrou direct sur la vue create_order : le contrôle est exécuté juste avant
-    # l'INSERT PostgreSQL, et non plus seulement via un before_request séparé.
     original = app.view_functions.get("create_order")
     if original is None:
         raise RuntimeError("Endpoint create_order introuvable pour la Phase 2.7")
@@ -151,3 +149,25 @@ def register_delivery_guard_phase27(app, db):
         return original(*args, **kwargs)
 
     app.view_functions["create_order"] = create_order_with_delivery_guard
+
+    @app.get("/api/delivery-guard-phase27/status")
+    def delivery_guard_phase27_status():
+        try:
+            with db() as conn:
+                _ensure_delivery_schema(conn)
+                conn.commit()
+                zones = conn.execute(
+                    """SELECT z.code,z.minimum_order,z.active,c.city,c.postal_code,c.active AS city_active
+                       FROM caisse_delivery_zones z
+                       LEFT JOIN caisse_delivery_cities c ON c.zone_code=z.code
+                       ORDER BY z.code,c.city,c.postal_code"""
+                ).fetchall()
+            return jsonify({
+                "ok": True,
+                "phase": "2.7",
+                "guard": "endpoint-wrapper",
+                "create_order_wrapped": app.view_functions.get("create_order") is create_order_with_delivery_guard,
+                "zones": [dict(r) for r in zones],
+            })
+        except Exception as exc:
+            return jsonify({"ok": False,"phase":"2.7","error":str(exc)}),500
