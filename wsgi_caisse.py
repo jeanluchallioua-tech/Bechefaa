@@ -34,6 +34,7 @@ from clean_caisse.product_group_order_phase25 import register_product_group_orde
 from clean_caisse.product_group_rename_phase25 import register_product_group_rename_phase25
 from clean_caisse.price_check_phase26 import register_price_check_phase26
 from clean_caisse.order_price_guard_phase26 import register_order_price_guard_phase26
+from clean_caisse.delivery_guard_phase27 import register_delivery_guard_phase27
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -67,3 +68,4 @@ register_product_group_order_phase25(app, db)
 register_product_group_rename_phase25(app, db)
 register_price_check_phase26(app, db)
 register_order_price_guard_phase26(app, db)
+register_delivery_guard_phase27(app, db)
