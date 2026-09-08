@@ -30,9 +30,12 @@ def register_history_print_buttons(app):
        if(card.querySelector('.history-print-actions'))return;
        const buttons=[...card.querySelectorAll('button')];
        const edit=buttons.find(b=>String(b.textContent||'').trim()==='Modifier');
-       if(!edit)return;
-       const onclick=edit.getAttribute('onclick')||'';
-       const match=onclick.match(/editOrder\('([^']+)'\)/);
+       const view=buttons.find(b=>String(b.textContent||'').trim()==='Voir');
+       const sourceButton=edit||view;
+       if(!sourceButton)return;
+       const onclick=sourceButton.getAttribute('onclick')||'';
+       let match=onclick.match(/editOrder\('([^']+)'\)/);
+       if(!match)match=onclick.match(/viewOrder\('([^']+)'\)/);
        if(!match)return;
        const id=match[1];
        const wrap=document.createElement('div');wrap.className='history-print-actions';
