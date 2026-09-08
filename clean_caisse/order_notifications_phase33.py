@@ -3,6 +3,7 @@
 Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/ticket/TVA.
 Le son est activable sur Cuisine ou Caisse et son choix est mémorisé dans le navigateur.
 Aucune modification du DOM des cartes cuisine : pas de saut de mise en page.
+Le bouton sonore disparaît lorsqu'il est activé ; il reste visible en haut à droite seulement si le son doit être activé.
 """
 from flask import request
 
@@ -16,8 +17,8 @@ def register_order_notifications_phase33(app):
         html = response.get_data(as_text=True)
         addon = r'''
 <style>
-.phase33-audio{position:fixed;right:14px;bottom:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
-.phase33-audio.on{background:#16a34a}
+.phase33-audio{position:fixed;right:14px;top:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
+.phase33-audio.hidden{display:none}
 </style>
 <script>
 (function(){
@@ -51,14 +52,13 @@ def register_order_notifications_phase33(app):
  }
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
-   b.classList.toggle('on',wanted);b.textContent=wanted?'🔊 Son activé':'🔇 Activer le son';
+   b.classList.toggle('hidden',wanted);b.textContent='🔇 Activer le son';
  }
  function installButton(){
    if(document.getElementById('phase33-audio'))return;
    const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
    b.onclick=async function(e){
      e.preventDefault();e.stopPropagation();
-     if(wanted){wanted=false;localStorage.setItem(KEY,'0');updateButton();return}
      if(!(await unlock(true)))alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');
    };
    updateButton();
