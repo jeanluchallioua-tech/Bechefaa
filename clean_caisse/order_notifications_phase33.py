@@ -4,6 +4,7 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
 Le son est activable sur Cuisine ou Caisse et son choix est mémorisé dans le navigateur.
 Aucune modification du DOM des cartes cuisine : pas de saut de mise en page.
 Le bouton sonore disparaît lorsqu'il est activé ; il reste visible en haut à droite seulement si le son doit être activé.
+La détection sonore repose sur le dernier numéro de commande vu, mémorisé entre les pages.
 """
 from flask import request
 
@@ -22,9 +23,10 @@ def register_order_notifications_phase33(app):
 </style>
 <script>
 (function(){
- const KEY='bechefaa_phase33_sound';
- let initialized=false,known=new Set(),audioCtx=null;
- let wanted=localStorage.getItem(KEY)==='1';
+ const SOUND_KEY='bechefaa_phase33_sound';
+ const LAST_KEY='bechefaa_phase33_last_order_num';
+ let audioCtx=null;
+ let wanted=localStorage.getItem(SOUND_KEY)==='1';
 
  function getCtx(){
    try{
@@ -37,7 +39,7 @@ def register_order_notifications_phase33(app):
    const ctx=getCtx();if(!ctx)return false;
    try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
    if(ctx.state!=='running')return false;
-   wanted=true;localStorage.setItem(KEY,'1');updateButton();
+   wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
    if(test)beep();
    return true;
  }
@@ -46,8 +48,8 @@ def register_order_notifications_phase33(app):
      const ctx=getCtx();if(!wanted||!ctx||ctx.state!=='running')return;
      const osc=ctx.createOscillator(),gain=ctx.createGain();
      osc.type='sine';osc.frequency.value=880;
-     gain.gain.setValueAtTime(.16,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.45);
-     osc.connect(gain);gain.connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.45);
+     gain.gain.setValueAtTime(.18,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.5);
+     osc.connect(gain);gain.connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.5);
    }catch(e){}
  }
  function updateButton(){
@@ -68,16 +70,29 @@ def register_order_notifications_phase33(app):
  document.addEventListener('keydown',resumeRemembered);
 
  function inspect(orders){
-   const active=(orders||[]).filter(o=>o.status==='À préparer'||o.status==='En préparation');
-   const current=new Set(active.map(o=>String(o.id)));
-   if(initialized&&active.some(o=>o.status==='À préparer'&&!known.has(String(o.id))))beep();
-   known=current;initialized=true;
+   const preparing=(orders||[]).filter(o=>o.status==='À préparer');
+   const nums=preparing.map(o=>Number(o.num)).filter(Number.isFinite);
+   const allNums=(orders||[]).map(o=>Number(o.num)).filter(Number.isFinite);
+   if(!allNums.length)return;
+   const maxSeen=Math.max.apply(null,allNums);
+   const storedRaw=localStorage.getItem(LAST_KEY);
+   if(storedRaw===null){
+     localStorage.setItem(LAST_KEY,String(maxSeen));
+     return;
+   }
+   const last=Number(storedRaw);
+   const hasNew=nums.some(n=>n>last);
+   if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
+   if(hasNew)beep();
  }
  async function poll(){
-   try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders)}catch(e){}
+   try{
+     const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();
+     if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);
+   }catch(e){}
  }
  installButton();
- poll();setInterval(poll,5000);
+ poll();setInterval(poll,4000);
 })();
 </script>
 '''
