@@ -42,6 +42,7 @@ from clean_caisse.order_notifications_phase33 import register_order_notification
 from clean_caisse.cash_x_phase34 import register_cash_x_phase34
 from clean_caisse.cash_z_phase35 import register_cash_z_phase35
 from clean_caisse.phase35_ui_stability import register_phase35_ui_stability
+from clean_caisse.table_core_phase36 import register_table_core_phase36
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -83,3 +84,4 @@ register_order_notifications_phase33(app)
 register_cash_x_phase34(app, db, ensure_order_schema)
 register_cash_z_phase35(app, db, ensure_order_schema)
 register_phase35_ui_stability(app)
+register_table_core_phase36(app, db)
