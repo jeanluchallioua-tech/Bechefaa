@@ -39,7 +39,6 @@ def _fallback_tax(total):
 
 def _load_order(conn, ensure_order_schema, order_payload, order_id):
     ensure_order_schema(conn)
-    # Phase 3.1 ajoute ces colonnes. IF NOT EXISTS garde le chargement idempotent.
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,3)")
@@ -76,7 +75,7 @@ def _base_css():
 <style>
 @page{size:80mm auto;margin:3mm}
 *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000;font-family:Arial,sans-serif}
-.ticket80{width:74mm;margin:0 auto;font-size:12px;line-height:1.3}.center{text-align:center}.brand{font-size:22px;font-weight:900;letter-spacing:.4px}.big{font-size:28px;font-weight:900}.mode{font-size:18px;font-weight:900;margin:5px 0}.sep{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px}.item{padding:5px 0}.item-name{font-size:14px;font-weight:800}.opts{font-size:11px;margin-top:2px}.total{font-size:19px;font-weight:900}.fiscal{font-size:13px;font-weight:700;padding:1px 0}.client-info{font-weight:900}.pieces{font-weight:900;margin:4px 0}.muted{font-size:10px}.actions{margin:12px auto;width:74mm;display:flex;gap:8px}.actions button{flex:1;padding:10px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:800;cursor:pointer}
+.ticket80{width:74mm;margin:0 auto;font-size:12px;line-height:1.3}.center{text-align:center}.brand{font-size:22px;font-weight:900;letter-spacing:.4px}.big{font-size:28px;font-weight:900}.mode{font-size:18px;font-weight:900;margin:5px 0}.sep{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px}.item{padding:5px 0}.item-name{font-size:14px;font-weight:800}.opts{font-size:11px;margin-top:2px}.total{font-size:19px;font-weight:900}.fiscal{font-size:13px;font-weight:700;padding:1px 0}.client-info{font-weight:900;text-align:center}.pieces{font-weight:900;margin:4px 0}.muted{font-size:10px}.actions{margin:12px auto;width:74mm;display:flex;gap:8px}.actions button{flex:1;padding:10px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:800;cursor:pointer}
 @media print{.actions{display:none!important}.ticket80{width:74mm}}
 </style>
 '''
