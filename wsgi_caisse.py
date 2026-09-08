@@ -47,12 +47,11 @@ from clean_caisse.table_pos_phase36 import register_table_pos_phase36
 from clean_caisse.table_print_phase36 import register_table_print_phase36
 from clean_caisse.table_history_phase36 import register_table_history_phase36
 from clean_caisse.z_lock_phase37 import register_z_lock_phase37
+from clean_caisse.pos_quantity_phase38 import register_pos_quantity_phase38
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
-# Enregistrer l'ergonomie avant le module Client : les after_request Flask
-# s'exécutent en ordre inverse, donc la fiche Client existe avant sa transformation en fenêtre.
 register_pos_touch_layout(app, db)
 register_customer_phase1(app, db, ensure_order_schema)
 register_delivery_zones(app, db)
@@ -93,3 +92,4 @@ register_table_pos_phase36(app, db)
 register_table_print_phase36(app, db)
 register_table_history_phase36(app)
 register_z_lock_phase37(app, db, ensure_order_schema)
+register_pos_quantity_phase38(app)
