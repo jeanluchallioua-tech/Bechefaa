@@ -179,17 +179,17 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
             return f"Impression indisponible : {escape(str(exc))}", 500
 
         mode = order["ticket_type"]
-        channel = order.get("channel") or "CAISSE"
+        mode_title = "COMPTOIR / EMPORTER" if mode == "Comptoir" else mode.upper()
         client_name = escape(str(order.get("customer_name") or "Client comptoir"))
         items_html = "".join(
-            f'''<div class="kitem"><div class="kname"><span class="kqty">{escape(str(i.get("qty",1)))}×</span> {escape(str(i.get("name") or ""))}</div>{_option_lines(i)}</div>'''
+            f'''<div class="kitem"><div class="kline"><span class="kname"><span class="kqty">{escape(str(i.get("qty",1)))}×</span>&nbsp;&nbsp;{escape(str(i.get("name") or ""))}</span><span class="kprice">{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{_option_lines(i)}</div>'''
             for i in order.get("items") or []
         )
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>
-.khead{{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}}.knum{{font-size:27px;font-weight:900;line-height:1}}.kclient{{font-size:15px;font-weight:900;margin-top:3px}}.kbadges{{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}}.kbadge{{border:2px solid #000;border-radius:5px;padding:3px 5px;font-size:10px;font-weight:900;white-space:nowrap}}.ktime{{font-size:11px;font-weight:700;margin-top:4px}}.kitem{{padding:8px 0;border-top:1px dashed #000}}.kname{{font-size:19px;font-weight:900;line-height:1.15}}.kqty{{font-size:22px;font-weight:900}}.kopt{{font-size:14px;font-weight:700;margin-top:3px;padding-left:8px}}.kgroup{{font-weight:900;text-decoration:underline}}@media print{{.kgroup{{font-weight:900;text-decoration:underline}}}}
+.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center;line-height:1.05}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900;line-height:1.1}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;align-items:flex-start;gap:5px}}.kname{{font-size:16px;font-weight:900;line-height:1.15;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:13px;line-height:1.18;margin-top:2px;padding-left:12mm}}.kgroup{{font-weight:900;text-decoration:none}}.ktotal{{display:flex;justify-content:space-between;align-items:center;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}@media print{{.ticket80{{width:72mm}}}}
 </style></head><body>
-<div class="ticket80"><div class="center brand">BÉCHÉFAA • CUISINE</div><div class="sep"></div><div class="khead"><div><div class="knum">#{escape(str(order['num']))}</div><div class="kclient">{client_name}</div></div><div class="kbadges"><span class="kbadge">{escape(channel)}</span><span class="kbadge">{escape(mode.upper())}</span></div></div><div class="sep"></div>{items_html or '<div class="center">Aucun article</div>'}</div>
+<div class="ticket80"><div class="ktitle">BÉCHÉFAA</div><div class="ksolid"></div><div class="kmode">{escape(mode_title)}</div><div class="ksolid"></div><div class="knum">N° {escape(str(order['num']))}</div><div class="kclient">{client_name}</div><div class="kdots"></div>{items_html or '<div class="center">Aucun article</div>'}<div class="ktotal"><span>TOTAL</span><span>{_money(order.get('total_ttc'))}</span></div></div>
 <div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
