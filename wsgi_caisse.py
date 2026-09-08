@@ -36,6 +36,7 @@ from clean_caisse.price_check_phase26 import register_price_check_phase26
 from clean_caisse.order_price_guard_phase26 import register_order_price_guard_phase26
 from clean_caisse.delivery_guard_phase27 import register_delivery_guard_phase27
 from clean_caisse.order_update_guard_phase30 import register_order_update_guard_phase30
+from clean_caisse.order_tax_snapshot_phase31 import register_order_tax_snapshot_phase31
 
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
@@ -71,3 +72,4 @@ register_price_check_phase26(app, db)
 register_order_price_guard_phase26(app, db)
 register_delivery_guard_phase27(app, db)
 register_order_update_guard_phase30(app, db)
+register_order_tax_snapshot_phase31(app, db)
