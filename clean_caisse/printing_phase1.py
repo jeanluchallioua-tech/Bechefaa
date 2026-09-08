@@ -1,7 +1,8 @@
-"""Phase 1 / Phase 3.2 — impression 80 mm BÉCHÉFAA.
+"""Phase 1 / Phase 3.3 — impression 80 mm BÉCHÉFAA.
 
 Impression navigateur compatible avec une Epson TM-m30 installée comme imprimante système.
-Phase 3.2 ajoute le détail fiscal HT / TVA / TTC au ticket client, sans modifier le POS.
+Phase 3.2 ajoute le détail fiscal HT / TVA / TTC au ticket client.
+Phase 3.3 rapproche le ticket cuisine du listing de l'écran Cuisine.
 """
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
@@ -18,6 +19,17 @@ def _ticket_type(source):
     if value in {"LIVRAISON", "DELIVERY"}:
         return "Livraison"
     return "Comptoir"
+
+
+def _channel(source):
+    value = str(source or "").upper()
+    if "UBER" in value:
+        return "UBER EATS"
+    if "DELIVEROO" in value:
+        return "DELIVEROO"
+    if "WIX" in value or "SITE" in value or "WEB" in value:
+        return "SITE INTERNET"
+    return "CAISSE"
 
 
 def _money(value):
@@ -62,6 +74,7 @@ def _load_order(conn, ensure_order_schema, order_payload, order_id):
         "postal_code": row.get("postal_code") or "",
         "city": row.get("city") or "",
         "ticket_type": _ticket_type(row.get("source")),
+        "channel": _channel(row.get("source")),
         "total_ttc": row.get("total_ttc") if row.get("total_ttc") is not None else fallback_ttc,
         "total_ht": row.get("total_ht") if row.get("total_ht") is not None else fallback_ht,
         "tax_rate": row.get("tax_rate") if row.get("tax_rate") is not None else Decimal("10.0"),
@@ -79,6 +92,36 @@ def _base_css():
 @media print{.actions{display:none!important}.ticket80{width:74mm}}
 </style>
 '''
+
+
+def _option_lines(item):
+    options = item.get("options") or []
+    lines = []
+    for option in options:
+        if isinstance(option, dict):
+            group = str(option.get("group") or "").strip()
+            label = str(option.get("name") or option.get("label") or "").strip()
+            if label:
+                if group:
+                    lines.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(label)}</div>')
+                else:
+                    lines.append(f'<div class="kopt">{escape(label)}</div>')
+        elif option is not None:
+            lines.append(f'<div class="kopt">{escape(str(option))}</div>')
+    if lines:
+        return "".join(lines)
+    text = str(item.get("options_text") or "").strip()
+    if not text:
+        return ""
+    parts = [p.strip() for p in text.split(" • ") if p.strip()]
+    rendered = []
+    for part in parts:
+        if ":" in part:
+            group, value = part.split(":", 1)
+            rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group.strip())} :</span> {escape(value.strip())}</div>')
+        else:
+            rendered.append(f'<div class="kopt">{escape(part)}</div>')
+    return "".join(rendered)
 
 
 def register_printing_phase1(app, db, ensure_order_schema, order_payload):
@@ -136,16 +179,17 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
             return f"Impression indisponible : {escape(str(exc))}", 500
 
         mode = order["ticket_type"]
-        client_line = ""
-        if mode != "Salle" and order.get("customer_name"):
-            client_line = f'<div class="center"><b>{escape(str(order["customer_name"]))}</b></div>'
+        channel = order.get("channel") or "CAISSE"
+        client_name = escape(str(order.get("customer_name") or "Client comptoir"))
         items_html = "".join(
-            f'''<div class="item"><div class="item-name">{escape(str(i.get("qty",1)))} × {escape(str(i.get("name") or ""))}</div>{f'<div class="opts">{escape(str(i.get("options_text") or ""))}</div>' if i.get("options_text") else ''}</div>'''
+            f'''<div class="kitem"><div class="kname"><span class="kqty">{escape(str(i.get("qty",1)))}×</span> {escape(str(i.get("name") or ""))}</div>{_option_lines(i)}</div>'''
             for i in order.get("items") or []
         )
         auto = request.args.get("auto") == "1"
-        html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>.item-name{{font-size:18px}}.opts{{font-size:14px;font-weight:700}}.item{{padding:8px 0;border-bottom:1px dashed #000}}</style></head><body>
-<div class="ticket80"><div class="center brand">BÉCHÉFAA • CUISINE</div><div class="sep"></div><div class="center big">#{escape(str(order['num']))}</div><div class="center mode">{escape(mode.upper())}</div>{client_line}<div class="sep"></div>{items_html}</div>
+        html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>
+.khead{{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}}.knum{{font-size:27px;font-weight:900;line-height:1}}.kclient{{font-size:15px;font-weight:900;margin-top:3px}}.kbadges{{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}}.kbadge{{border:2px solid #000;border-radius:5px;padding:3px 5px;font-size:10px;font-weight:900;white-space:nowrap}}.ktime{{font-size:11px;font-weight:700;margin-top:4px}}.kitem{{padding:8px 0;border-top:1px dashed #000}}.kname{{font-size:19px;font-weight:900;line-height:1.15}}.kqty{{font-size:22px;font-weight:900}}.kopt{{font-size:14px;font-weight:700;margin-top:3px;padding-left:8px}}.kgroup{{font-weight:900;text-decoration:underline}}@media print{{.kgroup{{font-weight:900;text-decoration:underline}}}}
+</style></head><body>
+<div class="ticket80"><div class="center brand">BÉCHÉFAA • CUISINE</div><div class="sep"></div><div class="khead"><div><div class="knum">#{escape(str(order['num']))}</div><div class="kclient">{client_name}</div></div><div class="kbadges"><span class="kbadge">{escape(channel)}</span><span class="kbadge">{escape(mode.upper())}</span></div></div><div class="sep"></div>{items_html or '<div class="center">Aucun article</div>'}</div>
 <div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
