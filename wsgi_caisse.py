@@ -3,7 +3,7 @@
 Cette branche démarre exclusivement le nouveau backend clean_caisse.
 Aucun import de l'ancien app.py / Wix / V1.
 """
-from clean_caisse.app import app, db, ensure_order_schema, order_payload
+from clean_caisse.app import app, db, ensure_order_schema, order_payload, load_catalog
 from clean_caisse.kitchen_checklist import register_kitchen_checklist
 from clean_caisse.history_modifier import register_history_modifier
 from clean_caisse.customer_phase1 import register_customer_phase1
@@ -37,7 +37,9 @@ from clean_caisse.order_price_guard_phase26 import register_order_price_guard_ph
 from clean_caisse.delivery_guard_phase27 import register_delivery_guard_phase27
 from clean_caisse.order_update_guard_phase30 import register_order_update_guard_phase30
 from clean_caisse.order_tax_snapshot_phase31 import register_order_tax_snapshot_phase31
+from clean_caisse.catalog_summary_fast_phase32 import register_catalog_summary_fast_phase32
 
+register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
 # Enregistrer l'ergonomie avant le module Client : les after_request Flask
