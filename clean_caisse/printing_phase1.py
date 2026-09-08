@@ -97,17 +97,24 @@ def _base_css():
 def _option_lines(item):
     options = item.get("options") or []
     lines = []
+    last_group = None
     for option in options:
         if isinstance(option, dict):
             group = str(option.get("group") or "").strip()
             label = str(option.get("name") or option.get("label") or "").strip()
             if label:
                 if group:
-                    lines.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(label)}</div>')
+                    if group == last_group:
+                        lines.append(f'<div class="kopt kcontinuation">{escape(label)}</div>')
+                    else:
+                        lines.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(label)}</div>')
+                    last_group = group
                 else:
                     lines.append(f'<div class="kopt">{escape(label)}</div>')
+                    last_group = None
         elif option is not None:
             lines.append(f'<div class="kopt">{escape(str(option))}</div>')
+            last_group = None
     if lines:
         return "".join(lines)
     text = str(item.get("options_text") or "").strip()
@@ -115,12 +122,20 @@ def _option_lines(item):
         return ""
     parts = [p.strip() for p in text.split(" • ") if p.strip()]
     rendered = []
+    last_group = None
     for part in parts:
         if ":" in part:
             group, value = part.split(":", 1)
-            rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group.strip())} :</span> {escape(value.strip())}</div>')
+            group = group.strip()
+            value = value.strip()
+            if group == last_group:
+                rendered.append(f'<div class="kopt kcontinuation">{escape(value)}</div>')
+            else:
+                rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(value)}</div>')
+            last_group = group
         else:
             rendered.append(f'<div class="kopt">{escape(part)}</div>')
+            last_group = None
     return "".join(rendered)
 
 
@@ -187,7 +202,7 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         )
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center;line-height:1.05}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900;line-height:1.1}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;align-items:flex-start;gap:5px}}.kname{{font-size:16px;font-weight:900;line-height:1.15;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:13px;line-height:1.18;margin-top:2px;padding-left:12mm}}.kgroup{{font-weight:900;text-decoration:none}}.ktotal{{display:flex;justify-content:space-between;align-items:center;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}@media print{{.ticket80{{width:72mm}}}}
+.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center;line-height:1.05}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900;line-height:1.1}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;align-items:flex-start;gap:5px}}.kname{{font-size:16px;font-weight:900;line-height:1.15;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:13px;line-height:1.18;margin-top:2px;padding-left:12mm}}.kcontinuation{{padding-left:18mm}}.kgroup{{font-weight:900;text-decoration:none}}.ktotal{{display:flex;justify-content:space-between;align-items:center;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}@media print{{.ticket80{{width:72mm}}}}
 </style></head><body>
 <div class="ticket80"><div class="ktitle">BÉCHÉFAA</div><div class="ksolid"></div><div class="kmode">{escape(mode_title)}</div><div class="ksolid"></div><div class="knum">N° {escape(str(order['num']))}</div><div class="kclient">{client_name}</div><div class="kdots"></div>{items_html or '<div class="center">Aucun article</div>'}<div class="ktotal"><span>TOTAL</span><span>{_money(order.get('total_ttc'))}</span></div></div>
 <div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
