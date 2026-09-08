@@ -85,8 +85,11 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         return jsonify({"ok": False, "error": "Une commande terminée en cuisine ne peut plus être modifiée"}), 409
 
                     old_status = order["status"]
-                    sent_to_kitchen = old_status in ("À préparer", "En préparation", "Prête")
-                    new_status = "À préparer" if sent_to_kitchen else "Enregistrée"
+                    # Une modification depuis l'historique est une nouvelle instruction
+                    # pour la cuisine. Toute commande non terminée repart donc dans
+                    # « À préparer », y compris si son ancien statut était Enregistrée.
+                    sent_to_kitchen = True
+                    new_status = "À préparer"
 
                     conn.execute("DELETE FROM caisse_order_items WHERE order_id=%s", (order_id,))
                     for line in normalized:
@@ -104,7 +107,7 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         "reason": "Modification depuis historique",
                         "previous_status": old_status,
                         "new_status": new_status,
-                        "kitchen_resend": sent_to_kitchen,
+                        "kitchen_resend": True,
                         "item_count": len(normalized),
                     }
                     conn.execute(
@@ -135,7 +138,7 @@ function money(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
 function render(){let q=document.getElementById('search').value.toLowerCase().trim(),st=document.getElementById('status').value;let rows=ORDERS.filter(o=>(!st||o.status===st)&&(!q||String(o.num).includes(q)||String(o.customer_name||'').toLowerCase().includes(q)));document.getElementById('list').innerHTML=rows.length?rows.map(o=>`<div class="order"><div class="info"><div class="num">#${esc(o.num)} · ${esc(o.customer_name)} </div><div class="meta">${esc(o.status)} · ${esc(o.ticket_type)} · ${money(o.total)}</div><div class="items">${esc((o.items||[]).map(i=>i.qty+'× '+i.name).join(' • '))}</div></div><button class="btn" onclick="viewOrder('${esc(o.id)}')">Voir</button>${o.status==='Terminée'?'<button class="btn locked" disabled>Terminée</button>':`<button class="btn edit" onclick="editOrder('${esc(o.id)}')">Modifier</button>`}</div>`).join(''):'<div class="empty">Aucune commande</div>'}
 async function load(){let r=await fetch('/api/orders/history');let d=await r.json();if(!r.ok||!d.ok){document.getElementById('list').innerHTML='<div class="error">'+esc(d.detail||d.error||'Erreur')+'</div>';return}ORDERS=d.orders||[];render()}
 function viewOrder(id){let o=ORDERS.find(x=>x.id===id);if(!o)return;alert('#'+o.num+'\n'+o.status+'\n\n'+(o.items||[]).map(i=>i.qty+'× '+i.name+(i.options_text?'\n  '+i.options_text:'')).join('\n')+'\n\nTotal '+money(o.total))}
-function editOrder(id){let o=ORDERS.find(x=>x.id===id);if(!o||o.status==='Terminée')return;EDIT=JSON.parse(JSON.stringify(o));document.getElementById('mtitle').textContent='Modifier commande #'+o.num;document.getElementById('mmsg').innerHTML=(o.status==='À préparer'||o.status==='En préparation'||o.status==='Prête'?'<div class="notice">Cette commande a déjà été envoyée en cuisine. La modification la replacera dans À préparer.</div>':'');document.getElementById('modal').classList.add('open');renderEdit()}
+function editOrder(id){let o=ORDERS.find(x=>x.id===id);if(!o||o.status==='Terminée')return;EDIT=JSON.parse(JSON.stringify(o));document.getElementById('mtitle').textContent='Modifier commande #'+o.num;document.getElementById('mmsg').innerHTML='<div class="notice">Après modification, cette commande sera replacée dans À préparer et renvoyée en cuisine.</div>';document.getElementById('modal').classList.add('open');renderEdit()}
 function closeModal(){document.getElementById('modal').classList.remove('open');EDIT=null}
 function renderEdit(){if(!EDIT)return;document.getElementById('mlines').innerHTML=(EDIT.items||[]).map((i,n)=>`<div class="line"><div class="linehead"><span>${esc(i.name)}</span><span>${money(Number(i.unit_price)*Number(i.qty))}</span></div>${i.options_text?`<div class="opts">${esc(i.options_text)}</div>`:''}<div class="qty"><button onclick="qty(${n},-1)">−</button><b>${esc(i.qty)}</b><button onclick="qty(${n},1)">+</button><button class="remove" onclick="removeLine(${n})">Retirer</button></div></div>`).join('');let t=(EDIT.items||[]).reduce((s,i)=>s+Number(i.unit_price||0)*Number(i.qty||0),0);document.getElementById('mtotal').textContent=money(t)}
 function qty(n,d){if(!EDIT)return;let q=Number(EDIT.items[n].qty||1)+d;if(q<1)q=1;EDIT.items[n].qty=q;renderEdit()}
