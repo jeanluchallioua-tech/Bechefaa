@@ -25,16 +25,13 @@ def register_table_print_phase36(app, db):
                 return response
             label = row.get("table_label") or f"Table {row['table_number']}"
             html = response.get_data(as_text=True)
-            # Le mode du ticket devient SALLE et le nom comptoir devient Table X.
             html = html.replace("COMPTOIR / EMPORTER", "SALLE")
-            html = html.replace("Client comptoir", label)
-            # Si un ancien customer_name a été conservé sur une commande Salle, la table reste
-            # explicitement visible sous le numéro de commande.
-            if label not in html:
-                if 'class="cnum"' in html:
-                    html = re.sub(r'(</div>)(<div class="cclient")', r'\1<div class="cclient">' + label + r'</div>\2', html, count=1)
-                elif 'class="knum"' in html:
-                    html = re.sub(r'(</div>)(<div class="kclient")', r'\1<div class="kclient">' + label + r'</div>\2', html, count=1)
+            # Remplace directement le bloc client du ticket : une commande Salle doit afficher
+            # la table, jamais l'ancien libellé Client comptoir/customer_name.
+            if 'class="cclient"' in html:
+                html = re.sub(r'<div class="cclient">.*?</div>', '<div class="cclient">' + label + '</div>', html, count=1, flags=re.S)
+            if 'class="kclient"' in html:
+                html = re.sub(r'<div class="kclient">.*?</div>', '<div class="kclient">' + label + '</div>', html, count=1, flags=re.S)
             response.set_data(html)
             response.headers["Content-Length"] = str(len(response.get_data()))
         except Exception:
