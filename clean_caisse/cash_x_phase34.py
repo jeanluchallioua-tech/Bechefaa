@@ -5,10 +5,13 @@ aucune commande. Les montants fiscaux déjà figés sur les commandes sont utili
 quand ils existent, avec compatibilité pour les anciennes commandes.
 """
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 
 from flask import Response, jsonify
+
+PARIS = ZoneInfo("Europe/Paris")
 
 
 def _money(value):
@@ -28,7 +31,7 @@ def _fallback_tax(ttc):
 
 
 def _daily_x(db, ensure_order_schema):
-    now = datetime.now().astimezone()
+    now = datetime.now(PARIS)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_ms = int(start.timestamp() * 1000)
     end_ms = int(now.timestamp() * 1000)
