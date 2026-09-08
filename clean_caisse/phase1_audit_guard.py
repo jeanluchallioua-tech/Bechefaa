@@ -2,7 +2,9 @@
 
 - Le tableau cuisine expose les commandes du cycle courant, y compris Terminées.
 - Après un Z, les commandes clôturées restent en PostgreSQL et dans l'historique,
-  mais disparaissent du tableau Cuisine grâce à z_closure_id.
+  mais disparaissent du tableau Cuisine.
+- Le début du cycle Cuisine est borné par le dernier Z enregistré. Cela masque aussi
+  les anciennes commandes historiques créées avant la mise en place de z_closure_id.
 """
 from flask import jsonify, request
 
@@ -20,6 +22,10 @@ def register_phase1_audit_guard(app, db, ensure_order_schema, order_payload):
                        FROM caisse_orders
                        WHERE status IN ('À préparer', 'En préparation', 'Terminée')
                          AND z_closure_id IS NULL
+                         AND created_at > COALESCE(
+                             (SELECT MAX(closed_at) FROM caisse_z_closures),
+                             0
+                         )
                        ORDER BY
                          CASE status WHEN 'À préparer' THEN 1 WHEN 'En préparation' THEN 2 ELSE 3 END,
                          updated_at ASC, num ASC
