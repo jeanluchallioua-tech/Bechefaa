@@ -1,12 +1,12 @@
-"""Phase 1 — Étape 6 : impression 80 mm BÉCHÉFAA.
+"""Phase 1 / Phase 3.2 — impression 80 mm BÉCHÉFAA.
 
 Impression navigateur compatible avec une Epson TM-m30 installée comme imprimante système.
-Deux tickets distincts : client et cuisine.
-Aucun accès Wix / V1 / localStorage.
+Phase 3.2 ajoute le détail fiscal HT / TVA / TTC au ticket client, sans modifier le POS.
 """
+from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 
-from flask import Response, jsonify, request
+from flask import Response, request
 
 
 def _ticket_type(source):
@@ -27,18 +27,35 @@ def _money(value):
         return "0,00 €"
 
 
+def _fallback_tax(total):
+    """Compatibilité tickets de commandes antérieures à Phase 3.1."""
+    try:
+        ttc = Decimal(str(total or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        ttc = Decimal("0.00")
+    ht = (ttc / Decimal("1.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return ht, (ttc - ht).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ttc
+
+
 def _load_order(conn, ensure_order_schema, order_payload, order_id):
     ensure_order_schema(conn)
+    # Phase 3.1 ajoute ces colonnes. IF NOT EXISTS garde le chargement idempotent.
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,3)")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12,2)")
     conn.commit()
     row = conn.execute(
         """SELECT id, num, customer_name, phone, email, address, postal_code, city,
-                  source, payment, status, total, created_at, updated_at
+                  source, payment, status, total, total_ttc, total_ht, tax_rate, tax_amount,
+                  created_at, updated_at
            FROM caisse_orders WHERE id=%s""",
         (order_id,),
     ).fetchone()
     if not row:
         return None
     payload = order_payload(conn, row)
+    fallback_ht, fallback_tax, fallback_ttc = _fallback_tax(row.get("total"))
     payload.update({
         "phone": row.get("phone") or "",
         "email": row.get("email") or "",
@@ -46,6 +63,10 @@ def _load_order(conn, ensure_order_schema, order_payload, order_id):
         "postal_code": row.get("postal_code") or "",
         "city": row.get("city") or "",
         "ticket_type": _ticket_type(row.get("source")),
+        "total_ttc": row.get("total_ttc") if row.get("total_ttc") is not None else fallback_ttc,
+        "total_ht": row.get("total_ht") if row.get("total_ht") is not None else fallback_ht,
+        "tax_rate": row.get("tax_rate") if row.get("tax_rate") is not None else Decimal("10.0"),
+        "tax_amount": row.get("tax_amount") if row.get("tax_amount") is not None else fallback_tax,
     })
     return payload
 
@@ -55,7 +76,7 @@ def _base_css():
 <style>
 @page{size:80mm auto;margin:3mm}
 *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000;font-family:Arial,sans-serif}
-.ticket80{width:74mm;margin:0 auto;font-size:12px;line-height:1.3}.center{text-align:center}.brand{font-size:22px;font-weight:900;letter-spacing:.4px}.big{font-size:28px;font-weight:900}.mode{font-size:18px;font-weight:900;margin:5px 0}.sep{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px}.item{padding:5px 0}.item-name{font-size:14px;font-weight:800}.opts{font-size:11px;margin-top:2px}.total{font-size:19px;font-weight:900}.muted{font-size:10px}.actions{margin:12px auto;width:74mm;display:flex;gap:8px}.actions button{flex:1;padding:10px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:800;cursor:pointer}
+.ticket80{width:74mm;margin:0 auto;font-size:12px;line-height:1.3}.center{text-align:center}.brand{font-size:22px;font-weight:900;letter-spacing:.4px}.big{font-size:28px;font-weight:900}.mode{font-size:18px;font-weight:900;margin:5px 0}.sep{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px}.item{padding:5px 0}.item-name{font-size:14px;font-weight:800}.opts{font-size:11px;margin-top:2px}.total{font-size:19px;font-weight:900}.fiscal{font-size:13px;font-weight:700;padding:1px 0}.client-info{font-weight:900}.pieces{font-weight:900;margin:4px 0}.muted{font-size:10px}.actions{margin:12px auto;width:74mm;display:flex;gap:8px}.actions button{flex:1;padding:10px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:800;cursor:pointer}
 @media print{.actions{display:none!important}.ticket80{width:74mm}}
 </style>
 '''
@@ -77,23 +98,31 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         if mode != "Salle":
             parts = []
             if order.get("customer_name"):
-                parts.append(f"<b>{escape(str(order['customer_name']))}</b>")
+                parts.append(escape(str(order["customer_name"])))
             if order.get("phone"):
                 parts.append(escape(str(order["phone"])))
+            if order.get("email"):
+                parts.append(escape(str(order["email"])))
             if mode == "Livraison":
                 address = " ".join(x for x in [order.get("address"), order.get("postal_code"), order.get("city")] if x)
                 if address:
                     parts.append(escape(address))
             if parts:
-                client_block = '<div class="sep"></div><div>' + "<br>".join(parts) + "</div>"
+                client_block = '<div class="sep"></div><div class="client-info">' + "<br>".join(parts) + "</div>"
 
+        items = order.get("items") or []
+        piece_count = sum(int(i.get("qty") or 0) for i in items)
         items_html = "".join(
             f'''<div class="item"><div class="row"><span class="item-name">{escape(str(i.get("qty",1)))} × {escape(str(i.get("name") or ""))}</span><span>{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{f'<div class="opts">{escape(str(i.get("options_text") or ""))}</div>' if i.get("options_text") else ''}</div>'''
-            for i in order.get("items") or []
+            for i in items
         )
+        try:
+            rate_text = f"{float(order.get('tax_rate') or 10):g}".replace(".", ",")
+        except Exception:
+            rate_text = "10"
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket #{escape(str(order['num']))}</title>{_base_css()}</head><body>
-<div class="ticket80"><div class="center brand">BÉCHÉFAA</div><div class="center">Ticket client</div><div class="sep"></div><div class="center big">#{escape(str(order['num']))}</div><div class="center mode">{escape(mode.upper())}</div>{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="row total"><span>TOTAL</span><span>{_money(order.get('total'))}</span></div><div class="row"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="center muted">Merci et à bientôt chez BÉCHÉFAA</div></div>
+<div class="ticket80"><div class="center brand">BÉCHÉFAA</div><div class="center">Ticket client</div><div class="sep"></div><div class="center big">#{escape(str(order['num']))}</div><div class="center mode">{escape(mode.upper())}</div>{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="pieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row fiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row fiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row total"><span>Total TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="center muted">Merci et à bientôt chez BÉCHÉFAA</div></div>
 <div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
