@@ -1,7 +1,8 @@
-"""Correctifs de cohérence issus de l'audit final de la Phase 1.
+"""Correctifs de cohérence issus de l'audit final de la Phase 1 / Z Phase 3.7.
 
-- Le tableau cuisine expose bien les commandes Terminées dans la troisième colonne.
-- Correctif isolé, PostgreSQL uniquement.
+- Le tableau cuisine expose les commandes du cycle courant, y compris Terminées.
+- Après un Z, les commandes clôturées restent en PostgreSQL et dans l'historique,
+  mais disparaissent du tableau Cuisine grâce à z_closure_id.
 """
 from flask import jsonify, request
 
@@ -12,11 +13,13 @@ def register_phase1_audit_guard(app, db, ensure_order_schema, order_payload):
         try:
             with db() as conn:
                 ensure_order_schema(conn)
+                conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS z_closure_id BIGINT NULL")
                 conn.commit()
                 rows = conn.execute(
                     """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
                        FROM caisse_orders
                        WHERE status IN ('À préparer', 'En préparation', 'Terminée')
+                         AND z_closure_id IS NULL
                        ORDER BY
                          CASE status WHEN 'À préparer' THEN 1 WHEN 'En préparation' THEN 2 ELSE 3 END,
                          updated_at ASC, num ASC
