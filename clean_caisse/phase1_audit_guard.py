@@ -5,6 +5,7 @@
   mais disparaissent du tableau Cuisine.
 - Le début du cycle Cuisine est borné par le dernier Z enregistré. Cela masque aussi
   les anciennes commandes historiques créées avant la mise en place de z_closure_id.
+- Le schéma Z est garanti avant la lecture Cuisine, y compris sur une base neuve.
 """
 from flask import jsonify, request
 
@@ -16,6 +17,19 @@ def register_phase1_audit_guard(app, db, ensure_order_schema, order_payload):
             with db() as conn:
                 ensure_order_schema(conn)
                 conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS z_closure_id BIGINT NULL")
+                conn.execute("""CREATE TABLE IF NOT EXISTS caisse_z_closures (
+                    id BIGSERIAL PRIMARY KEY,
+                    business_date TEXT NOT NULL UNIQUE,
+                    closed_at BIGINT NOT NULL,
+                    first_order_num BIGINT NULL,
+                    last_order_num BIGINT NULL,
+                    order_count INTEGER NOT NULL DEFAULT 0,
+                    total_ht NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    tax_rate NUMERIC(6,3) NOT NULL DEFAULT 10,
+                    tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    total_ttc NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    payments_json JSONB NOT NULL DEFAULT '{}'::jsonb
+                )""")
                 conn.commit()
                 rows = conn.execute(
                     """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
