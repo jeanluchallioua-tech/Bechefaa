@@ -6,9 +6,12 @@ des clôtures déjà enregistrées. Aucun archivage ne modifie les commandes.
 import json
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 from flask import Response, jsonify
+
+PARIS = ZoneInfo("Europe/Paris")
 
 
 def _fallback_tax(ttc):
@@ -16,7 +19,7 @@ def _fallback_tax(ttc):
     return ht,(total-ht).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP),total
 
 def _bounds():
-    now=datetime.now().astimezone(); start=now.replace(hour=0,minute=0,second=0,microsecond=0)
+    now=datetime.now(PARIS); start=now.replace(hour=0,minute=0,second=0,microsecond=0)
     return now,start,int(start.timestamp()*1000),int(now.timestamp()*1000)
 
 def _ensure_z_schema(conn):
@@ -74,7 +77,7 @@ def register_cash_z_phase35(app,db,ensure_order_schema):
                 ensure_order_schema(conn); _ensure_z_schema(conn); conn.commit(); rows=conn.execute("SELECT id,business_date,closed_at,first_order_num,last_order_num,order_count,total_ht,tax_rate,tax_amount,total_ttc,payments_json FROM caisse_z_closures ORDER BY business_date DESC,id DESC LIMIT 400").fetchall()
             cards=[]
             for r in rows:
-                pays=r.get("payments_json") or {}; payhtml="".join(f'<div class="row"><span>{escape(str(k))}</span><b>{_eur(v)}</b></div>' for k,v in pays.items()); dt=datetime.fromtimestamp(int(r["closed_at"])/1000).astimezone().strftime("%d/%m/%Y %H:%M")
+                pays=r.get("payments_json") or {}; payhtml="".join(f'<div class="row"><span>{escape(str(k))}</span><b>{_eur(v)}</b></div>' for k,v in pays.items()); dt=datetime.fromtimestamp(int(r["closed_at"])/1000,tz=PARIS).strftime("%d/%m/%Y %H:%M")
                 cards.append(f'''<section class="z"><h2>Z #{r["id"]} — {escape(str(r["business_date"]))}</h2><div class="muted">Clôturé le {dt}</div><div class="row"><span>Commandes</span><b>{r["order_count"]}</b></div><div class="row"><span>N° commandes</span><b>{r["first_order_num"] or "—"} à {r["last_order_num"] or "—"}</b></div><div class="row"><span>Total HT</span><b>{_eur(r["total_ht"])}</b></div><div class="row"><span>TVA {r["tax_rate"]} %</span><b>{_eur(r["tax_amount"])}</b></div><div class="row total"><span>Total TTC</span><b>{_eur(r["total_ttc"])}</b></div>{payhtml}</section>''')
             body="".join(cards) if cards else '<section class="z"><b>Aucun Z archivé pour le moment.</b></section>'
             return Response(f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Archives Z</title><style>body{{font-family:Arial;background:#f4f5f7;margin:0;color:#17191c}}header{{background:#111827;color:white;padding:14px 22px}}main{{max-width:760px;margin:25px auto;padding:0 16px}}.z{{background:white;padding:20px;border-radius:12px;margin-bottom:16px}}.row{{display:flex;justify-content:space-between;border-top:1px solid #eee;padding:8px 0}}.total{{font-size:18px}}.muted{{color:#666;margin-bottom:12px}}button,a{{margin-right:10px}}@media print{{header,.actions{{display:none}}body{{background:white}}.z{{break-inside:avoid;border:1px solid #ddd}}}}</style></head><body><header><b>BÉCHÉFAA — Archives Z</b></header><main><div class="actions"><button onclick="print()">IMPRIMER</button><a href="/caisse/z">Z du jour</a><a href="/pos">Retour caisse</a></div>{body}</main></body></html>''',content_type="text/html; charset=utf-8")
