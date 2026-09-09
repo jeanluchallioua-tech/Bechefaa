@@ -7,7 +7,7 @@ from flask import jsonify
 
 
 def register_history_today_phase44(app, db, ensure_order_schema, order_payload):
-    @app.get('/api/orders/history-today-phase44')
+    @app.get('/api/history-today-phase44-test')
     def history_today_phase44():
         try:
             with db() as conn:
