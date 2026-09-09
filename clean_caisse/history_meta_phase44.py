@@ -2,7 +2,7 @@
 
 Évite les appels HTTP/SQL par commande pour l'annulation, l'encaissement et le
 numéro de ticket comptable. Une seule requête PostgreSQL retourne les
-métadonnées des commandes visibles dans l'historique.
+métadonnées des commandes visibles dans l'historique du jour.
 """
 from flask import jsonify
 
@@ -26,6 +26,8 @@ def register_history_meta_phase44(app, db):
                            fiscal_ticket_number
                     FROM caisse_orders
                     WHERE COALESCE(cancellation_hidden, FALSE) = FALSE
+                      AND (to_timestamp(created_at / 1000.0) AT TIME ZONE 'Europe/Paris')::date
+                          = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date
                     ORDER BY created_at DESC
                     LIMIT 150
                 """).fetchall()
