@@ -70,6 +70,7 @@ from clean_caisse.refund_client_ticket_phase44 import register_refund_client_tic
 from clean_caisse.refund_action_ui_phase44 import register_refund_action_ui_phase44
 from clean_caisse.payment_refund_guard_phase44 import register_payment_refund_guard_phase44
 from clean_caisse.payment_guard_test_phase44 import register_payment_guard_test_phase44
+from clean_caisse.transaction_journal_test_phase44 import register_transaction_journal_test_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -137,3 +138,4 @@ register_refund_client_ticket_phase44(app, db)
 register_refund_action_ui_phase44(app)
 register_payment_refund_guard_phase44(app, db)
 register_payment_guard_test_phase44(app)
+register_transaction_journal_test_phase44(app, db)
