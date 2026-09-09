@@ -16,6 +16,7 @@ def register_refund_action_ui_phase44(app):
         addon = r'''
 <style id="p44-refund-action-style">
 .p44-refund-action-btn{border:0;border-radius:8px;padding:10px 12px;font-weight:900;font-size:12px;color:#fff;background:#c2410c;cursor:pointer;margin-top:7px;margin-left:6px}
+.p44-refund-action-btn.p44-refund-partial{background:#7c3aed}
 .p44-refund-action-btn:disabled{opacity:.5;cursor:not-allowed}
 .p44-refund-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.62);z-index:99990;display:flex;align-items:center;justify-content:center;padding:18px}
 .p44-refund-modal{width:min(460px,96vw);background:#fff;border-radius:16px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.28);font-family:Arial,sans-serif}
@@ -78,7 +79,7 @@ def register_refund_action_ui_phase44(app):
        const ps=String(d.payment_status||'').toUpperCase();
        if(ps!=='PAYÉE'&&ps!=='PARTIELLEMENT REMBOURSÉE')continue;
        if(d.z_locked)continue;
-       const btn=document.createElement('button');btn.type='button';btn.className='p44-refund-action-btn';btn.textContent='↩ Rembourser';btn.addEventListener('click',()=>openModal(card,id,btn));card.appendChild(btn);
+       const btn=document.createElement('button');btn.type='button';btn.className='p44-refund-action-btn'+(ps==='PARTIELLEMENT REMBOURSÉE'?' p44-refund-partial':'');btn.textContent='↩ Rembourser';btn.addEventListener('click',()=>openModal(card,id,btn));card.appendChild(btn);
      }
    }
    setTimeout(decorate,0);const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,80)).observe(list,{childList:true,subtree:true});
