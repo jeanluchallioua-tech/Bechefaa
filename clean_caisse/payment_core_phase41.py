@@ -9,6 +9,11 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import jsonify, request
 
+from clean_caisse.payment_transactions_phase44 import (
+    ensure_payment_transaction_schema,
+    record_payment_transaction,
+)
+
 CENT = Decimal("0.01")
 ALLOWED_METHODS = {"ESPÈCES", "CB", "CHÈQUE", "VIREMENT"}
 
@@ -29,6 +34,7 @@ def _ensure_payment_schema(conn, ensure_order_schema):
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS change_due NUMERIC(12,2) NOT NULL DEFAULT 0")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS paid_at BIGINT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_caisse_orders_payment_status ON caisse_orders(payment_status)")
+    ensure_payment_transaction_schema(conn)
 
 
 def register_payment_core_phase41(app, db, ensure_order_schema):
@@ -96,11 +102,13 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
             with db() as conn:
                 with conn.transaction():
                     _ensure_payment_schema(conn, ensure_order_schema)
-                    row = conn.execute("SELECT id,num,total,z_closure_id FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)).fetchone()
+                    row = conn.execute("SELECT id,num,total,payment_status,z_closure_id FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)).fetchone()
                     if not row:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
                     if row.get("z_closure_id") is not None:
                         return jsonify({"ok": False, "error": "Commande clôturée par le Z : encaissement interdit", "code": "ORDER_Z_LOCKED"}), 409
+                    if row.get("payment_status") == "PAYÉE":
+                        return jsonify({"ok": False, "error": "Commande déjà encaissée", "code": "ORDER_ALREADY_PAID"}), 409
 
                     total = _money(row["total"])
                     cash_received = None
@@ -124,6 +132,7 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                             updated_at=%s
                         WHERE id=%s
                     """, (method, method, total, cash_received, change_due, paid_at, paid_at, order_id))
+                    transaction_id = record_payment_transaction(conn, order_id, method, total, provider="LOCAL")
 
             return jsonify({
                 "ok": True,
@@ -135,6 +144,7 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                 "cash_received": None if cash_received is None else float(cash_received),
                 "change_due": float(change_due),
                 "paid_at": paid_at,
+                "transaction_id": transaction_id,
             })
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
