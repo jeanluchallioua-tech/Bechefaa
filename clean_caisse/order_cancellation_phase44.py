@@ -9,6 +9,7 @@ pas consommé de numéro visible.
 import time
 
 from flask import jsonify
+from clean_caisse.security_pin_phase44 import register_security_pin_phase44
 
 
 def _ensure_cancellation_schema(conn, ensure_order_schema):
@@ -20,6 +21,10 @@ def _ensure_cancellation_schema(conn, ensure_order_schema):
 
 
 def register_order_cancellation_phase44(app, db, ensure_order_schema):
+    # La sécurité est enregistrée avant la route d'annulation : le before_request
+    # bloque donc toute annulation sans session PIN valide.
+    register_security_pin_phase44(app, db, ensure_order_schema)
+
     @app.post("/api/orders/<order_id>/cancel-phase44")
     def cancel_order_phase44(order_id):
         now = int(time.time() * 1000)
