@@ -2,7 +2,8 @@
 
 Ne modifie ni la persistance ni les règles Salle/Table de Phase 3.6.
 Les boutons principaux Salle / Emporter / Livraison restent l'unique choix
-visible. En mode Salle, les 9 tables du sélecteur existant sont affichées.
+visible. Aucun mode n'est sélectionné par défaut : l'utilisateur choisit
+explicitement le service à chaque nouvelle commande.
 """
 from flask import request
 
@@ -19,10 +20,9 @@ def register_service_mode_ui_phase42(app):
 
         addon = r'''
 <style id="phase42-service-mode-ui">
-/* Les boutons Salle / Emporter / Livraison sont l'unique choix visible. */
 #phase36-table-selector > div:first-child,
 #phase36-table-selector > div:nth-child(2){display:none!important}
-#phase36-table-selector{margin:8px 0 12px!important}
+#phase36-table-selector{margin:8px 0 12px!important;display:none}
 #p36-tables{margin-top:0!important}
 </style>
 <script id="phase42-service-mode-script">
@@ -37,33 +37,63 @@ def register_service_mode_ui_phase42(app):
      const emporterLegacy=document.getElementById('p36-emporter');
      if(!ticket||!selector||!tables||!salleLegacy||!emporterLegacy){setTimeout(init,50);return}
 
+     let chosenMode=null;
+
      function ensureTables(){
        if(!tables.querySelector('[data-p36-table]')){
          tables.innerHTML=Array.from({length:9},(_,i)=>`<button type="button" data-p36-table="${i+1}" style="padding:9px;border:1px solid #ccd1d8;border-radius:8px;background:#fff;font-weight:800">Table ${i+1}</button>`).join('');
        }
      }
-     function sync(mode){
-       const value=String(mode||'Salle').toLowerCase();
-       if(value==='salle'){
+     function clearChoice(){
+       chosenMode=null;
+       ticket.querySelectorAll('[data-ticket]').forEach(b=>b.classList.remove('active'));
+       selector.style.display='none';
+       tables.style.removeProperty('display');
+     }
+     function sync(mode,button){
+       chosenMode=String(mode||'').toLowerCase();
+       ticket.querySelectorAll('[data-ticket]').forEach(b=>b.classList.toggle('active',b===button));
+       if(chosenMode==='salle'){
          salleLegacy.click();
          ensureTables();
          selector.style.display='block';
          tables.style.setProperty('display','grid','important');
        }else{
          emporterLegacy.click();
-         tables.style.removeProperty('display');
          selector.style.display='none';
+         tables.style.removeProperty('display');
        }
      }
 
+     /* Le vieux code sélectionne Salle tout seul au chargement. On annule ce choix automatique. */
+     setTimeout(clearChoice,120);
+
      ticket.addEventListener('click',function(e){
        const b=e.target.closest('[data-ticket]');
-       if(!b)return;
-       setTimeout(function(){sync(b.dataset.ticket)},10);
-     });
+       if(!b || !e.isTrusted)return;
+       setTimeout(function(){sync(b.dataset.ticket,b)},0);
+     },true);
 
-     const active=ticket.querySelector('[data-ticket].active');
-     sync(active?active.dataset.ticket:'Salle');
+     /* Sécurité : aucune commande ne part sans choix explicite du mode. */
+     const nativeFetch=window.fetch.bind(window);
+     window.fetch=function(input,init){
+       const url=typeof input==='string'?input:(input&&input.url)||'';
+       if(url==='/api/orders' && init && String(init.method||'GET').toUpperCase()==='POST' && !chosenMode){
+         const msg=document.getElementById('order-message');
+         if(msg)msg.innerHTML='<div class="error"><b>Choisissez Salle, Emporter ou Livraison.</b></div>';
+         return Promise.reject(new Error('Choisissez Salle, Emporter ou Livraison'));
+       }
+       return nativeFetch(input,init);
+     };
+
+     /* Après envoi cuisine réussi, on repart sans mode sélectionné pour la commande suivante. */
+     const msg=document.getElementById('order-message');
+     if(msg){
+       new MutationObserver(function(){
+         const text=(msg.textContent||'').toLowerCase();
+         if(text.includes('envoyée en cuisine'))setTimeout(clearChoice,80);
+       }).observe(msg,{childList:true,subtree:true,characterData:true});
+     }
    }
    init();
  });
