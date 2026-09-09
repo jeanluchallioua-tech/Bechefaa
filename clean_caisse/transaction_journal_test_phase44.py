@@ -23,6 +23,17 @@ def _when(ms):
     return datetime.fromtimestamp(int(ms) / 1000, tz=PARIS).strftime("%d/%m/%Y %H:%M:%S")
 
 
+def _origin(provider):
+    value = str(provider or "").strip().upper()
+    if value == "LOCAL":
+        return "Caisse"
+    if value == "SUMUP":
+        return "SumUp"
+    if value == "STRIPE":
+        return "Stripe"
+    return value or "—"
+
+
 def register_transaction_journal_test_phase44(app, db):
     @app.get("/maintenance/phase44/transaction-journal-test")
     def transaction_journal_test_phase44():
@@ -52,7 +63,7 @@ def register_transaction_journal_test_phase44(app, db):
                 sign = "+" if r["transaction_type"] == "PAYMENT" else "−"
                 items.append(f'''<tr>
 <td>{escape(_when(r["created_at"]))}</td><td><strong>{kind}</strong></td>
-<td>{escape(str(r["provider"] or "—"))}</td><td>{escape(str(r["method"] or "—"))}</td>
+<td>{escape(_origin(r["provider"]))}</td><td>{escape(str(r["method"] or "—"))}</td>
 <td><strong>{sign}{_money(r["amount"])}</strong></td><td>{escape(str(r["status"] or "—"))}</td>
 <td>{escape(str(r["created_by"] or "—"))}</td><td>{escape(str(r["reason"] or "—"))}</td>
 </tr>''')
@@ -64,7 +75,7 @@ body{{font-family:Arial,sans-serif;background:#f8fafc;color:#0f172a;padding:22px
 </style></head><body><div class="box"><h2>Journal financier — commande #{order["num"]}</h2>
 <p class="note">Vue de contrôle Phase 4.4 — lecture seule.</p>
 <div class="cards"><div class="card">Statut<br><strong>{escape(str(order["payment_status"]))}</strong></div><div class="card">Payé<br><strong>{_money(paid)}</strong></div><div class="card">Remboursé<br><strong>{_money(refunded)}</strong></div><div class="card">Net payé<br><strong>{_money(paid-refunded)}</strong></div><div class="card">En attente<br><strong>{_money(pending)}</strong></div></div>
-<table><thead><tr><th>Date / heure</th><th>Opération</th><th>Fournisseur</th><th>Moyen</th><th>Montant</th><th>Statut</th><th>Opérateur</th><th>Motif</th></tr></thead><tbody>{''.join(items)}</tbody></table>
+<table><thead><tr><th>Date / heure</th><th>Opération</th><th>Origine</th><th>Moyen</th><th>Montant</th><th>Statut</th><th>Opérateur</th><th>Motif</th></tr></thead><tbody>{''.join(items)}</tbody></table>
 </div></body></html>'''
             return Response(html, mimetype="text/html")
         except Exception as exc:
