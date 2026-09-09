@@ -17,6 +17,7 @@ def register_payment_history_ui_phase41(app):
 <style>
 .p41-pay-btn{border:0;border-radius:8px;padding:10px 12px;font-weight:900;font-size:12px;color:#fff;background:#16a34a;cursor:pointer;margin-top:7px}
 .p41-pay-btn:disabled{opacity:.55;cursor:not-allowed}
+.p41-paid-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;color:#166534;background:#dcfce7;border:1px solid #86efac;margin-top:7px}
 </style>
 <script>
 (function(){
@@ -33,13 +34,20 @@ def register_payment_history_ui_phase41(app):
    if(a){const m=a.getAttribute('href').match(/\/impression\/client\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
    return null;
  }
+ function showPaid(card,payment){
+   card.querySelectorAll('.p41-pay-btn').forEach(x=>x.remove());
+   let badge=card.querySelector('.p41-paid-badge');
+   if(!badge){badge=document.createElement('span');badge.className='p41-paid-badge';card.appendChild(badge)}
+   const method=payment.payment_method||payment.payment||'Paiement';
+   badge.textContent='✓ PAYÉE · '+method+' · '+euro(payment.paid_amount||payment.total);
+ }
  async function pay(card,id,btn){
    btn.disabled=true;
    try{
      const s=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
      if(!s.ok)throw new Error(s.error||'Encaissement indisponible');
      if(s.order.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}
-     if(s.order.payment_status==='PAYÉE'){alert('Commande déjà payée par '+(s.order.payment_method||'paiement'));btn.remove();return}
+     if(s.order.payment_status==='PAYÉE'){alert('Commande déjà payée par '+(s.order.payment_method||'paiement'));showPaid(card,s.order);return}
      const choice=prompt('Encaisser commande #'+s.order.num+' — '+euro(s.order.total)+'\n\nTapez :\n1 = Espèces\n2 = CB');
      if(choice===null)return;
      let payload={};
@@ -60,7 +68,7 @@ def register_payment_history_ui_phase41(app):
        msg+='\nEncaissé : '+euro(d.paid_amount)+' — '+d.payment_method;
      }
      alert(msg);
-     card.querySelectorAll('.p41-pay-btn').forEach(x=>x.remove());
+     showPaid(card,d);
    }catch(e){alert(e.message||'Encaissement impossible')}
    finally{if(btn&&btn.isConnected)btn.disabled=false}
  }
@@ -68,13 +76,21 @@ def register_payment_history_ui_phase41(app):
    const cards=[...document.querySelectorAll('#list .order')];
    for(const card of cards){
      const existing=[...card.querySelectorAll('.p41-pay-btn')];
-     if(existing.length){existing.slice(1).forEach(x=>x.remove());continue}
+     if(existing.length>1)existing.slice(1).forEach(x=>x.remove());
+     const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];
+     if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());
      if(card.dataset.p41PaymentLoading==='1')continue;
      const id=orderId(card);if(!id)continue;
      card.dataset.p41PaymentLoading='1';
      try{
        const d=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
-       if(!d.ok||!d.order||d.order.z_locked||d.order.payment_status==='PAYÉE')continue;
+       if(!d.ok||!d.order)continue;
+       if(d.order.payment_status==='PAYÉE'){
+         showPaid(card,d.order);
+         continue;
+       }
+       card.querySelectorAll('.p41-paid-badge').forEach(x=>x.remove());
+       if(d.order.z_locked)continue;
        if(card.querySelector('.p41-pay-btn'))continue;
        const btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.textContent='💳 Encaisser';
        btn.addEventListener('click',()=>pay(card,id,btn));card.appendChild(btn);
