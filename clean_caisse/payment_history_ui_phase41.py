@@ -21,6 +21,7 @@ def register_payment_history_ui_phase41(app):
 <script>
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
+ function euro(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
  function orderId(card){
    const buttons=[...card.querySelectorAll('button')];
    for(const b of buttons){
@@ -39,11 +40,11 @@ def register_payment_history_ui_phase41(app):
      if(!s.ok)throw new Error(s.error||'Encaissement indisponible');
      if(s.order.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}
      if(s.order.payment_status==='PAYÉE'){alert('Commande déjà payée par '+(s.order.payment_method||'paiement'));btn.remove();return}
-     const choice=prompt('Encaisser commande #'+s.order.num+' — '+Number(s.order.total||0).toFixed(2)+' €\n\nTapez :\n1 = Espèces\n2 = CB');
+     const choice=prompt('Encaisser commande #'+s.order.num+' — '+euro(s.order.total)+'\n\nTapez :\n1 = Espèces\n2 = CB');
      if(choice===null)return;
      let payload={};
      if(String(choice).trim()==='1'){
-       const received=prompt('Montant reçu en espèces (€) :',Number(s.order.total||0).toFixed(2));
+       const received=prompt('Total : '+euro(s.order.total)+'\n\nMontant reçu en espèces (€) :',Number(s.order.total||0).toFixed(2));
        if(received===null)return;
        payload={method:'ESPÈCES',received:String(received).replace(',','.')};
      }else if(String(choice).trim()==='2'){
@@ -52,8 +53,12 @@ def register_payment_history_ui_phase41(app):
      const res=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
      const d=await res.json();
      if(!res.ok||!d.ok)throw new Error(d.error||'Encaissement impossible');
-     let msg='Commande #'+d.num+' encaissée — '+d.payment_method+' — '+Number(d.paid_amount||0).toFixed(2)+' €';
-     if(d.payment_method==='ESPÈCES')msg+='\nMonnaie à rendre : '+Number(d.change_due||0).toFixed(2)+' €';
+     let msg='Commande #'+d.num+' encaissée\n\nTotal : '+euro(d.paid_amount);
+     if(d.payment_method==='ESPÈCES'){
+       msg+='\nReçu : '+euro(d.cash_received)+'\nÀ rendre : '+euro(d.change_due)+'\nEncaissé : '+euro(d.paid_amount)+' — Espèces';
+     }else{
+       msg+='\nEncaissé : '+euro(d.paid_amount)+' — '+d.payment_method;
+     }
      alert(msg);
      card.querySelectorAll('.p41-pay-btn').forEach(x=>x.remove());
    }catch(e){alert(e.message||'Encaissement impossible')}
