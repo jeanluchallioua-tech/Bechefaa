@@ -89,7 +89,7 @@ def register_pos_touch_layout(app, db):
    if(!box||!cart||!ticket)return;
 
    if(ticket.parentNode===cart)cart.insertBefore(ticket,cart.firstChild);
-   ticket.innerHTML='<button class="active" data-ticket="Salle">Salle</button><button data-ticket="Emporter">Emporter</button><button data-ticket="Livraison">Livraison</button>';
+   ticket.innerHTML='<button data-ticket="Salle">Salle</button><button data-ticket="Emporter">Emporter</button><button data-ticket="Livraison">Livraison</button>';
 
    const summary=document.createElement('div');summary.className='touch-client-summary hidden';
    summary.innerHTML='<div class="tc-main"><b id="tc-name">Client</b><span id="tc-detail">Toucher pour rechercher ou enregistrer un client</span></div><div class="tc-edit">Client</div>';
@@ -137,16 +137,14 @@ def register_pos_touch_layout(app, db):
        if(text.includes('envoyée en cuisine')){
          clearCustomer();
          shut();
-         const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'Salle';
-         if(mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
+         const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'';
+         if(mode && mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
        }
      });
      observer.observe(msg,{childList:true,subtree:true,characterData:true});
    }
 
-   updateSummary();applyMode('Salle');
-   /* Déclenche aussi le gestionnaire natif de la caisse afin que TICKET_TYPE devienne Salle. */
-   ticket.querySelector('[data-ticket="Salle"]')?.click();
+   updateSummary();
  });
 })();
 </script>
