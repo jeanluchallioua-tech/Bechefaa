@@ -80,6 +80,7 @@ from clean_caisse.z_cash_link_phase44 import register_z_cash_link_phase44
 from clean_caisse.z_cancelled_guard_phase44 import register_z_cancelled_guard_phase44
 from clean_caisse.kitchen_identity_phase44 import register_kitchen_identity_phase44
 from clean_caisse.history_identity_phase44 import register_history_identity_phase44
+from clean_caisse.hardware_config_phase44 import register_hardware_config_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -157,3 +158,4 @@ register_z_cash_link_phase44(app, db)
 register_z_cancelled_guard_phase44(app, db)
 register_kitchen_identity_phase44(app)
 register_history_identity_phase44(app)
+register_hardware_config_phase44(app, db)
