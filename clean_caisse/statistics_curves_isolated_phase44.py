@@ -1,14 +1,13 @@
 """Phase 4.4 — courbes statistiques isolées.
 
-IMPORTANT : ce module n'est volontairement ni importé ni enregistré dans
-wsgi_caisse.py. Il prépare uniquement l'affichage futur des courbes sur
-/statistiques, sans toucher au noyau statistics_phase44.py ni aux modules
-déjà validés.
+Ce module est enregistré dans wsgi_caisse.py et injecte uniquement l'affichage
+de la courbe sur /statistiques. Il utilise l'endpoint chronologique dédié,
+sans modifier le noyau statistics_phase44.py ni les autres modules validés.
 """
 
 
 def register_statistics_curves_isolated_phase44(app):
-    """Prépare les courbes futures ; fonction inactive tant qu'elle n'est pas enregistrée."""
+    """Affiche la courbe d'évolution des ventes sur /statistiques."""
 
     @app.after_request
     def inject_statistics_curves_phase44(response):
@@ -51,6 +50,11 @@ def register_statistics_curves_isolated_phase44(app):
     return p;
   }
   function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function labelDate(v){
+    const s=String(v||'');
+    const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? m[3]+'/'+m[2] : s;
+  }
   function render(rows){
     const host=document.getElementById('phase44-curve-sales'); if(!host)return;
     if(!rows||!rows.length){host.innerHTML='<div class="phase44-curve-empty">Aucune donnée sur cette période.</div>';return;}
@@ -65,12 +69,11 @@ def register_statistics_curves_isolated_phase44(app):
   }
   async function load(){
     try{
-      const r=await fetch('/api/statistics/today-phase44?'+params().toString(),{cache:'no-store'});
-      const d=await r.json(); if(!r.ok||!d.ok)throw new Error();
-      let rows=[];
-      if(Array.isArray(d.evolution)) rows=d.evolution.map(x=>({label:x.label||x.date||'',value:x.orders??x.count??x.sales??0}));
-      else if(Array.isArray(d.daily)) rows=d.daily.map(x=>({label:x.label||x.date||'',value:x.orders??x.count??x.sales??0}));
-      else if(Array.isArray(d.points)) rows=d.points.map(x=>({label:x.label||x.date||'',value:x.orders??x.count??x.sales??0}));
+      const r=await fetch('/api/statistics/evolution-phase44?'+params().toString(),{cache:'no-store'});
+      const d=await r.json(); if(!r.ok||!d.ok)throw new Error(d.error||'Erreur');
+      const rows=Array.isArray(d.points)
+        ? d.points.map(x=>({label:labelDate(x.date),value:Number(x.orders||0)}))
+        : [];
       render(rows);
     }catch(e){const host=document.getElementById('phase44-curve-sales');if(host)host.innerHTML='<div class="phase44-curve-empty">Données indisponibles.</div>';}
   }
