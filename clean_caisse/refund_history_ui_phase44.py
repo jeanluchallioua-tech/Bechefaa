@@ -50,7 +50,8 @@ def register_refund_history_ui_phase44(app, db):
         html = response.get_data(as_text=True)
         addon = r'''
 <style id="p44-refund-ui-style">
-.p44-refund-badge{display:inline-flex;align-items:center;white-space:nowrap;margin-top:7px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:12px;font-weight:900;line-height:1.2}
+.p44-refund-badge{display:block;margin-top:7px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:12px;font-weight:900;line-height:1.45}
+.p44-refund-badge strong{display:block;font-size:12px;margin-bottom:2px}
 .p41-pay-btn[data-p44-refund-locked="1"]{display:none!important}
 </style>
 <script id="p44-refund-ui-script">
@@ -59,9 +60,9 @@ def register_refund_history_ui_phase44(app, db):
  function euro(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
  function orderId(card){
    const buttons=[...card.querySelectorAll('button')];
-   for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/editOrder\\('([^']+)'\\)/);if(!m)m=oc.match(/viewOrder\\('([^']+)'\\)/);if(m)return m[1]}
+   for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/editOrder\('([^']+)'\)/);if(!m)m=oc.match(/viewOrder\('([^']+)'\)/);if(m)return m[1]}
    const a=card.querySelector('a[href*="/impression/client/"]');
-   if(a){const m=a.getAttribute('href').match(/\\/impression\\/client\\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
+   if(a){const m=a.getAttribute('href').match(/\/impression\/client\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
    return null;
  }
  ready(function(){
@@ -75,8 +76,8 @@ def register_refund_history_ui_phase44(app, db):
        card.querySelectorAll('.p41-paid-badge').forEach(b=>b.remove());
        let badge=card.querySelector('.p44-refund-badge');if(!badge){badge=document.createElement('div');badge.className='p44-refund-badge';card.appendChild(badge)}
        const pending=Number(o.pending_refund||0);
-       const status=String(o.payment_status||'REMBOURSEMENT').toUpperCase()==='PARTIELLEMENT REMBOURSÉE'?'PART. REMB.':String(o.payment_status||'REMBOURSÉE');
-       badge.textContent='↩ '+status+' · '+String(o.payment_method||'')+' · '+euro(o.paid)+' → -'+euro(o.refunded)+' → '+euro(o.net_paid)+(pending>0?' · ATTENTE '+euro(pending):'');
+       badge.innerHTML='<strong>'+String(o.payment_status||'REMBOURSEMENT')+' · '+String(o.payment_method||'')+'</strong>'+
+         'Payé '+euro(o.paid)+' · Remboursé '+euro(o.refunded)+' · Net '+euro(o.net_paid)+(pending>0?' · En attente '+euro(pending):'');
      }
    }
    function schedule(){clearTimeout(timer);timer=setTimeout(decorate,100)}
