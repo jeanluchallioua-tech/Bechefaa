@@ -2,7 +2,8 @@
 
 Aucune écriture financière. Un endpoint groupé retourne les montants remboursés,
 puis un after_request ajoute un badge aux cartes concernées et neutralise le
-bouton Encaisser hérité de Phase 4.3 pour une commande déjà remboursée.
+bouton Encaisser hérité de Phase 4.3 sans le supprimer du DOM afin d'éviter
+la boucle MutationObserver qui provoquait des sauts de page.
 """
 from flask import jsonify, request
 
@@ -51,6 +52,7 @@ def register_refund_history_ui_phase44(app, db):
 <style id="p44-refund-ui-style">
 .p44-refund-badge{display:block;margin-top:7px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:12px;font-weight:900;line-height:1.45}
 .p44-refund-badge strong{display:block;font-size:12px;margin-bottom:2px}
+.p41-pay-btn[data-p44-refund-locked="1"]{display:none!important}
 </style>
 <script id="p44-refund-ui-script">
 (function(){
@@ -70,7 +72,7 @@ def register_refund_history_ui_phase44(app, db):
      for(const card of document.querySelectorAll('#list .order')){
        const id=orderId(card);if(!id||!data[id])continue;
        const o=data[id];
-       card.querySelectorAll('.p41-pay-btn').forEach(b=>b.remove());
+       card.querySelectorAll('.p41-pay-btn').forEach(b=>{b.disabled=true;b.setAttribute('data-p44-refund-locked','1')});
        card.querySelectorAll('.p41-paid-badge').forEach(b=>b.remove());
        let badge=card.querySelector('.p44-refund-badge');if(!badge){badge=document.createElement('div');badge.className='p44-refund-badge';card.appendChild(badge)}
        const pending=Number(o.pending_refund||0);
