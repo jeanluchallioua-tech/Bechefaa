@@ -55,6 +55,7 @@ from clean_caisse.service_label_phase42 import register_service_label_phase42
 from clean_caisse.payment_transactions_phase44 import register_payment_transactions_phase44
 from clean_caisse.order_cancellation_phase44 import register_order_cancellation_phase44
 from clean_caisse.order_cancellation_ui_phase44 import register_order_cancellation_ui_phase44
+from clean_caisse.fiscal_ticket_ui_phase44 import register_fiscal_ticket_ui_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -107,3 +108,4 @@ register_service_label_phase42(app)
 register_payment_transactions_phase44(app, db, ensure_order_schema)
 register_order_cancellation_phase44(app, db, ensure_order_schema)
 register_order_cancellation_ui_phase44(app)
+register_fiscal_ticket_ui_phase44(app)
