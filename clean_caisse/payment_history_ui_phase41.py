@@ -55,24 +55,29 @@ def register_payment_history_ui_phase41(app):
      let msg='Commande #'+d.num+' encaissée — '+d.payment_method+' — '+Number(d.paid_amount||0).toFixed(2)+' €';
      if(d.payment_method==='ESPÈCES')msg+='\nMonnaie à rendre : '+Number(d.change_due||0).toFixed(2)+' €';
      alert(msg);
-     btn.remove();
+     card.querySelectorAll('.p41-pay-btn').forEach(x=>x.remove());
    }catch(e){alert(e.message||'Encaissement impossible')}
    finally{if(btn&&btn.isConnected)btn.disabled=false}
  }
  async function decorate(){
    const cards=[...document.querySelectorAll('#list .order')];
    for(const card of cards){
-     if(card.querySelector('.p41-pay-btn'))continue;
+     const existing=[...card.querySelectorAll('.p41-pay-btn')];
+     if(existing.length){existing.slice(1).forEach(x=>x.remove());continue}
+     if(card.dataset.p41PaymentLoading==='1')continue;
      const id=orderId(card);if(!id)continue;
+     card.dataset.p41PaymentLoading='1';
      try{
        const d=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
        if(!d.ok||!d.order||d.order.z_locked||d.order.payment_status==='PAYÉE')continue;
+       if(card.querySelector('.p41-pay-btn'))continue;
        const btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.textContent='💳 Encaisser';
        btn.addEventListener('click',()=>pay(card,id,btn));card.appendChild(btn);
      }catch(e){}
+     finally{delete card.dataset.p41PaymentLoading}
    }
  }
- ready(function(){setTimeout(decorate,0);const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,30)).observe(list,{childList:true,subtree:true})});
+ ready(function(){setTimeout(decorate,0);const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,50)).observe(list,{childList:true,subtree:true})});
 })();
 </script>
 '''
