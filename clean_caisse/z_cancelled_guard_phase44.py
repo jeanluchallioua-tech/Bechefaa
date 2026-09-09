@@ -2,6 +2,7 @@
 
 Correction isolée sans modifier cash_z_phase35.py :
 - ANNULÉE ne bloque plus l'état du Z ;
+- ANNULÉE n'est pas visible dans le compteur opérationnel du Z ;
 - ANNULÉE reste en base et est verrouillée avec la journée ;
 - ANNULÉE est exclue du CA, des totaux et du nombre de commandes commerciales du Z ;
 - le comptage espèces définitif est exigé et rattaché au Z dans la même transaction.
@@ -112,17 +113,18 @@ def register_z_cancelled_guard_phase44(app, db):
                     "SELECT num,status FROM caisse_orders WHERE created_at >= %s AND created_at <= %s ORDER BY num",
                     (start_ms, end_ms),
                 ).fetchall()
+            visible_rows = [r for r in rows if _norm_status(r.get("status")) not in CANCELLED_STATUSES]
             open_rows = [
-                r for r in rows
-                if _norm_status(r.get("status")) not in TERMINAL_STATUSES | CANCELLED_STATUSES
+                r for r in visible_rows
+                if _norm_status(r.get("status")) not in TERMINAL_STATUSES
             ]
             return jsonify({
                 "ok": True,
                 "business_date": day,
                 "already_closed": bool(closed),
-                "orders": len(rows),
+                "orders": len(visible_rows),
                 "open_orders": [{"num": r["num"], "status": r["status"]} for r in open_rows],
-                "can_close": not closed and len(rows) > 0 and not open_rows,
+                "can_close": not closed and len(visible_rows) > 0 and not open_rows,
             })
         except Exception as exc:
             return jsonify({"ok": False, "error": "État Z indisponible", "detail": str(exc)}), 500
@@ -192,8 +194,6 @@ def register_z_cancelled_guard_phase44(app, db):
                     )).fetchone()
                     closure_id = closure["id"]
 
-                    # Toutes les commandes du jour, y compris ANNULÉE, sont verrouillées
-                    # par le Z. Les annulées restent toutefois exclues des totaux commerciaux.
                     conn.execute(
                         "UPDATE caisse_orders SET z_closure_id=%s WHERE id = ANY(%s)",
                         (closure_id, [r["id"] for r in rows]),
@@ -217,7 +217,6 @@ def register_z_cancelled_guard_phase44(app, db):
                 "business_date": day,
                 "closure_id": closure_id,
                 "orders": snap["count"],
-                "cancelled_orders": len(rows) - len(active_rows),
                 "total_ht": float(snap["ht"]),
                 "tax_amount": float(snap["tax"]),
                 "total_ttc": float(snap["ttc"]),
