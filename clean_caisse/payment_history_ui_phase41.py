@@ -3,6 +3,8 @@
 Le backend payment_core_phase41 reste l'unique source de vérité.
 Cette phase remplace seulement les prompt() par une fenêtre tactile et expose
 les quatre moyens déjà supportés par le socle : Espèces, CB, Chèque, Virement.
+Le chargement des états de paiement utilise désormais les métadonnées groupées
+Phase 4.4 afin d'éviter une requête HTTP par commande affichée.
 """
 from flask import request
 
@@ -75,7 +77,7 @@ def register_payment_history_ui_phase41(app):
  ready(function(){
    const overlay=document.getElementById('p43-overlay'),totalEl=document.getElementById('p43-total'),orderEl=document.getElementById('p43-order'),cashBox=document.getElementById('p43-cash'),received=document.getElementById('p43-received'),changeEl=document.getElementById('p43-change'),errorEl=document.getElementById('p43-error'),confirmBtn=document.getElementById('p43-confirm');
    if(!overlay)return;
-   let current=null,method=null;
+   let current=null,method=null,decorateTimer=null;
    function close(){overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');current=null;method=null;document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));cashBox.classList.remove('show');received.value='';changeEl.textContent='';errorEl.textContent='';confirmBtn.disabled=true}
    function calcChange(){if(!current||method!=='ESPÈCES')return;const v=Number(String(received.value||'').replace(',','.'));const t=Number(current.order.total||0);changeEl.textContent=Number.isFinite(v)?(v>=t?'À rendre : '+euro(v-t):'Il manque : '+euro(t-v)):''}
    document.querySelector('.p43-close').onclick=close;document.querySelector('.p43-cancel').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});received.addEventListener('input',calcChange);
@@ -108,22 +110,26 @@ def register_payment_history_ui_phase41(app):
      }catch(e){errorEl.textContent=e.message||'Encaissement impossible';confirmBtn.disabled=false}
    });
    async function decorate(){
+     let meta={};
+     try{
+       const r=await fetch('/api/orders/history-meta-phase44',{cache:'no-store'});
+       const d=await r.json();
+       if(r.ok&&d.ok&&d.orders)meta=d.orders;
+     }catch(e){return}
      const cards=[...document.querySelectorAll('#list .order')];
      for(const card of cards){
+       const id=orderId(card);if(!id)continue;
+       const order=meta[id];if(!order)continue;
        const existing=[...card.querySelectorAll('.p41-pay-btn')];if(existing.length>1)existing.slice(1).forEach(x=>x.remove());
        const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());
-       if(card.dataset.p41PaymentLoading==='1')continue;
-       const id=orderId(card);if(!id)continue;card.dataset.p41PaymentLoading='1';
-       try{
-         const d=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
-         if(!d.ok||!d.order)continue;
-         if(d.order.payment_status==='PAYÉE'){showPaid(card,d.order);continue}
-         card.querySelectorAll('.p41-paid-badge').forEach(x=>x.remove());if(d.order.z_locked||card.querySelector('.p41-pay-btn'))continue;
-         const btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.textContent='💳 Encaisser';btn.addEventListener('click',()=>openPayment(card,id,btn));card.appendChild(btn);
-       }catch(e){}finally{delete card.dataset.p41PaymentLoading}
+       if(order.payment_status==='PAYÉE'){showPaid(card,order);continue}
+       card.querySelectorAll('.p41-paid-badge').forEach(x=>x.remove());
+       if(order.z_locked||card.querySelector('.p41-pay-btn'))continue;
+       const btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.textContent='💳 Encaisser';btn.addEventListener('click',()=>openPayment(card,id,btn));card.appendChild(btn);
      }
    }
-   setTimeout(decorate,0);const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,50)).observe(list,{childList:true,subtree:true});
+   function scheduleDecorate(){clearTimeout(decorateTimer);decorateTimer=setTimeout(decorate,80)}
+   scheduleDecorate();const list=document.getElementById('list');if(list)new MutationObserver(scheduleDecorate).observe(list,{childList:true,subtree:true});
  });
 })();
 </script>
