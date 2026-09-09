@@ -86,6 +86,7 @@ from clean_caisse.restaurant_settings_phase44 import register_restaurant_setting
 from clean_caisse.restaurant_ticket_identity_phase44 import register_restaurant_ticket_identity_phase44
 from clean_caisse.statistics_phase44 import register_statistics_phase44
 from clean_caisse.user_audit_phase44 import register_user_audit_phase44
+from clean_caisse.statistics_products_endpoint_isolated_phase44 import register_statistics_products_endpoint_isolated_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -169,3 +170,4 @@ register_restaurant_settings_phase44(app, db)
 register_restaurant_ticket_identity_phase44(app, db)
 register_statistics_phase44(app, db)
 register_user_audit_phase44(app, db)
+register_statistics_products_endpoint_isolated_phase44(app, db)
