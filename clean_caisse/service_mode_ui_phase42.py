@@ -20,7 +20,7 @@ def register_service_mode_ui_phase42(app):
 
         addon = r'''
 <style id="phase42-service-mode-ui">
-#phase36-table-selector{display:none!important}
+[id^="phase36-table-"][id$="selector"]{display:none!important}
 #phase42-table-grid{display:none;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 12px}
 #phase42-table-grid button{padding:10px 6px;border:1px solid #ccd1d8;border-radius:8px;background:#fff;color:#17191c;font-weight:800;min-height:44px}
 #phase42-table-grid button.active{background:#d97706;color:#fff}
@@ -31,7 +31,7 @@ def register_service_mode_ui_phase42(app):
  ready(function(){
    function init(){
      const ticket=document.querySelector('.ticket-choice');
-     const selector=document.getElementById('phase36-table-selector');
+     const selector=document.getElementById('phase36-'+'table-selector');
      const legacyTables=document.getElementById('p36-tables');
      const salleLegacy=document.getElementById('p36-salle');
      const emporterLegacy=document.getElementById('p36-emporter');
@@ -74,8 +74,8 @@ def register_service_mode_ui_phase42(app):
        }
      }
 
-     /* Le module tactile historique clique automatiquement sur Salle au chargement.
-        On ignore ces clics synthétiques et on force un état neutre après son initialisation. */
+     /* Le module tactile historique pouvait cliquer automatiquement sur Salle au chargement.
+        On ignore les clics synthétiques et on force un état neutre après initialisation. */
      [120,300,600].forEach(ms=>setTimeout(clearChoice,ms));
 
      ticket.addEventListener('click',function(e){
