@@ -49,6 +49,7 @@ from clean_caisse.table_history_phase36 import register_table_history_phase36
 from clean_caisse.z_lock_phase37 import register_z_lock_phase37
 from clean_caisse.pos_quantity_phase38 import register_pos_quantity_phase38
 from clean_caisse.payment_core_phase41 import register_payment_core_phase41
+from clean_caisse.payment_history_ui_phase41 import register_payment_history_ui_phase41
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -95,3 +96,4 @@ register_table_history_phase36(app)
 register_z_lock_phase37(app, db, ensure_order_schema)
 register_pos_quantity_phase38(app)
 register_payment_core_phase41(app, db, ensure_order_schema)
+register_payment_history_ui_phase41(app)
