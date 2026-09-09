@@ -19,11 +19,13 @@ def register_history_today_phase44(app, db, ensure_order_schema, order_payload):
                     FROM caisse_orders
                     WHERE (to_timestamp(created_at / 1000.0) AT TIME ZONE 'Europe/Paris')::date
                           = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date
+                      AND COALESCE(cancellation_hidden, FALSE) = FALSE
+                      AND UPPER(COALESCE(status, '')) <> 'ANNULÉE'
                     ORDER BY created_at DESC
                     LIMIT 150
                     """
                 ).fetchall()
                 orders = [order_payload(conn, row) for row in rows]
-            return jsonify({'ok': True, 'scope': 'today_europe_paris', 'orders': orders, 'count': len(orders)})
+            return jsonify({'ok': True, 'scope': 'today_europe_paris_non_cancelled', 'orders': orders, 'count': len(orders)})
         except Exception as exc:
             return jsonify({'ok': False, 'error': 'Historique du jour indisponible', 'detail': str(exc)}), 500
