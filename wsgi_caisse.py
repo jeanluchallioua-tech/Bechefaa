@@ -74,6 +74,7 @@ from clean_caisse.transaction_journal_test_phase44 import register_transaction_j
 from clean_caisse.cash_float_test_phase44 import register_cash_float_test_phase44
 from clean_caisse.cash_float_phase44 import register_cash_float_phase44
 from clean_caisse.cash_count_test_phase44 import register_cash_count_test_phase44
+from clean_caisse.cash_count_phase44 import register_cash_count_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -145,3 +146,4 @@ register_transaction_journal_test_phase44(app, db)
 register_cash_float_test_phase44(app, db)
 register_cash_float_phase44(app, db)
 register_cash_count_test_phase44(app, db)
+register_cash_count_phase44(app, db)
