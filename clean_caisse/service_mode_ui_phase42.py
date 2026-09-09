@@ -38,40 +38,50 @@ def register_service_mode_ui_phase42(app):
      if(!ticket||!selector||!tables||!salleLegacy||!emporterLegacy){setTimeout(init,50);return}
 
      let chosenMode=null;
+     let userInteracted=false;
 
      function ensureTables(){
        if(!tables.querySelector('[data-p36-table]')){
          tables.innerHTML=Array.from({length:9},(_,i)=>`<button type="button" data-p36-table="${i+1}" style="padding:9px;border:1px solid #ccd1d8;border-radius:8px;background:#fff;font-weight:800">Table ${i+1}</button>`).join('');
        }
      }
+     function hideTables(){
+       selector.style.setProperty('display','none','important');
+       tables.style.setProperty('display','none','important');
+     }
+     function showTables(){
+       ensureTables();
+       selector.style.setProperty('display','block','important');
+       tables.style.setProperty('display','grid','important');
+     }
      function clearChoice(){
+       if(userInteracted)return;
        chosenMode=null;
        ticket.querySelectorAll('[data-ticket]').forEach(b=>b.classList.remove('active'));
-       selector.style.display='none';
-       tables.style.removeProperty('display');
+       hideTables();
      }
      function sync(mode,button){
        chosenMode=String(mode||'').toLowerCase();
        ticket.querySelectorAll('[data-ticket]').forEach(b=>b.classList.toggle('active',b===button));
        if(chosenMode==='salle'){
          salleLegacy.click();
-         ensureTables();
-         selector.style.display='block';
-         tables.style.setProperty('display','grid','important');
+         showTables();
        }else{
          emporterLegacy.click();
-         selector.style.display='none';
-         tables.style.removeProperty('display');
+         hideTables();
        }
      }
 
-     /* Le vieux code sélectionne Salle tout seul au chargement. On annule ce choix automatique. */
-     setTimeout(clearChoice,120);
+     /* Le vieux code sélectionne Salle automatiquement au chargement.
+        On annule ce choix, même si son initialisation arrive légèrement après la nôtre. */
+     hideTables();
+     [80,180,350].forEach(ms=>setTimeout(clearChoice,ms));
 
      ticket.addEventListener('click',function(e){
        const b=e.target.closest('[data-ticket]');
-       if(!b || !e.isTrusted)return;
-       setTimeout(function(){sync(b.dataset.ticket,b)},0);
+       if(!b)return;
+       userInteracted=true;
+       sync(b.dataset.ticket,b);
      },true);
 
      /* Sécurité : aucune commande ne part sans choix explicite du mode. */
@@ -91,7 +101,10 @@ def register_service_mode_ui_phase42(app):
      if(msg){
        new MutationObserver(function(){
          const text=(msg.textContent||'').toLowerCase();
-         if(text.includes('envoyée en cuisine'))setTimeout(clearChoice,80);
+         if(text.includes('envoyée en cuisine')){
+           userInteracted=false;
+           setTimeout(clearChoice,80);
+         }
        }).observe(msg,{childList:true,subtree:true,characterData:true});
      }
    }
