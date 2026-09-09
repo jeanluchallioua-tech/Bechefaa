@@ -1,9 +1,9 @@
-"""Phase 4.4 — affichage isolé des remboursements dans Historique.
+"""Phase 4.4 — protection isolée des remboursements dans Historique.
 
-Aucune écriture financière. Un endpoint groupé retourne les montants remboursés,
-puis un after_request ajoute un badge aux cartes concernées et neutralise le
-bouton Encaisser hérité de Phase 4.3 sans le supprimer du DOM afin d'éviter
-la boucle MutationObserver qui provoquait des sauts de page.
+Aucune écriture financière. Un endpoint groupé retourne les montants remboursés.
+Pour les commandes remboursées, le bouton Encaisser hérité de Phase 4.3 reste
+neutralisé sans être supprimé du DOM. Le badge de remboursement n'est plus
+affiché : le détail est disponible via l'action Rembourser.
 """
 from flask import jsonify, request
 
@@ -50,14 +50,11 @@ def register_refund_history_ui_phase44(app, db):
         html = response.get_data(as_text=True)
         addon = r'''
 <style id="p44-refund-ui-style">
-.p44-refund-badge{display:block;margin-top:7px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:12px;font-weight:900;line-height:1.45}
-.p44-refund-badge strong{display:block;font-size:12px;margin-bottom:2px}
 .p41-pay-btn[data-p44-refund-locked="1"]{display:none!important}
 </style>
 <script id="p44-refund-ui-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
- function euro(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
  function orderId(card){
    const buttons=[...card.querySelectorAll('button')];
    for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/editOrder\('([^']+)'\)/);if(!m)m=oc.match(/viewOrder\('([^']+)'\)/);if(m)return m[1]}
@@ -71,13 +68,9 @@ def register_refund_history_ui_phase44(app, db):
    function decorate(){
      for(const card of document.querySelectorAll('#list .order')){
        const id=orderId(card);if(!id||!data[id])continue;
-       const o=data[id];
        card.querySelectorAll('.p41-pay-btn').forEach(b=>{b.disabled=true;b.setAttribute('data-p44-refund-locked','1')});
        card.querySelectorAll('.p41-paid-badge').forEach(b=>b.remove());
-       let badge=card.querySelector('.p44-refund-badge');if(!badge){badge=document.createElement('div');badge.className='p44-refund-badge';card.appendChild(badge)}
-       const pending=Number(o.pending_refund||0);
-       badge.innerHTML='<strong>'+String(o.payment_status||'REMBOURSEMENT')+' · '+String(o.payment_method||'')+'</strong>'+
-         'Payé '+euro(o.paid)+' · Remboursé '+euro(o.refunded)+' · Net '+euro(o.net_paid)+(pending>0?' · En attente '+euro(pending):'');
+       card.querySelectorAll('.p44-refund-badge').forEach(b=>b.remove());
      }
    }
    function schedule(){clearTimeout(timer);timer=setTimeout(decorate,100)}
