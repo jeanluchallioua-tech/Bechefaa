@@ -1,8 +1,8 @@
 """Phase 4.4 — métadonnées groupées pour l'historique.
 
-Évite les appels HTTP/SQL par commande pour l'annulation et le numéro de ticket
-comptable. Une seule requête PostgreSQL retourne les métadonnées des commandes
-visibles dans l'historique.
+Évite les appels HTTP/SQL par commande pour l'annulation, l'encaissement et le
+numéro de ticket comptable. Une seule requête PostgreSQL retourne les
+métadonnées des commandes visibles dans l'historique.
 """
 from flask import jsonify
 
@@ -14,8 +14,14 @@ def register_history_meta_phase44(app, db):
             with db() as conn:
                 rows = conn.execute("""
                     SELECT id,
+                           num,
+                           total,
                            COALESCE(payment_status, 'À ENCAISSER') AS payment_status,
+                           payment_method,
                            COALESCE(paid_amount, 0) AS paid_amount,
+                           cash_received,
+                           COALESCE(change_due, 0) AS change_due,
+                           paid_at,
                            z_closure_id,
                            fiscal_ticket_number
                     FROM caisse_orders
@@ -27,8 +33,15 @@ def register_history_meta_phase44(app, db):
                 "ok": True,
                 "orders": {
                     str(r["id"]): {
+                        "id": r["id"],
+                        "num": r["num"],
+                        "total": float(r["total"] or 0),
                         "payment_status": r["payment_status"],
+                        "payment_method": r.get("payment_method"),
                         "paid_amount": float(r["paid_amount"] or 0),
+                        "cash_received": None if r.get("cash_received") is None else float(r["cash_received"]),
+                        "change_due": float(r["change_due"] or 0),
+                        "paid_at": r.get("paid_at"),
                         "z_locked": r.get("z_closure_id") is not None,
                         "fiscal_ticket_number": r.get("fiscal_ticket_number"),
                     }
