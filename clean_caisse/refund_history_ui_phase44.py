@@ -1,7 +1,8 @@
 """Phase 4.4 — affichage isolé des remboursements dans Historique.
 
 Aucune écriture financière. Un endpoint groupé retourne les montants remboursés,
-puis un after_request ajoute un badge aux cartes concernées.
+puis un after_request ajoute un badge aux cartes concernées et neutralise le
+bouton Encaisser hérité de Phase 4.3 pour une commande déjà remboursée.
 """
 from flask import jsonify, request
 
@@ -31,12 +32,9 @@ def register_refund_history_ui_phase44(app, db):
                 """).fetchall()
             return jsonify({"ok": True, "orders": {
                 str(r["id"]): {
-                    "id": r["id"],
-                    "num": r["num"],
-                    "payment_status": r["payment_status"],
-                    "payment_method": r["payment_method"],
-                    "paid": float(r["paid"] or 0),
-                    "refunded": float(r["refunded"] or 0),
+                    "id": r["id"], "num": r["num"],
+                    "payment_status": r["payment_status"], "payment_method": r["payment_method"],
+                    "paid": float(r["paid"] or 0), "refunded": float(r["refunded"] or 0),
                     "pending_refund": float(r["pending_refund"] or 0),
                     "net_paid": round(float(r["paid"] or 0)-float(r["refunded"] or 0),2),
                 } for r in rows
@@ -65,16 +63,23 @@ def register_refund_history_ui_phase44(app, db):
    if(a){const m=a.getAttribute('href').match(/\/impression\/client\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
    return null;
  }
- ready(async function(){
-   let data={};
-   try{const r=await fetch('/api/orders/refund-meta-phase44',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)return;data=d.orders||{}}catch(e){return}
-   for(const card of document.querySelectorAll('#list .order')){
-     const id=orderId(card);if(!id||!data[id])continue;
-     const o=data[id];let badge=card.querySelector('.p44-refund-badge');if(!badge){badge=document.createElement('div');badge.className='p44-refund-badge';card.appendChild(badge)}
-     const pending=Number(o.pending_refund||0);
-     badge.innerHTML='<strong>'+String(o.payment_status||'REMBOURSEMENT')+' · '+String(o.payment_method||'')+'</strong>'+
-       'Payé '+euro(o.paid)+' · Remboursé '+euro(o.refunded)+' · Net '+euro(o.net_paid)+(pending>0?' · En attente '+euro(pending):'');
+ ready(function(){
+   let data={};let timer=null;
+   async function load(){try{const r=await fetch('/api/orders/refund-meta-phase44',{cache:'no-store'});const d=await r.json();if(r.ok&&d.ok)data=d.orders||{}}catch(e){}}
+   function decorate(){
+     for(const card of document.querySelectorAll('#list .order')){
+       const id=orderId(card);if(!id||!data[id])continue;
+       const o=data[id];
+       card.querySelectorAll('.p41-pay-btn').forEach(b=>b.remove());
+       card.querySelectorAll('.p41-paid-badge').forEach(b=>b.remove());
+       let badge=card.querySelector('.p44-refund-badge');if(!badge){badge=document.createElement('div');badge.className='p44-refund-badge';card.appendChild(badge)}
+       const pending=Number(o.pending_refund||0);
+       badge.innerHTML='<strong>'+String(o.payment_status||'REMBOURSEMENT')+' · '+String(o.payment_method||'')+'</strong>'+
+         'Payé '+euro(o.paid)+' · Remboursé '+euro(o.refunded)+' · Net '+euro(o.net_paid)+(pending>0?' · En attente '+euro(pending):'');
+     }
    }
+   function schedule(){clearTimeout(timer);timer=setTimeout(decorate,100)}
+   (async()=>{await load();decorate();const list=document.getElementById('list');if(list)new MutationObserver(schedule).observe(list,{childList:true,subtree:true})})();
  });
 })();
 </script>
