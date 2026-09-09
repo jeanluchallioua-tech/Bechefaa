@@ -65,6 +65,7 @@ from clean_caisse.history_meta_today_test_phase44 import register_history_meta_t
 from clean_caisse.refund_preview_test_phase44 import register_refund_preview_test_phase44
 from clean_caisse.refund_partial_test_phase44 import register_refund_partial_test_phase44
 from clean_caisse.refund_history_test_phase44 import register_refund_history_test_phase44
+from clean_caisse.refund_history_ui_phase44 import register_refund_history_ui_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -127,3 +128,4 @@ register_history_meta_today_test_phase44(app, db)
 register_refund_preview_test_phase44(app, db, ensure_order_schema)
 register_refund_partial_test_phase44(app)
 register_refund_history_test_phase44(app, db)
+register_refund_history_ui_phase44(app, db)
