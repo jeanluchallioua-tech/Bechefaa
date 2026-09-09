@@ -53,6 +53,7 @@ from clean_caisse.payment_history_ui_phase41 import register_payment_history_ui_
 from clean_caisse.service_mode_ui_phase42 import register_service_mode_ui_phase42
 from clean_caisse.service_label_phase42 import register_service_label_phase42
 from clean_caisse.payment_transactions_phase44 import register_payment_transactions_phase44
+from clean_caisse.payment_topup_safe_isolated_phase44 import register_payment_topup_safe_isolated_phase44
 from clean_caisse.order_cancellation_phase44 import register_order_cancellation_phase44
 from clean_caisse.order_cancellation_ui_phase44 import register_order_cancellation_ui_phase44
 from clean_caisse.fiscal_ticket_ui_phase44 import register_fiscal_ticket_ui_phase44
@@ -146,6 +147,7 @@ register_order_cancellation_phase44(app, db, ensure_order_schema)
 register_order_cancellation_ui_phase44(app)
 register_fiscal_ticket_ui_phase44(app)
 register_history_meta_phase44(app, db)
+register_payment_topup_safe_isolated_phase44(app, db, ensure_order_schema)
 register_test_number_cleanup_phase44(app, db, ensure_order_schema)
 register_fiscal_backfill_phase44(app, db, ensure_order_schema)
 register_history_today_phase44(app, db, ensure_order_schema, order_payload)
