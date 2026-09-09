@@ -1,7 +1,7 @@
 """Phase 4.4 — affichage du numéro de ticket comptable dans l'historique.
 
-Extension visuelle isolée : aucune modification de l'interface d'encaissement
-Phase 4.3. Le badge apparaît uniquement lorsqu'un numéro comptable existe.
+Extension visuelle isolée. Les métadonnées sont chargées en une seule requête
+groupée partagée avec l'interface d'annulation.
 """
 from flask import request
 
@@ -31,23 +31,27 @@ def register_fiscal_ticket_ui_phase44(app):
    if(a){const m=a.getAttribute('href').match(/\/impression\/client\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
    return null;
  }
+ function meta(){
+   const now=Date.now();
+   if(window.__p44HistoryMetaPromise && now-(window.__p44HistoryMetaAt||0)<1500)return window.__p44HistoryMetaPromise;
+   window.__p44HistoryMetaAt=now;
+   window.__p44HistoryMetaPromise=fetch('/api/orders/history-meta-phase44',{cache:'no-store'})
+     .then(r=>r.json()).then(d=>(d&&d.ok&&d.orders)?d.orders:{}).catch(()=>({}));
+   return window.__p44HistoryMetaPromise;
+ }
  ready(function(){
    async function decorate(){
      const cards=[...document.querySelectorAll('#list .order')];
+     if(!cards.length)return;
+     const all=await meta();
      for(const card of cards){
-       if(card.dataset.p44TicketLoading==='1')continue;
        const id=orderId(card);if(!id)continue;
-       card.dataset.p44TicketLoading='1';
-       try{
-         const r=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'});
-         const d=await r.json();
-         if(!r.ok||!d.ok||!d.order)continue;
-         let badge=card.querySelector('.p44-ticket-badge');
-         if(d.order.fiscal_ticket_number!=null){
-           if(!badge){badge=document.createElement('span');badge.className='p44-ticket-badge';card.appendChild(badge)}
-           badge.textContent='Ticket comptable #'+d.order.fiscal_ticket_number;
-         }else if(badge){badge.remove()}
-       }catch(e){}finally{delete card.dataset.p44TicketLoading}
+       const d=all[id];if(!d)continue;
+       let badge=card.querySelector('.p44-ticket-badge');
+       if(d.fiscal_ticket_number!=null){
+         if(!badge){badge=document.createElement('span');badge.className='p44-ticket-badge';card.appendChild(badge)}
+         badge.textContent='Ticket comptable #'+d.fiscal_ticket_number;
+       }else if(badge){badge.remove()}
      }
    }
    setTimeout(decorate,100);
