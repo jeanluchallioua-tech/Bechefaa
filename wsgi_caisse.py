@@ -52,6 +52,7 @@ from clean_caisse.payment_core_phase41 import register_payment_core_phase41
 from clean_caisse.payment_history_ui_phase41 import register_payment_history_ui_phase41
 from clean_caisse.service_mode_ui_phase42 import register_service_mode_ui_phase42
 from clean_caisse.service_label_phase42 import register_service_label_phase42
+from clean_caisse.payment_transactions_phase44 import register_payment_transactions_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -101,3 +102,4 @@ register_payment_core_phase41(app, db, ensure_order_schema)
 register_payment_history_ui_phase41(app)
 register_service_mode_ui_phase42(app)
 register_service_label_phase42(app)
+register_payment_transactions_phase44(app, db, ensure_order_schema)
