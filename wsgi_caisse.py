@@ -59,6 +59,7 @@ from clean_caisse.fiscal_ticket_ui_phase44 import register_fiscal_ticket_ui_phas
 from clean_caisse.history_meta_phase44 import register_history_meta_phase44
 from clean_caisse.test_number_cleanup_phase44 import register_test_number_cleanup_phase44
 from clean_caisse.fiscal_backfill_phase44 import register_fiscal_backfill_phase44
+from clean_caisse.history_today_phase44 import register_history_today_phase44
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -115,3 +116,4 @@ register_fiscal_ticket_ui_phase44(app)
 register_history_meta_phase44(app, db)
 register_test_number_cleanup_phase44(app, db, ensure_order_schema)
 register_fiscal_backfill_phase44(app, db, ensure_order_schema)
+register_history_today_phase44(app, db, ensure_order_schema, order_payload)
