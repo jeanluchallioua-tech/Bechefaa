@@ -13,6 +13,10 @@ from clean_caisse.payment_transactions_phase44 import (
     ensure_payment_transaction_schema,
     record_payment_transaction,
 )
+from clean_caisse.fiscal_ticket_phase44 import (
+    ensure_fiscal_ticket_schema,
+    allocate_fiscal_ticket_number,
+)
 
 CENT = Decimal("0.01")
 ALLOWED_METHODS = {"ESPÈCES", "CB", "CHÈQUE", "VIREMENT"}
@@ -35,6 +39,7 @@ def _ensure_payment_schema(conn, ensure_order_schema):
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS paid_at BIGINT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_caisse_orders_payment_status ON caisse_orders(payment_status)")
     ensure_payment_transaction_schema(conn)
+    ensure_fiscal_ticket_schema(conn, ensure_order_schema)
 
 
 def register_payment_core_phase41(app, db, ensure_order_schema):
@@ -70,7 +75,8 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                 conn.commit()
                 row = conn.execute("""
                     SELECT id,num,total,payment,payment_status,payment_method,
-                           paid_amount,cash_received,change_due,paid_at,z_closure_id
+                           paid_amount,cash_received,change_due,paid_at,z_closure_id,
+                           fiscal_ticket_number,fiscal_ticket_issued_at
                     FROM caisse_orders WHERE id=%s
                 """, (order_id,)).fetchone()
             if not row:
@@ -83,6 +89,8 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                     "payment_method": row["payment_method"], "paid_amount": float(row["paid_amount"] or 0),
                     "cash_received": None if row["cash_received"] is None else float(row["cash_received"]),
                     "change_due": float(row["change_due"] or 0), "paid_at": row["paid_at"],
+                    "fiscal_ticket_number": row["fiscal_ticket_number"],
+                    "fiscal_ticket_issued_at": row["fiscal_ticket_issued_at"],
                     "z_locked": row.get("z_closure_id") is not None,
                 }
             })
@@ -120,6 +128,9 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                         change_due = (cash_received - total).quantize(CENT, rounding=ROUND_HALF_UP)
 
                     paid_at = int(time.time() * 1000)
+                    fiscal_ticket_number = allocate_fiscal_ticket_number(
+                        conn, ensure_order_schema, order_id, paid_at
+                    )
                     conn.execute("""
                         UPDATE caisse_orders
                         SET payment=%s,
@@ -138,6 +149,7 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                 "ok": True,
                 "id": order_id,
                 "num": row["num"],
+                "fiscal_ticket_number": fiscal_ticket_number,
                 "payment_status": "PAYÉE",
                 "payment_method": method,
                 "paid_amount": float(total),
