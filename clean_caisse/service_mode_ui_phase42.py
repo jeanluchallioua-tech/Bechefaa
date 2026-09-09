@@ -2,7 +2,7 @@
 
 Ne modifie ni la persistance ni les règles Salle/Table de Phase 3.6.
 Les boutons principaux Salle / Emporter / Livraison restent l'unique choix
-visible. En mode Salle, seules les 9 tables du sélecteur existant sont affichées.
+visible. En mode Salle, les 9 tables du sélecteur existant sont affichées.
 """
 from flask import request
 
@@ -19,8 +19,7 @@ def register_service_mode_ui_phase42(app):
 
         addon = r'''
 <style id="phase42-service-mode-ui">
-/* Le choix principal Salle / Emporter / Livraison suffit.
-   Le sélecteur Phase 3.6 reste actif techniquement mais ses boutons doublons sont masqués. */
+/* Les boutons Salle / Emporter / Livraison sont l'unique choix visible. */
 #phase36-table-selector > div:first-child,
 #phase36-table-selector > div:nth-child(2){display:none!important}
 #phase36-table-selector{margin:8px 0 12px!important}
@@ -30,24 +29,29 @@ def register_service_mode_ui_phase42(app):
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
-   setTimeout(function(){
+   function init(){
      const ticket=document.querySelector('.ticket-choice');
      const selector=document.getElementById('phase36-table-selector');
      const tables=document.getElementById('p36-tables');
      const salleLegacy=document.getElementById('p36-salle');
      const emporterLegacy=document.getElementById('p36-emporter');
-     if(!ticket||!selector||!tables||!salleLegacy||!emporterLegacy)return;
+     if(!ticket||!selector||!tables||!salleLegacy||!emporterLegacy){setTimeout(init,50);return}
 
+     function ensureTables(){
+       if(!tables.querySelector('[data-p36-table]')){
+         tables.innerHTML=Array.from({length:9},(_,i)=>`<button type="button" data-p36-table="${i+1}" style="padding:9px;border:1px solid #ccd1d8;border-radius:8px;background:#fff;font-weight:800">Table ${i+1}</button>`).join('');
+       }
+     }
      function sync(mode){
        const value=String(mode||'Salle').toLowerCase();
        if(value==='salle'){
-         /* Réutilise exactement la logique Table 1 à 9 déjà validée en Phase 3.6. */
          salleLegacy.click();
+         ensureTables();
          selector.style.display='block';
-         tables.style.display='grid';
+         tables.style.setProperty('display','grid','important');
        }else{
-         /* Emporter et Livraison n'ont pas de table. */
          emporterLegacy.click();
+         tables.style.removeProperty('display');
          selector.style.display='none';
        }
      }
@@ -55,12 +59,13 @@ def register_service_mode_ui_phase42(app):
      ticket.addEventListener('click',function(e){
        const b=e.target.closest('[data-ticket]');
        if(!b)return;
-       setTimeout(function(){sync(b.dataset.ticket)},0);
+       setTimeout(function(){sync(b.dataset.ticket)},10);
      });
 
      const active=ticket.querySelector('[data-ticket].active');
      sync(active?active.dataset.ticket:'Salle');
-   },0);
+   }
+   init();
  });
 })();
 </script>
