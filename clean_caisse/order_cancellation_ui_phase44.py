@@ -1,8 +1,8 @@
 """Phase 4.4 — interface d'annulation et masquage commercial.
 
 Les commandes annulées restent en base pour audit mais sont retirées de
-l'historique commercial. Le bouton Annuler n'est proposé qu'aux commandes
-non payées ; le backend reste l'autorité finale.
+l'historique commercial. Les métadonnées sont chargées en une seule requête
+groupée pour éviter un appel réseau par commande.
 """
 from flask import request
 
@@ -10,7 +10,6 @@ from flask import request
 def register_order_cancellation_ui_phase44(app):
     @app.after_request
     def cancellation_ui_phase44(response):
-        # Masque les commandes annulées de l'historique commercial normal.
         if request.path == "/api/orders/history" and response.status_code == 200 and response.is_json:
             try:
                 data = response.get_json(silent=True) or {}
@@ -46,6 +45,14 @@ def register_order_cancellation_ui_phase44(app):
    }
    return null;
  }
+ function meta(){
+   const now=Date.now();
+   if(window.__p44HistoryMetaPromise && now-(window.__p44HistoryMetaAt||0)<1500)return window.__p44HistoryMetaPromise;
+   window.__p44HistoryMetaAt=now;
+   window.__p44HistoryMetaPromise=fetch('/api/orders/history-meta-phase44',{cache:'no-store'})
+     .then(r=>r.json()).then(d=>(d&&d.ok&&d.orders)?d.orders:{}).catch(()=>({}));
+   return window.__p44HistoryMetaPromise;
+ }
  ready(function(){
    async function cancelOrder(card,id,btn){
      if(!confirm('Annuler cette commande non payée ?'))return;
@@ -54,27 +61,26 @@ def register_order_cancellation_ui_phase44(app):
        const r=await fetch('/api/orders/'+encodeURIComponent(id)+'/cancel-phase44',{method:'POST'});
        const d=await r.json();
        if(!r.ok||!d.ok)throw new Error(d.error||'Annulation impossible');
-       card.remove();
+       card.remove();window.__p44HistoryMetaAt=0;window.__p44HistoryMetaPromise=null;
        if(typeof load==='function')setTimeout(()=>load(),100);
      }catch(e){alert(e.message||'Annulation impossible');btn.disabled=false}
    }
    async function decorate(){
      const cards=[...document.querySelectorAll('#list .order')];
+     if(!cards.length)return;
+     const all=await meta();
      for(const card of cards){
-       if(card.querySelector('.p44-cancel-btn')||card.dataset.p44CancelLoading==='1')continue;
-       const id=orderId(card);if(!id)continue;card.dataset.p44CancelLoading='1';
-       try{
-         const d=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
-         if(!d.ok||!d.order)continue;
-         const ps=String(d.order.payment_status||'').toUpperCase();
-         const paid=Number(d.order.paid_amount||0)>0 || ps==='PAYÉE' || ps==='REMBOURSÉE' || ps==='PARTIELLEMENT REMBOURSÉE';
-         if(paid||d.order.z_locked)continue;
-         const btn=document.createElement('button');btn.type='button';btn.className='p44-cancel-btn';btn.textContent='✕ Annuler';btn.addEventListener('click',()=>cancelOrder(card,id,btn));card.appendChild(btn);
-       }catch(e){}finally{delete card.dataset.p44CancelLoading}
+       if(card.querySelector('.p44-cancel-btn'))continue;
+       const id=orderId(card);if(!id)continue;
+       const d=all[id];if(!d)continue;
+       const ps=String(d.payment_status||'').toUpperCase();
+       const paid=Number(d.paid_amount||0)>0 || ps==='PAYÉE' || ps==='REMBOURSÉE' || ps==='PARTIELLEMENT REMBOURSÉE';
+       if(paid||d.z_locked)continue;
+       const btn=document.createElement('button');btn.type='button';btn.className='p44-cancel-btn';btn.textContent='✕ Annuler';btn.addEventListener('click',()=>cancelOrder(card,id,btn));card.appendChild(btn);
      }
    }
    setTimeout(decorate,0);
-   const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,40)).observe(list,{childList:true,subtree:true});
+   const list=document.getElementById('list');if(list)new MutationObserver(()=>setTimeout(decorate,60)).observe(list,{childList:true,subtree:true});
  });
 })();
 </script>
