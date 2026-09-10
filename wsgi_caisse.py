@@ -7,6 +7,7 @@ from clean_caisse.app import app, db, ensure_order_schema, order_payload, load_c
 from clean_caisse.kitchen_checklist import register_kitchen_checklist
 from clean_caisse.kitchen_ready_isolated_phase5 import register_kitchen_ready_isolated_phase5
 from clean_caisse.history_modifier import register_history_modifier
+from clean_caisse.kitchen_resend_prepared_isolated_phase5 import register_kitchen_resend_prepared_isolated_phase5
 from clean_caisse.customer_phase1 import register_customer_phase1
 from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
@@ -101,6 +102,7 @@ register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_kitchen_ready_isolated_phase5(app, db, ensure_order_schema)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
+register_kitchen_resend_prepared_isolated_phase5(app, db)
 register_pos_touch_layout(app, db)
 register_customer_phase1(app, db, ensure_order_schema)
 register_delivery_zones(app, db)
