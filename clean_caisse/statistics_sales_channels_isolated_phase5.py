@@ -1,6 +1,5 @@
 """Phase 5 — ventilation des statistiques par canal de vente.
 
-INACTIF : ce module n'est ni importé ni enregistré dans wsgi_caisse.py.
 Lecture seule côté statistiques. Il ne modifie ni les commandes, ni les paiements,
 ni le Z. Il remplace uniquement la ventilation visuelle historique `source` par
 les 4 canaux commerciaux : RESTO, SITE, UBER_EATS, DELIVEROO.
@@ -10,6 +9,7 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from flask import request
+from clean_caisse.statistics_visibility_fix_isolated_phase5 import register_statistics_visibility_fix_isolated_phase5
 
 PARIS = ZoneInfo("Europe/Paris")
 UTC = ZoneInfo("UTC")
@@ -32,6 +32,8 @@ def _period_bounds_from_response(data):
 
 
 def register_statistics_sales_channels_isolated_phase5(app, db):
+    register_statistics_visibility_fix_isolated_phase5(app, db)
+
     @app.after_request
     def statistics_sales_channels_phase5(response):
         # 1) API : remplace seulement la ventilation `sources`.
@@ -59,8 +61,6 @@ def register_statistics_sales_channels_isolated_phase5(app, db):
                             (start_ms, end_ms),
                         ).fetchall()
                     except Exception:
-                        # Compatibilité historique si la colonne n'existe pas encore :
-                        # les commandes de caisse déjà présentes sont classées RESTO.
                         rows = conn.execute(
                             """
                             SELECT 'RESTO' channel, COUNT(*) count, COALESCE(SUM(total),0) total
@@ -90,11 +90,8 @@ def register_statistics_sales_channels_isolated_phase5(app, db):
                 response.set_json(data)
                 return response
             except Exception:
-                # Les statistiques existantes doivent rester disponibles même si
-                # cette ventilation additionnelle rencontre une anomalie.
                 return response
 
-        # 2) Page : change uniquement l'intitulé du bloc existant.
         if request.path == "/statistiques" and response.status_code == 200:
             if response.content_type and "text/html" in response.content_type:
                 html = response.get_data(as_text=True)
