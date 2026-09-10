@@ -12,6 +12,7 @@ from clean_caisse.paid_reopen_preserve_prepared_isolated_phase5 import register_
 from clean_caisse.paid_reopen_payment_guard_isolated_phase5 import register_paid_reopen_payment_guard_isolated_phase5
 from clean_caisse.kitchen_in_progress_preserve_isolated_phase5 import register_kitchen_in_progress_preserve_isolated_phase5
 from clean_caisse.customer_phase1 import register_customer_phase1
+from clean_caisse.clients_management_isolated_phase6 import register_clients_management_isolated_phase6
 from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
 from clean_caisse.pos_touch_layout import register_pos_touch_layout
@@ -121,6 +122,7 @@ register_history_modifier(app, db, ensure_order_schema, order_payload)
 register_kitchen_resend_prepared_isolated_phase5(app, db)
 register_pos_touch_layout(app, db)
 register_customer_phase1(app, db, ensure_order_schema)
+register_clients_management_isolated_phase6(app, db, ensure_order_schema)
 register_delivery_zones(app, db)
 register_pos_quick_add(app)
 register_printing_phase1(app, db, ensure_order_schema, order_payload)
