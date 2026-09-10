@@ -1,6 +1,5 @@
 """Phase 5 — correction isolée de visibilité des statistiques.
 
-INACTIF : module non importé/non enregistré dans wsgi_caisse.py.
 Objectifs strictement limités à /statistiques :
 - rendre visibles les 4 canaux de vente Resto / Site internet / Uber Eats / Deliveroo ;
 - corriger les cartes blanches des classements produits en thème sombre.
@@ -50,30 +49,43 @@ def register_statistics_visibility_fix_isolated_phase5(app, db):
         try:
             start_ms, end_ms = _bounds()
             totals = {key: {"count": 0, "total": 0.0} for key in CHANNELS}
+
             with db() as conn:
-                try:
-                    rows = conn.execute(
-                        """
-                        SELECT COALESCE(NULLIF(UPPER(sales_channel),''),'RESTO') channel,
-                               COUNT(*) count,
-                               COALESCE(SUM(total),0) total
-                        FROM caisse_orders
-                        WHERE created_at >= %s AND created_at < %s
-                          AND COALESCE(cancellation_hidden,FALSE)=FALSE
-                        GROUP BY 1
-                        """,
-                        (start_ms, end_ms),
-                    ).fetchall()
-                except Exception:
-                    rows = conn.execute(
-                        """
-                        SELECT 'RESTO' channel, COUNT(*) count, COALESCE(SUM(total),0) total
-                        FROM caisse_orders
-                        WHERE created_at >= %s AND created_at < %s
-                          AND COALESCE(cancellation_hidden,FALSE)=FALSE
-                        """,
-                        (start_ms, end_ms),
-                    ).fetchall()
+                # Vérifie d'abord les colonnes disponibles pour ne jamais mettre
+                # la transaction PostgreSQL en état aborted avec une requête test.
+                column_rows = conn.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='caisse_orders'
+                      AND column_name IN ('sales_channel','cancellation_hidden')
+                    """
+                ).fetchall()
+                columns = {str(row["column_name"]) for row in column_rows}
+                has_sales_channel = "sales_channel" in columns
+                has_cancellation_hidden = "cancellation_hidden" in columns
+
+                channel_expr = (
+                    "COALESCE(NULLIF(UPPER(sales_channel),''),'RESTO')"
+                    if has_sales_channel else "'RESTO'"
+                )
+                cancel_filter = (
+                    "AND COALESCE(cancellation_hidden,FALSE)=FALSE"
+                    if has_cancellation_hidden else ""
+                )
+
+                rows = conn.execute(
+                    f"""
+                    SELECT {channel_expr} channel,
+                           COUNT(*) count,
+                           COALESCE(SUM(total),0) total
+                    FROM caisse_orders
+                    WHERE created_at >= %s AND created_at < %s
+                      {cancel_filter}
+                    GROUP BY 1
+                    """,
+                    (start_ms, end_ms),
+                ).fetchall()
 
             for row in rows:
                 key = str(row["channel"] or "RESTO").upper()
