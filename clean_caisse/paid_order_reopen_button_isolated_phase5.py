@@ -1,7 +1,5 @@
 """Phase 5 — bouton Modifier pour commande payée/Terminée.
 
-INACTIF : ce module n'est ni importé ni enregistré dans wsgi_caisse.py.
-
 Couche d'interface uniquement :
 - rend le bouton Modifier disponible sur les commandes au statut Terminée ;
 - ouvre la modale de modification existante ;
@@ -20,19 +18,26 @@ def register_paid_order_reopen_button_isolated_phase5(app):
         addon = r'''
 <script id="phase5-paid-reopen-button-isolated">
 (function(){
+  function visibleOrders(){
+    var search=document.getElementById('search');
+    var status=document.getElementById('status');
+    var q=search?String(search.value||'').toLowerCase().trim():'';
+    var st=status?String(status.value||''):'';
+    return (ORDERS||[]).filter(function(o){
+      return (!st||o.status===st)&&(!q||String(o.num||'').includes(q)||String(o.customer_name||'').toLowerCase().includes(q));
+    });
+  }
+
   function install(){
     if(typeof render!=='function' || typeof editOrder!=='function') return;
 
     const originalRender = render;
     render = function(){
       originalRender();
+      const rows = visibleOrders();
       const cards = Array.from(document.querySelectorAll('#list .order'));
-      cards.forEach(function(card){
-        const title = card.querySelector('.num');
-        if(!title) return;
-        const match = (title.textContent || '').match(/#([^ ·]+)/);
-        if(!match) return;
-        const order = ORDERS.find(function(o){ return String(o.num) === String(match[1]); });
+      cards.forEach(function(card,index){
+        const order = rows[index];
         if(!order || order.status !== 'Terminée') return;
 
         const locked = card.querySelector('.btn.locked');
@@ -47,10 +52,11 @@ def register_paid_order_reopen_button_isolated_phase5(app):
 
     const originalEdit = editOrder;
     editOrder = function(id){
-      const order = ORDERS.find(function(o){ return String(o.id) === String(id); });
+      const order = (ORDERS||[]).find(function(o){ return String(o.id) === String(id); });
       if(order && order.status === 'Terminée'){
         EDIT = JSON.parse(JSON.stringify(order));
-        document.getElementById('mtitle').textContent = 'Modifier commande #' + order.num;
+        var identity = (typeof historyIdentity==='function') ? historyIdentity(order) : 'Commande';
+        document.getElementById('mtitle').textContent = 'Modifier — ' + identity;
         document.getElementById('mmsg').innerHTML = '<div class="notice">Commande déjà payée : la modification sera renvoyée en cuisine. Si le total augmente, seul le complément restera à encaisser. Une commande clôturée par le Z reste verrouillée.</div>';
         document.getElementById('modal').classList.add('open');
         renderEdit();
