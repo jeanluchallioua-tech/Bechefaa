@@ -22,7 +22,7 @@ def register_order_notifications_phase33(app):
 <style>
 .phase33-audio{position:fixed;right:14px;top:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
 .phase33-audio.hidden{display:none}
-#phase6-site-order-notice{position:fixed;left:0;right:0;top:0;z-index:12000;min-height:58px;background:#ffb000;color:#111827;padding:10px 22px;box-shadow:0 5px 20px rgba(0,0,0,.35);display:none;text-align:center;border-bottom:4px solid #fff;animation:none}
+#phase6-site-order-notice{position:fixed;left:0;right:0;top:64px;z-index:9000;min-height:58px;background:#ffb000;color:#111827;padding:10px 22px;box-shadow:0 5px 20px rgba(0,0,0,.35);display:none;text-align:center;border-bottom:4px solid #fff;animation:none;pointer-events:none}
 #phase6-site-order-notice.show{display:block;animation:phase6SitePulse 1s ease-in-out 3}
 #phase6-site-order-notice b{display:inline-block;font-size:21px;line-height:1.2;margin-right:18px;text-transform:uppercase;letter-spacing:.4px}
 #phase6-site-order-notice span{font-size:18px;font-weight:800}
