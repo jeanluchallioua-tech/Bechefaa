@@ -4,8 +4,8 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
 - Cuisine et Caisse utilisent désormais des marqueurs de dernière commande distincts.
 - Sur /pos, une nouvelle commande SITE déclenche le même événement pour le son
   et pour une notification visuelle.
-- Le son de la Caisse est déverrouillé au premier clic/toucher/clavier sur /pos,
-  pour respecter les restrictions audio des navigateurs.
+- Le son de la Caisse est déverrouillé à chaque interaction utile sur /pos,
+  même si la préférence audio a déjà été mémorisée par la Cuisine.
 """
 from flask import request
 
@@ -72,7 +72,9 @@ def register_order_notifications_phase33(app):
    updateButton();
  }
  async function unlockOnInteraction(){
-   if(PAGE!=='pos'||wanted)return;
+   if(PAGE!=='pos')return;
+   const ctx=getCtx();
+   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');return}
    await unlock(false);
  }
  document.addEventListener('pointerdown',unlockOnInteraction,{passive:true});
