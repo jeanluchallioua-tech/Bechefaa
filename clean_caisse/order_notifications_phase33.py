@@ -8,12 +8,9 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
   même si la préférence audio a déjà été mémorisée par la Cuisine.
 """
 from flask import request
-from clean_caisse.pos_upsell_phase6 import register_pos_upsell_phase6
 
 
 def register_order_notifications_phase33(app):
-    register_pos_upsell_phase6(app)
-
     @app.after_request
     def inject_order_notifications_phase33(response):
         if request.path not in ("/cuisine-preparation", "/pos") or response.status_code != 200 or response.mimetype != "text/html":
