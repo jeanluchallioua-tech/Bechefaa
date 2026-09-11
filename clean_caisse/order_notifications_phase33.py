@@ -22,10 +22,11 @@ def register_order_notifications_phase33(app):
 <style>
 .phase33-audio{position:fixed;right:14px;top:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
 .phase33-audio.hidden{display:none}
-#phase6-site-order-notice{position:fixed;right:20px;bottom:20px;z-index:11000;max-width:410px;background:#111827;color:#fff;border-radius:12px;padding:16px 19px;box-shadow:0 10px 32px rgba(0,0,0,.3);display:none}
-#phase6-site-order-notice.show{display:block}
-#phase6-site-order-notice b{display:block;font-size:17px;margin-bottom:4px}
-#phase6-site-order-notice span{font-size:14px;font-weight:600}
+#phase6-site-order-notice{position:fixed;left:0;right:0;top:0;z-index:12000;min-height:58px;background:#ffb000;color:#111827;padding:10px 22px;box-shadow:0 5px 20px rgba(0,0,0,.35);display:none;text-align:center;border-bottom:4px solid #fff;animation:none}
+#phase6-site-order-notice.show{display:block;animation:phase6SitePulse 1s ease-in-out 3}
+#phase6-site-order-notice b{display:inline-block;font-size:21px;line-height:1.2;margin-right:18px;text-transform:uppercase;letter-spacing:.4px}
+#phase6-site-order-notice span{font-size:18px;font-weight:800}
+@keyframes phase6SitePulse{0%,100%{background:#ffb000}50%{background:#ffe066}}
 </style>
 <script>
 (function(){
@@ -82,10 +83,12 @@ def register_order_notifications_phase33(app):
    if(!el){el=document.createElement('div');el.id='phase6-site-order-notice';document.body.appendChild(el)}
    const name=String(order.customer_name||'Client').trim();
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.innerHTML='<b>Nouvelle commande SITE</b><span>'+name+' • '+mode+'</span>';
+   el.innerHTML='<b>⚡ Nouvelle commande SITE</b><span>'+name+' • '+mode+'</span>';
+   el.classList.remove('show');
+   void el.offsetWidth;
    el.classList.add('show');
    clearTimeout(el._hideTimer);
-   el._hideTimer=setTimeout(()=>el.classList.remove('show'),8000);
+   el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
  }
 
  function inspect(orders){
