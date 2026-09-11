@@ -3,7 +3,8 @@
 Affichage uniquement : aucun identifiant technique ni numéro opérationnel n'est
 modifié en base.
 - Salle -> Table N
-- Emporter -> À EMPORTER — Nom client
+- Emporter caisse -> À EMPORTER — Nom client
+- Emporter site -> Nom client uniquement
 - Livraison -> LIVRAISON — Nom client
 Le numéro #xx n'est plus affiché sur l'écran cuisine ni dans le bloc de confirmation POS.
 """
@@ -26,9 +27,11 @@ def register_kitchen_identity_phase44(app):
   let table=String(o.table_label||'').trim();
   if(table)return table.toUpperCase();
   let source=String(o.source||'').toUpperCase();
+  let channel=String(o.sales_channel||'').toUpperCase();
   let customer=String(o.customer_name||'').trim();
   let generic=/^client\s+(comptoir|livraison)$/i.test(customer);
   if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
+  if(channel==='SITE'&&!generic&&customer)return customer;
   return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
 }
 '''
@@ -44,6 +47,11 @@ def register_kitchen_identity_phase44(app):
                 "${esc(orderIdentity(o))}",
                 1,
             )
+            html = html.replace(
+                "${channelBadge(o.source)}${modeBadge(o.ticket_type)}",
+                "${channelBadge(o.sales_channel||o.source)}${modeBadge(o.ticket_type)}",
+            )
+            html = html.replace("SITE INTERNET</span>", "SITE</span>")
 
         if request.path == "/pos":
             marker = "function saveOrder(){"
