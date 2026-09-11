@@ -108,6 +108,10 @@ def map_site_order_payload(payload):
 
         line_id = str(item.get("cartId") or item.get("line_id") or f"site-line-{index}").strip()
         product_id = str(item.get("id") or item.get("product_id") or "").strip() or None
+        # Le texte lisible choisi par le client est conservé en plus des options
+        # structurées. Il sert uniquement à l'affichage Cuisine/Historique et ne
+        # remplace pas la validation canonique des prix côté caisse.
+        options_text = str(item.get("optionsText") or item.get("options_text") or "").strip()
         items.append({
             "line_id": line_id,
             "product_id": product_id,
@@ -115,6 +119,7 @@ def map_site_order_payload(payload):
             "qty": qty,
             "unit_price": unit_price,
             "options": _structured_options(item),
+            "options_text": options_text,
         })
 
     internal = {
