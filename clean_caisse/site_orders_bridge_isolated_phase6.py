@@ -1,14 +1,15 @@
 """Phase 6 — passerelle isolée des commandes BÉCHÉFAA-Site.
 
 Objectif : traduire le contrat HTTP du site vers le contrat propre de
-``POST /api/orders`` sans écrire directement dans PostgreSQL. Les garde-fous
-de la caisse (prix, livraison, client, canal de vente, fiscalité, etc.) restent
-dans la chaîne normale.
+``POST /api/orders`` sans écrire directement dans PostgreSQL pour la création.
+Les garde-fous de la caisse (prix, livraison, client, canal de vente, fiscalité,
+etc.) restent dans la chaîne normale.
 """
 
 import re
 
 from flask import jsonify, request
+from clean_caisse.app import db
 
 
 def _digits(value):
@@ -36,12 +37,7 @@ def _site_customer(raw):
 
 
 def _structured_options(item):
-    """Conserve les options structurées du site sans les transformer en texte.
-
-    Le garde-fou prix de la caisse attend pour chaque choix au minimum :
-    ``{"group": "...", "name": "..."}``.
-    Les anciennes commandes sans options restent inchangées.
-    """
+    """Conserve les options structurées du site sans les transformer en texte."""
     raw = item.get("options")
     if not isinstance(raw, list):
         return []
@@ -62,10 +58,7 @@ def _structured_options(item):
 
 
 def map_site_order_payload(payload):
-    """Valide et traduit une commande du site vers ``POST /api/orders``.
-
-    Retourne ``(internal_payload, error_message)``. Aucune écriture BDD.
-    """
+    """Valide et traduit une commande du site vers ``POST /api/orders``."""
     payload = payload if isinstance(payload, dict) else {}
     mode = _normalize_mode(payload.get("mode"))
     customer = _site_customer(payload.get("customer"))
@@ -108,9 +101,6 @@ def map_site_order_payload(payload):
 
         line_id = str(item.get("cartId") or item.get("line_id") or f"site-line-{index}").strip()
         product_id = str(item.get("id") or item.get("product_id") or "").strip() or None
-        # Le texte lisible choisi par le client est conservé en plus des options
-        # structurées. Il sert uniquement à l'affichage Cuisine/Historique et ne
-        # remplace pas la validation canonique des prix côté caisse.
         options_text = str(item.get("optionsText") or item.get("options_text") or "").strip()
         items.append({
             "line_id": line_id,
@@ -119,6 +109,8 @@ def map_site_order_payload(payload):
             "qty": qty,
             "unit_price": unit_price,
             "options": _structured_options(item),
+            # Conservé pour l'affichage Cuisine/Historiques des commandes SITE.
+            # La validation des prix continue d'utiliser exclusivement options[].
             "options_text": options_text,
         })
 
@@ -142,6 +134,29 @@ def _dispatch_internal(app, path, payload):
         return app.full_dispatch_request()
 
 
+def _persist_site_options_text(order_id, items):
+    """Écrit uniquement le libellé lisible déjà choisi sur le site.
+
+    Cette étape ne touche ni options_json, ni les prix, ni le total, ni les règles
+    du catalogue. Elle corrige seulement l'affichage Cuisine/Historique lorsque
+    le mapping structuré d'une option V2 est incomplet.
+    """
+    rows = [
+        (str(item.get("options_text") or "").strip(), str(item.get("line_id") or "").strip())
+        for item in items
+        if str(item.get("options_text") or "").strip() and str(item.get("line_id") or "").strip()
+    ]
+    if not rows:
+        return
+    with db() as conn:
+        with conn.transaction():
+            for text, line_id in rows:
+                conn.execute(
+                    "UPDATE caisse_order_items SET options_text=%s WHERE order_id=%s AND line_id=%s",
+                    (text, order_id, line_id),
+                )
+
+
 def register_site_orders_bridge_isolated_phase6(app):
     @app.post("/api/public/orders")
     def site_public_order_phase6():
@@ -158,6 +173,12 @@ def register_site_orders_bridge_isolated_phase6(app):
         order_id = str(data.get("id") or "").strip()
         if not order_id:
             return jsonify({"ok": False, "error": "Commande créée sans identifiant"}), 500
+
+        try:
+            _persist_site_options_text(order_id, internal.get("items") or [])
+        except Exception as exc:
+            # La commande reste valide : on signale uniquement l'affichage des options.
+            data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
 
         kitchen = _dispatch_internal(app, f"/api/orders/{order_id}/send-kitchen", {})
         kitchen_data = kitchen.get_json(silent=True) or {}
