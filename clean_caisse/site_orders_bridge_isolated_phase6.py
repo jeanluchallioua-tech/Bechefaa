@@ -1,15 +1,11 @@
 """Phase 6 — passerelle isolée des commandes BÉCHÉFAA-Site.
 
-INACTIF tant que ``register_site_orders_bridge_isolated_phase6`` n'est pas
-importé/enregistré dans ``wsgi_caisse.py``.
-
-Objectif : traduire le contrat HTTP actuel du site vers le contrat propre de
-``POST /api/orders`` sans écrire directement dans PostgreSQL. Ainsi, lors de
-l'activation, les garde-fous déjà gelés de la caisse (prix, livraison, client,
-canal de vente, fiscalité, etc.) restent dans la chaîne normale.
+Objectif : traduire le contrat HTTP du site vers le contrat propre de
+``POST /api/orders`` sans écrire directement dans PostgreSQL. Les garde-fous
+de la caisse (prix, livraison, client, canal de vente, fiscalité, etc.) restent
+dans la chaîne normale.
 """
 
-import json
 import re
 
 from flask import jsonify, request
@@ -39,13 +35,30 @@ def _site_customer(raw):
     }
 
 
-def _options_from_text(value):
-    text = str(value or "").strip()
-    if not text:
+def _structured_options(item):
+    """Conserve les options structurées du site sans les transformer en texte.
+
+    Le garde-fou prix de la caisse attend pour chaque choix au minimum :
+    ``{"group": "...", "name": "..."}``.
+    Les anciennes commandes sans options restent inchangées.
+    """
+    raw = item.get("options")
+    if not isinstance(raw, list):
         return []
-    # Le coeur actuel sait déjà recalculer options_text depuis une liste
-    # d'options. Une entrée sans groupe conserve donc le libellé du site.
-    return [{"name": text}]
+
+    options = []
+    for selected in raw:
+        if not isinstance(selected, dict):
+            continue
+        group = str(selected.get("group") or "").strip()
+        name = str(selected.get("name") or selected.get("label") or "").strip()
+        if not group or not name:
+            continue
+        option = {"group": group, "name": name}
+        if selected.get("price") is not None:
+            option["price"] = selected.get("price")
+        options.append(option)
+    return options
 
 
 def map_site_order_payload(payload):
@@ -70,7 +83,6 @@ def map_site_order_payload(payload):
         if not re.fullmatch(r"\d{5}", customer["postal_code"]):
             return None, "Code postal de livraison invalide"
     else:
-        # Une commande à emporter ne doit pas réinjecter une ancienne adresse.
         customer["address"] = ""
         customer["postal_code"] = ""
         customer["city"] = ""
@@ -102,7 +114,7 @@ def map_site_order_payload(payload):
             "name": name,
             "qty": qty,
             "unit_price": unit_price,
-            "options": _options_from_text(item.get("optionsText") or item.get("options_text")),
+            "options": _structured_options(item),
         })
 
     internal = {
@@ -110,8 +122,6 @@ def map_site_order_payload(payload):
         "sales_channel": "SITE",
         "customer": customer,
         "items": items,
-        # Métadonnées conservées pour une future extension dédiée ; elles ne
-        # sont pas injectées dans les tables tant qu'un schéma validé n'existe pas.
         "site_meta": {
             "slot": str(payload.get("slot") or "DÈS QUE POSSIBLE").strip(),
             "instructions": str((payload.get("customer") or {}).get("instructions") or "").strip()
@@ -128,8 +138,6 @@ def _dispatch_internal(app, path, payload):
 
 
 def register_site_orders_bridge_isolated_phase6(app):
-    """Enregistre la passerelle. Cette fonction n'est pas appelée à ce stade."""
-
     @app.post("/api/public/orders")
     def site_public_order_phase6():
         external = request.get_json(silent=True) or {}
@@ -146,13 +154,9 @@ def register_site_orders_bridge_isolated_phase6(app):
         if not order_id:
             return jsonify({"ok": False, "error": "Commande créée sans identifiant"}), 500
 
-        # Une commande web acceptée doit rejoindre le flux cuisine, comme dans
-        # l'ancien comportement métier. On utilise l'endpoint déjà validé.
         kitchen = _dispatch_internal(app, f"/api/orders/{order_id}/send-kitchen", {})
         kitchen_data = kitchen.get_json(silent=True) or {}
 
-        # Ne jamais faire croire au site que la création a échoué après une
-        # écriture réussie : sinon un nouvel envoi pourrait dupliquer la commande.
         if kitchen.status_code < 200 or kitchen.status_code >= 300:
             data["ok"] = True
             data["status"] = data.get("status") or "Enregistrée"
