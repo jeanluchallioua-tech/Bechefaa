@@ -5,10 +5,16 @@ Le navigateur peut proposer un unit_price, mais le serveur recalcule le prix can
 reçu diffère du prix catalogue est refusée avant tout INSERT.
 
 Phase 7 : ajoute un devis public en lecture seule pour préparer le paiement Site.
-Aucune commande n'est créée, rien n'est envoyé en cuisine et aucun paiement n'est lancé.
+Phase 7.1 : prépare Stripe Checkout en mode test uniquement, sans créer de commande
+et sans envoyer quoi que ce soit en cuisine.
 """
 import json
+import os
+import uuid
 from decimal import Decimal, InvalidOperation
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from flask import jsonify, request
 
@@ -152,6 +158,47 @@ def _catalog_products(db):
     return by_id, duplicates
 
 
+def _quote_lines(db, payload):
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValueError("Panier vide")
+
+    by_id, duplicates = _catalog_products(db)
+    total = Decimal("0.00")
+    lines = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError("Ligne panier invalide : " + str(index + 1))
+
+        product_id = str(item.get("id") or item.get("product_id") or "").strip()
+        if not product_id:
+            raise ValueError("Produit sans identifiant catalogue : ligne " + str(index + 1))
+        if product_id in duplicates or product_id not in by_id:
+            raise ValueError("Produit catalogue introuvable ou ambigu : ligne " + str(index + 1))
+
+        try:
+            qty = int(item.get("qty") or item.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 0
+        if qty < 1 or qty > 99:
+            raise ValueError("Quantité invalide : ligne " + str(index + 1))
+
+        selected = item.get("options") if isinstance(item.get("options"), list) else []
+        unit = _canonical_price(by_id[product_id], selected)
+        line_total = (unit * qty).quantize(Decimal("0.01"))
+        total += line_total
+        lines.append({
+            "productId": product_id,
+            "name": by_id[product_id].get("name") or item.get("name") or "Produit",
+            "qty": qty,
+            "unitPrice": float(unit),
+            "unitDecimal": unit,
+            "lineTotal": float(line_total),
+        })
+
+    return lines, total.quantize(Decimal("0.01"))
+
+
 def register_order_price_guard_phase26(app, db):
     @app.get("/api/public/site-payment/status")
     def site_payment_status_phase7():
@@ -168,54 +215,22 @@ def register_order_price_guard_phase26(app, db):
     @app.post("/api/public/site-payment/quote")
     def site_payment_quote_phase7():
         payload = request.get_json(silent=True) or {}
-        items = payload.get("items")
-        if not isinstance(items, list) or not items:
-            return jsonify({"ok": False, "error": "Panier vide"}), 400
-
         try:
-            by_id, duplicates = _catalog_products(db)
-            total = Decimal("0.00")
-            lines = []
-            for index, item in enumerate(items):
-                if not isinstance(item, dict):
-                    return jsonify({"ok": False, "error": "Ligne panier invalide", "line": index + 1}), 400
-
-                product_id = str(item.get("id") or item.get("product_id") or "").strip()
-                if not product_id:
-                    return jsonify({"ok": False, "error": "Produit sans identifiant catalogue", "line": index + 1}), 409
-                if product_id in duplicates or product_id not in by_id:
-                    return jsonify({
-                        "ok": False,
-                        "error": "Produit catalogue introuvable ou ambigu",
-                        "productId": product_id,
-                        "line": index + 1,
-                    }), 409
-
-                try:
-                    qty = int(item.get("qty") or item.get("quantity") or 1)
-                except (TypeError, ValueError):
-                    qty = 0
-                if qty < 1 or qty > 99:
-                    return jsonify({"ok": False, "error": "Quantité invalide", "line": index + 1}), 400
-
-                selected = item.get("options") if isinstance(item.get("options"), list) else []
-                unit = _canonical_price(by_id[product_id], selected)
-                line_total = (unit * qty).quantize(Decimal("0.01"))
-                total += line_total
-                lines.append({
-                    "productId": product_id,
-                    "name": by_id[product_id].get("name") or item.get("name") or "",
-                    "qty": qty,
-                    "unitPrice": float(unit),
-                    "lineTotal": float(line_total),
-                })
-
-            total = total.quantize(Decimal("0.01"))
+            lines, total = _quote_lines(db, payload)
             return jsonify({
                 "ok": True,
                 "readOnly": True,
                 "currency": "EUR",
-                "items": lines,
+                "items": [
+                    {
+                        "productId": x["productId"],
+                        "name": x["name"],
+                        "qty": x["qty"],
+                        "unitPrice": x["unitPrice"],
+                        "lineTotal": x["lineTotal"],
+                    }
+                    for x in lines
+                ],
                 "total": float(total),
                 "createsOrder": False,
                 "sendsKitchen": False,
@@ -225,6 +240,106 @@ def register_order_price_guard_phase26(app, db):
             return jsonify({"ok": False, "error": str(exc)}), 409
         except Exception as exc:
             return jsonify({"ok": False, "error": "Calcul du panier impossible", "detail": str(exc)}), 503
+
+    @app.get("/api/public/site-payment/stripe/status")
+    def site_stripe_status_phase71():
+        key = str(os.getenv("STRIPE_SECRET_KEY") or "").strip()
+        base = str(os.getenv("SITE_PUBLIC_URL") or "").strip().rstrip("/")
+        return jsonify({
+            "ok": True,
+            "phase": "7.1",
+            "provider": "stripe",
+            "configured": bool(key and base),
+            "test_mode": key.startswith("sk_test_"),
+            "site_url_configured": bool(base),
+            "creates_order": False,
+            "sends_kitchen": False,
+            "webhook_validated": False,
+        })
+
+    @app.post("/api/public/site-payment/stripe/checkout-session")
+    def site_stripe_checkout_session_phase71():
+        key = str(os.getenv("STRIPE_SECRET_KEY") or "").strip()
+        base = str(os.getenv("SITE_PUBLIC_URL") or "").strip().rstrip("/")
+        if not key:
+            return jsonify({"ok": False, "error": "STRIPE_SECRET_KEY manquant"}), 503
+        if not key.startswith("sk_test_"):
+            return jsonify({"ok": False, "error": "Phase 7.1 limitée à une clé Stripe de test"}), 409
+        if not base:
+            return jsonify({"ok": False, "error": "SITE_PUBLIC_URL manquant"}), 503
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            lines, total = _quote_lines(db, payload)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Calcul du panier impossible", "detail": str(exc)}), 503
+
+        form = [
+            ("mode", "payment"),
+            ("payment_method_types[0]", "card"),
+            ("success_url", base + "/?payment=success&session_id={CHECKOUT_SESSION_ID}"),
+            ("cancel_url", base + "/?payment=cancelled"),
+            ("client_reference_id", "site-" + uuid.uuid4().hex),
+            ("metadata[source]", "BECHEFAA-SITE"),
+            ("metadata[expected_total_cents]", str(int(total * 100))),
+        ]
+
+        customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+        email = str(customer.get("email") or "").strip()
+        if email:
+            form.append(("customer_email", email[:200]))
+
+        for i, line in enumerate(lines):
+            form.extend([
+                (f"line_items[{i}][price_data][currency]", "eur"),
+                (f"line_items[{i}][price_data][product_data][name]", str(line["name"])[:120]),
+                (f"line_items[{i}][price_data][unit_amount]", str(int(line["unitDecimal"] * 100))),
+                (f"line_items[{i}][quantity]", str(line["qty"])),
+            ])
+
+        stripe_request = Request(
+            "https://api.stripe.com/v1/checkout/sessions",
+            data=urlencode(form).encode("utf-8"),
+            headers={
+                "Authorization": "Bearer " + key,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "BECHEFAA-Caisse/Phase7.1",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(stripe_request, timeout=20) as response:
+                stripe_data = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            try:
+                detail = json.loads(exc.read().decode("utf-8"))
+                message = ((detail.get("error") or {}).get("message") or "Erreur Stripe")
+            except Exception:
+                message = "Erreur Stripe"
+            return jsonify({"ok": False, "error": message}), 502
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Stripe indisponible", "detail": str(exc)}), 502
+
+        session_id = str(stripe_data.get("id") or "")
+        checkout_url = str(stripe_data.get("url") or "")
+        if not session_id or not checkout_url:
+            return jsonify({"ok": False, "error": "Réponse Stripe incomplète"}), 502
+
+        return jsonify({
+            "ok": True,
+            "phase": "7.1",
+            "provider": "stripe",
+            "test_mode": True,
+            "session_id": session_id,
+            "checkout_url": checkout_url,
+            "amount": float(total),
+            "currency": "EUR",
+            "creates_order": False,
+            "sends_kitchen": False,
+        })
 
     @app.before_request
     def order_price_guard_phase26():
