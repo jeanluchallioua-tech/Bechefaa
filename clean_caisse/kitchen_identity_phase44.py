@@ -53,6 +53,17 @@ def register_kitchen_identity_phase44(app):
             )
             html = html.replace("SITE INTERNET</span>", "SITE</span>")
 
+            # Les commandes SITE disposent d'options_text contenant le libellé
+            # complet choisi par le client. Le renderer historique privilégiait
+            # options[] dès qu'une seule option structurée existait, masquant
+            # alors toutes les autres garnitures présentes dans options_text.
+            html = html.replace(
+                "function optionRows(i){",
+                "function optionRows(i,o){let channel=String((o&&o.sales_channel)||((o&&o.source)||'')).toUpperCase();if(channel.includes('SITE')&&i.options_text){return `<div class=\"opts\"><div class=\"optrow\">${esc(i.options_text)}</div></div>`;}",
+                1,
+            )
+            html = html.replace("${optionRows(i)}", "${optionRows(i,o)}", 1)
+
         if request.path == "/pos":
             marker = "function saveOrder(){"
             helper = r'''function posOrderIdentity(d){
