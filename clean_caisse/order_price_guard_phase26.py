@@ -3,6 +3,9 @@
 Le navigateur peut proposer un unit_price, mais le serveur recalcule le prix canonique
 à partir de catalog_admin_v2 (prix produit + options sélectionnées). Une ligne dont le prix
 reçu diffère du prix catalogue est refusée avant tout INSERT.
+
+Phase 7 : ajoute un devis public en lecture seule pour préparer le paiement Site.
+Aucune commande n'est créée, rien n'est envoyé en cuisine et aucun paiement n'est lancé.
 """
 import json
 from decimal import Decimal, InvalidOperation
@@ -122,7 +125,107 @@ def _canonical_price(product, selected_options):
     return (base + extra).quantize(Decimal("0.01"))
 
 
+def _catalog_products(db):
+    with db() as conn:
+        row = conn.execute(
+            "SELECT data_json::text AS data_json FROM catalog_admin_v2 WHERE id=1"
+        ).fetchone()
+    if not row:
+        raise RuntimeError("Catalogue introuvable")
+    data = json.loads(row["data_json"] or "{}")
+    products = data.get("products") if isinstance(data, dict) else []
+    if not isinstance(products, list):
+        raise RuntimeError("Catalogue produits invalide")
+
+    by_id = {}
+    duplicates = set()
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        product_id = str(product.get("id") or "").strip()
+        if not product_id:
+            continue
+        if product_id in by_id:
+            duplicates.add(product_id)
+        else:
+            by_id[product_id] = product
+    return by_id, duplicates
+
+
 def register_order_price_guard_phase26(app, db):
+    @app.get("/api/public/site-payment/status")
+    def site_payment_status_phase7():
+        return jsonify({
+            "ok": True,
+            "phase": "7",
+            "mode": "preparation",
+            "quote_ready": True,
+            "creates_order": False,
+            "sends_kitchen": False,
+            "charges_card": False,
+        })
+
+    @app.post("/api/public/site-payment/quote")
+    def site_payment_quote_phase7():
+        payload = request.get_json(silent=True) or {}
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            return jsonify({"ok": False, "error": "Panier vide"}), 400
+
+        try:
+            by_id, duplicates = _catalog_products(db)
+            total = Decimal("0.00")
+            lines = []
+            for index, item in enumerate(items):
+                if not isinstance(item, dict):
+                    return jsonify({"ok": False, "error": "Ligne panier invalide", "line": index + 1}), 400
+
+                product_id = str(item.get("id") or item.get("product_id") or "").strip()
+                if not product_id:
+                    return jsonify({"ok": False, "error": "Produit sans identifiant catalogue", "line": index + 1}), 409
+                if product_id in duplicates or product_id not in by_id:
+                    return jsonify({
+                        "ok": False,
+                        "error": "Produit catalogue introuvable ou ambigu",
+                        "productId": product_id,
+                        "line": index + 1,
+                    }), 409
+
+                try:
+                    qty = int(item.get("qty") or item.get("quantity") or 1)
+                except (TypeError, ValueError):
+                    qty = 0
+                if qty < 1 or qty > 99:
+                    return jsonify({"ok": False, "error": "Quantité invalide", "line": index + 1}), 400
+
+                selected = item.get("options") if isinstance(item.get("options"), list) else []
+                unit = _canonical_price(by_id[product_id], selected)
+                line_total = (unit * qty).quantize(Decimal("0.01"))
+                total += line_total
+                lines.append({
+                    "productId": product_id,
+                    "name": by_id[product_id].get("name") or item.get("name") or "",
+                    "qty": qty,
+                    "unitPrice": float(unit),
+                    "lineTotal": float(line_total),
+                })
+
+            total = total.quantize(Decimal("0.01"))
+            return jsonify({
+                "ok": True,
+                "readOnly": True,
+                "currency": "EUR",
+                "items": lines,
+                "total": float(total),
+                "createsOrder": False,
+                "sendsKitchen": False,
+                "chargesCard": False,
+            })
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Calcul du panier impossible", "detail": str(exc)}), 503
+
     @app.before_request
     def order_price_guard_phase26():
         # Portée volontairement limitée à la création initiale d'une commande.
@@ -135,29 +238,7 @@ def register_order_price_guard_phase26(app, db):
             return None  # create_order garde ses validations historiques.
 
         try:
-            with db() as conn:
-                row = conn.execute(
-                    "SELECT data_json::text AS data_json FROM catalog_admin_v2 WHERE id=1"
-                ).fetchone()
-            if not row:
-                return jsonify({"ok": False, "error": "Catalogue introuvable"}), 503
-            data = json.loads(row["data_json"] or "{}")
-            products = data.get("products") if isinstance(data, dict) else []
-            if not isinstance(products, list):
-                return jsonify({"ok": False, "error": "Catalogue produits invalide"}), 503
-
-            by_id = {}
-            duplicates = set()
-            for product in products:
-                if not isinstance(product, dict):
-                    continue
-                product_id = str(product.get("id") or "").strip()
-                if not product_id:
-                    continue
-                if product_id in by_id:
-                    duplicates.add(product_id)
-                else:
-                    by_id[product_id] = product
+            by_id, duplicates = _catalog_products(db)
 
             for index, item in enumerate(items):
                 if not isinstance(item, dict):
