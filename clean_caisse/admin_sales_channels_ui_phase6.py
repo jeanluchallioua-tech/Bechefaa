@@ -1,0 +1,15 @@
+"""Phase 6 — vue Administration des canaux de vente.
+
+Interface en lecture seule. Elle documente les canaux déjà reconnus par le
+moteur de commandes sans modifier le cycle métier, les prix ou les intégrations.
+"""
+from flask import Response
+
+
+def register_admin_sales_channels_ui_phase6(app):
+    @app.get("/administration/canaux-vente")
+    def admin_sales_channels_ui_phase6():
+        html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Canaux de vente</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f3f4f6;color:#111827;font-family:Arial,sans-serif}.top{background:#111827;color:#fff;padding:15px 22px;display:flex;gap:10px;align-items:center}.top b{font-size:20px}.top .spacer{flex:1}.top a{color:#fff;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:800}.wrap{max-width:1050px;margin:0 auto;padding:26px 18px}.box{background:#fff;border-radius:16px;padding:22px;margin-bottom:16px;box-shadow:0 2px 12px #0001}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.channel{border:1px solid #e5e7eb;border-radius:14px;padding:18px}.channel h2{margin:0 0 7px}.muted{color:#667085;font-size:13px;line-height:1.45}.pill{display:inline-block;background:#ecfdf3;color:#027a48;border-radius:99px;padding:6px 10px;font-size:12px;font-weight:900;margin-top:8px}.note{border-left:4px solid #111827}@media(max-width:700px){.grid{grid-template-columns:1fr}}
+</style></head><body><header class="top"><b>BÉCHÉFAA • Canaux de vente</b><span class="spacer"></span><a href="/administration">Administration</a></header><main class="wrap"><div class="box"><h1>Canaux de vente reconnus</h1><p class="muted">Cette page est informative. Elle affiche les canaux déjà compris par BÉCHÉFAA-Caisse sans activer ni modifier aucune intégration externe.</p></div><div class="grid"><div class="channel"><h2>🏪 Restaurant</h2><p class="muted">Commandes prises directement depuis la caisse du restaurant.</p><span class="pill">RESTO reconnu</span></div><div class="channel"><h2>🌐 Site</h2><p class="muted">Commandes provenant du site BÉCHÉFAA et identifiées séparément dans le flux.</p><span class="pill">SITE reconnu</span></div><div class="channel"><h2>🛵 Uber Eats</h2><p class="muted">Canal réservé aux futures commandes Uber Eats lorsqu'une intégration dédiée sera raccordée.</p><span class="pill">UBER_EATS reconnu</span></div><div class="channel"><h2>🚴 Deliveroo</h2><p class="muted">Canal réservé aux futures commandes Deliveroo lorsqu'une intégration dédiée sera raccordée.</p><span class="pill">DELIVEROO reconnu</span></div></div><div class="box note" style="margin-top:16px"><b>Aucune activation automatique.</b><p class="muted">Cette vue ne change ni les tarifs, ni les commandes, ni la cuisine, ni les paiements. Les connexions externes seront traitées séparément lorsqu'elles seront mises en service.</p></div></main></body></html>'''
+        return Response(html, content_type="text/html; charset=utf-8")
