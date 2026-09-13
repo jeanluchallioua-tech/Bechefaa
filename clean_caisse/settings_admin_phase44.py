@@ -7,6 +7,7 @@ from flask import Response
 from .admin_dashboard_isolated_phase6 import register_admin_dashboard_isolated_phase6
 from .admin_audit_ui_phase6 import register_admin_audit_ui_phase6
 from .admin_users_ui_phase6 import register_admin_users_ui_phase6
+from .admin_sales_channels_ui_phase6 import register_admin_sales_channels_ui_phase6
 
 
 def register_settings_admin_phase44(app):
@@ -15,6 +16,7 @@ def register_settings_admin_phase44(app):
     register_admin_dashboard_isolated_phase6(app)
     register_admin_audit_ui_phase6(app)
     register_admin_users_ui_phase6(app)
+    register_admin_sales_channels_ui_phase6(app)
 
     @app.get("/parametres")
     def settings_admin_phase44():
