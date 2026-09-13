@@ -4,9 +4,15 @@ Interface isolée : lecture de l'état des profils de sécurité existants.
 Aucun droit, PIN, paiement, commande, cuisine ou clôture n'est modifié ici.
 """
 from flask import Response
+from .app import db, ensure_order_schema
+from .security_pin_phase44 import register_security_pin_phase44
 
 
 def register_admin_users_ui_phase6(app):
+    # Le module Sécurité existait déjà mais n'était pas enregistré dans le
+    # point d'entrée WSGI actif. On l'enregistre ici, sans modifier sa logique.
+    register_security_pin_phase44(app, db, ensure_order_schema)
+
     @app.get("/administration/utilisateurs")
     def admin_users_ui_phase6():
         html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Utilisateurs & accès</title><style>
