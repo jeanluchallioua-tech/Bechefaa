@@ -4,9 +4,14 @@ Page d'administration isolée. Elle réutilise l'API matériel validée sans
 modifier la caisse, les tickets, la cuisine, l'historique, les paiements ou le Z.
 """
 from flask import Response
+from .admin_dashboard_isolated_phase6 import register_admin_dashboard_isolated_phase6
 
 
 def register_settings_admin_phase44(app):
+    # Phase 6 : point d'entrée Administration isolé. Le module ne modifie
+    # aucune logique métier et centralise uniquement les écrans déjà validés.
+    register_admin_dashboard_isolated_phase6(app)
+
     @app.get("/parametres")
     def settings_admin_phase44():
         html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Paramètres</title><style>
