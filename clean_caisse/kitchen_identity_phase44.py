@@ -53,13 +53,12 @@ def register_kitchen_identity_phase44(app):
             )
             html = html.replace("SITE INTERNET</span>", "SITE</span>")
 
-            # Les commandes SITE disposent d'options_text contenant le libellé
-            # complet choisi par le client. Le renderer historique privilégiait
-            # options[] dès qu'une seule option structurée existait, masquant
-            # alors toutes les autres garnitures présentes dans options_text.
+            # Pour les commandes SITE, options_text contient le libellé complet.
+            # On le présente par groupes : titre rouge/gras puis chaque choix sur
+            # sa propre ligne, sans modifier les données de la commande.
             html = html.replace(
                 "function optionRows(i){",
-                "function optionRows(i,o){let channel=String((o&&o.sales_channel)||((o&&o.source)||'')).toUpperCase();if(channel.includes('SITE')&&i.options_text){return `<div class=\"opts\"><div class=\"optrow\">${esc(i.options_text)}</div></div>`;}",
+                "function optionRows(i,o){let channel=String((o&&o.sales_channel)||((o&&o.source)||'')).toUpperCase();if(channel.includes('SITE')&&i.options_text){let groups=String(i.options_text).split(' · ').map(s=>s.trim()).filter(Boolean);let rows=[];groups.forEach(part=>{let p=part.indexOf(':');if(p<0){rows.push(`<div class=\"optrow\">• ${esc(part)}</div>`);return;}let title=part.slice(0,p).trim();let values=part.slice(p+1).split(',').map(v=>v.trim()).filter(Boolean);rows.push(`<div class=\"optrow\"><span class=\"optgroup\">${esc(title)} :</span></div>`);values.forEach(v=>rows.push(`<div class=\"optrow\">• ${esc(v)}</div>`));});return `<div class=\"opts\">${rows.join('')}</div>`;}",
                 1,
             )
             html = html.replace("${optionRows(i)}", "${optionRows(i,o)}", 1)
