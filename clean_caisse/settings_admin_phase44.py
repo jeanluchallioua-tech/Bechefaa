@@ -5,12 +5,14 @@ modifier la caisse, les tickets, la cuisine, l'historique, les paiements ou le Z
 """
 from flask import Response
 from .admin_dashboard_isolated_phase6 import register_admin_dashboard_isolated_phase6
+from .admin_audit_ui_phase6 import register_admin_audit_ui_phase6
 
 
 def register_settings_admin_phase44(app):
     # Phase 6 : point d'entrée Administration isolé. Le module ne modifie
     # aucune logique métier et centralise uniquement les écrans déjà validés.
     register_admin_dashboard_isolated_phase6(app)
+    register_admin_audit_ui_phase6(app)
 
     @app.get("/parametres")
     def settings_admin_phase44():
