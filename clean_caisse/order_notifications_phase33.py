@@ -6,6 +6,9 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
   et pour une notification visuelle.
 - Le son de la Caisse est déverrouillé à chaque interaction utile sur /pos,
   même si la préférence audio a déjà été mémorisée par la Cuisine.
+- Correctif Phase 6 : sur la Caisse, le marqueur suit uniquement les commandes SITE.
+  Une commande Livraison qui reçoit son canal SITE avec un léger décalage ne peut
+  donc plus être consommée par le marqueur global avant d'être notifiée.
 """
 from flask import request
 
@@ -30,7 +33,7 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
- const LAST_KEY='bechefaa_phase6_last_order_'+PAGE;
+ const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v2':'bechefaa_phase6_last_order_kitchen';
  let audioCtx=null;
  let wanted=localStorage.getItem(SOUND_KEY)==='1';
 
@@ -109,6 +112,23 @@ def register_order_notifications_phase33(app):
  function inspect(orders){
    const all=(orders||[]).filter(o=>Number.isFinite(Number(o.num)));
    if(!all.length)return;
+
+   if(PAGE==='pos'){
+     const site=all.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
+     if(!site.length)return;
+     const maxSeen=Math.max.apply(null,site.map(o=>Number(o.num)));
+     const storedRaw=localStorage.getItem(LAST_KEY);
+     if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
+     const last=Number(storedRaw);
+     const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
+     if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
+     if(!newer.length)return;
+     const newest=newer[newer.length-1];
+     showSiteNotice(newest);
+     beep();
+     return;
+   }
+
    const maxSeen=Math.max.apply(null,all.map(o=>Number(o.num)));
    const storedRaw=localStorage.getItem(LAST_KEY);
    if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
@@ -116,18 +136,8 @@ def register_order_notifications_phase33(app):
    const newer=all.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
    if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
    if(!newer.length)return;
-
-   if(PAGE==='pos'){
-     const siteNewer=newer.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
-     if(siteNewer.length){
-       const newest=siteNewer[siteNewer.length-1];
-       showSiteNotice(newest);
-       beep();
-     }
-   }else{
-     const kitchenNewer=newer.filter(o=>o.status==='À préparer');
-     if(kitchenNewer.length)beep();
-   }
+   const kitchenNewer=newer.filter(o=>o.status==='À préparer');
+   if(kitchenNewer.length)beep();
  }
  async function poll(){
    try{
