@@ -3,10 +3,9 @@
 Le mode de service historique reste dans ``source`` (Salle/Emporter/Livraison).
 Le canal commercial est conservé séparément dans ``sales_channel``.
 
-Phase 6 ajoute uniquement deux lectures d'interface :
-- exposition de ``sales_channel`` dans les réponses cuisine ;
-- notification visuelle sur /pos lorsqu'une nouvelle commande SITE arrive.
-Le cycle métier des commandes n'est pas modifié.
+Ce module ne gère plus d'interface de notification sur /pos.
+Les notifications SITE sont centralisées dans ``order_notifications_phase33.py``
+afin d'éviter deux systèmes concurrents avec des marqueurs localStorage différents.
 """
 
 import json
@@ -120,7 +119,7 @@ def register_sales_channels_isolated_phase5(app, db):
         return response
 
     @app.after_request
-    def expose_sales_channel_and_site_notice_phase6(response):
+    def expose_sales_channel_phase5(response):
         if response.status_code != 200:
             return response
 
@@ -136,57 +135,5 @@ def register_sales_channels_isolated_phase5(app, db):
                 response.content_length = len(response.get_data())
             except Exception:
                 pass
-            return response
 
-        if request.path != "/pos" or response.mimetype != "text/html":
-            return response
-
-        html = response.get_data(as_text=True)
-        if "SITE_ORDER_TOAST_PHASE6" in html:
-            return response
-
-        addon = r'''
-<style>
-#site-order-toast-phase6{position:fixed;right:20px;bottom:20px;z-index:10050;max-width:390px;background:#111827;color:#fff;border-radius:12px;padding:15px 18px;box-shadow:0 10px 32px rgba(0,0,0,.28);font-weight:800;display:none}
-#site-order-toast-phase6.show{display:block}
-#site-order-toast-phase6 .site-title{font-size:16px;margin-bottom:4px}
-#site-order-toast-phase6 .site-detail{font-size:14px;font-weight:600;opacity:.92}
-</style>
-<script>
-(function(){ /* SITE_ORDER_TOAST_PHASE6 */
- const KEY='bechefaa_phase6_last_site_order_num';
- let initialized=false;
- function showSiteOrder(order){
-   let el=document.getElementById('site-order-toast-phase6');
-   if(!el){el=document.createElement('div');el.id='site-order-toast-phase6';document.body.appendChild(el)}
-   const name=String(order.customer_name||'Client').trim();
-   const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.innerHTML='<div class="site-title">Nouvelle commande SITE</div><div class="site-detail">'+name+' • '+mode+'</div>';
-   el.classList.add('show');
-   clearTimeout(el._hideTimer);
-   el._hideTimer=setTimeout(()=>el.classList.remove('show'),7000);
- }
- async function pollSiteOrders(){
-   try{
-     const r=await fetch('/api/kitchen/orders',{cache:'no-store'}),d=await r.json();
-     if(!r.ok||!d||!Array.isArray(d.orders))return;
-     const site=d.orders.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
-     const nums=site.map(o=>Number(o.num)).filter(Number.isFinite);
-     if(!nums.length){initialized=true;return}
-     const max=Math.max.apply(null,nums);
-     const raw=localStorage.getItem(KEY);
-     if(raw===null||!initialized){localStorage.setItem(KEY,String(max));initialized=true;return}
-     const last=Number(raw);
-     const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
-     if(max>last)localStorage.setItem(KEY,String(max));
-     if(newer.length)showSiteOrder(newer[newer.length-1]);
-   }catch(e){}
- }
- pollSiteOrders();setInterval(pollSiteOrders,4000);
-})();
-</script>
-'''
-        html = html.replace("</body>", addon + "</body>")
-        response.set_data(html)
-        response.content_length = len(response.get_data())
         return response
