@@ -151,6 +151,24 @@ def _dispatch_internal(app, path, payload):
         return app.full_dispatch_request()
 
 
+def _persist_site_service_mode(order_id, internal):
+    """Conserve explicitement le mode de service des commandes SITE.
+
+    Le cœur historique de la caisse utilise une source générique pour tout ce qui
+    n'est pas Livraison. Pour une commande SITE, on sait toutefois avec certitude
+    qu'un mode non-livraison correspond à À emporter. On l'enregistre donc comme
+    EMPORTER afin que tickets, Cuisine et Historique affichent tous le bon mode.
+    """
+    if str(internal.get("ticket_type") or "").lower() == "livraison":
+        return
+    with db() as conn:
+        with conn.transaction():
+            conn.execute(
+                "UPDATE caisse_orders SET source=%s WHERE id=%s",
+                ("EMPORTER", order_id),
+            )
+
+
 def _persist_site_options_text(order_id, items):
     """Écrit uniquement le libellé lisible déjà choisi sur le site.
 
@@ -197,6 +215,11 @@ def register_site_orders_bridge_isolated_phase6(app):
         order_id = str(data.get("id") or "").strip()
         if not order_id:
             return jsonify({"ok": False, "error": "Commande créée sans identifiant"}), 500
+
+        try:
+            _persist_site_service_mode(order_id, internal)
+        except Exception as exc:
+            data["service_mode_warning"] = "Mode de service à vérifier : " + str(exc)
 
         try:
             _persist_site_options_text(order_id, internal.get("items") or [])
