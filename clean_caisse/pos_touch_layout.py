@@ -80,8 +80,8 @@ def register_pos_touch_layout(app, db):
 .customer-box.touch-modal .touch-client-panel{width:min(620px,96vw);background:#fff;border-radius:16px;padding:18px;margin-top:max(12px,5vh);box-shadow:0 18px 55px #0005;position:relative}
 .touch-client-close{position:absolute;right:12px;top:10px;border:0;background:#eef0f3;border-radius:9px;width:42px;height:42px;font-size:24px;font-weight:800;cursor:pointer;touch-action:manipulation}
 .customer-box.touch-modal h3{font-size:22px;padding-right:50px;margin-bottom:14px}.customer-box.touch-modal input{font-size:16px;min-height:46px}.customer-box.touch-modal button{min-height:44px}.order-box{scroll-margin-top:70px}
-.pos-admin-link{position:fixed;right:16px;bottom:16px;z-index:9000;background:#111827;color:#fff!important;text-decoration:none;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:900;box-shadow:0 5px 18px #0003;touch-action:manipulation}
-.pos-admin-link:hover{background:#263244}
+.pos-settings-link{display:flex;align-items:center;gap:9px;width:100%;padding:13px 10px;margin:0 0 10px;border:0;border-radius:8px;background:#111827;color:#fff!important;text-decoration:none;text-align:left;font-weight:900;font-size:14px;cursor:pointer;touch-action:manipulation;position:sticky;top:0;z-index:20;box-shadow:0 2px 8px #0002}
+.pos-settings-link:hover{background:#263244}.pos-settings-link .gear{font-size:19px;line-height:1}
 </style>
 <script>
 (function(){
@@ -90,12 +90,30 @@ def register_pos_touch_layout(app, db):
    const box=document.querySelector('.customer-box'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!box||!cart||!ticket)return;
 
-   if(!document.querySelector('.pos-admin-link')){
-     const adminLink=document.createElement('a');
-     adminLink.className='pos-admin-link';
-     adminLink.href='/administration';
-     adminLink.textContent='Administration';
-     document.body.appendChild(adminLink);
+   function ensureSettingsLink(){
+     const cats=document.querySelector('.cats');
+     if(!cats)return;
+     let link=cats.querySelector('.pos-settings-link');
+     if(!link){
+       link=document.createElement('a');
+       link.className='pos-settings-link';
+       link.href='/administration';
+       link.innerHTML='<span class="gear">⚙</span><span>Paramètres</span>';
+       cats.insertBefore(link,cats.firstChild);
+     }else if(cats.firstChild!==link){
+       cats.insertBefore(link,cats.firstChild);
+     }
+   }
+   ensureSettingsLink();
+   const cats=document.querySelector('.cats');
+   if(cats){
+     let restoring=false;
+     new MutationObserver(function(){
+       if(restoring)return;
+       if(!cats.querySelector('.pos-settings-link')||cats.firstElementChild?.classList.contains('pos-settings-link')===false){
+         restoring=true;ensureSettingsLink();restoring=false;
+       }
+     }).observe(cats,{childList:true});
    }
 
    if(ticket.parentNode===cart)cart.insertBefore(ticket,cart.firstChild);
