@@ -4,6 +4,8 @@ Aucun frais de livraison. La validation est exécutée directement autour de la 
 POST /api/orders afin qu'une commande Livraison ne puisse pas être enregistrée
 avant contrôle de la ville et du minimum de sa zone.
 """
+import re
+import unicodedata
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
@@ -15,6 +17,12 @@ def _money(value):
         return Decimal(str(value or 0)).quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError, TypeError):
         raise ValueError("Montant de commande invalide")
+
+
+def _norm_city(value):
+    text = unicodedata.normalize("NFD", str(value or ""))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 def _ensure_delivery_schema(conn):
@@ -77,15 +85,31 @@ def _validate_delivery_payload(payload, db):
     with db() as conn:
         _ensure_delivery_schema(conn)
         conn.commit()
-        rows = conn.execute(
-            """SELECT c.city,c.postal_code,z.code,z.minimum_order
-               FROM caisse_delivery_cities c
-               JOIN caisse_delivery_zones z ON z.code=c.zone_code
-               WHERE c.active=TRUE AND z.active=TRUE
-                 AND LOWER(TRIM(c.city))=LOWER(TRIM(%s))
-               ORDER BY c.id""",
-            (city,),
-        ).fetchall()
+        rows = []
+
+        # Le code postal est la référence la plus stable pour une adresse de livraison.
+        if postal_code:
+            rows = conn.execute(
+                """SELECT c.city,c.postal_code,z.code,z.minimum_order
+                   FROM caisse_delivery_cities c
+                   JOIN caisse_delivery_zones z ON z.code=c.zone_code
+                   WHERE c.active=TRUE AND z.active=TRUE AND c.postal_code=%s
+                   ORDER BY c.id""",
+                (postal_code,),
+            ).fetchall()
+
+        # Repli sur un nom de ville normalisé : tirets, accents, apostrophes et espaces
+        # ne doivent pas faire sortir une adresse de sa zone.
+        if not rows:
+            candidates = conn.execute(
+                """SELECT c.city,c.postal_code,z.code,z.minimum_order
+                   FROM caisse_delivery_cities c
+                   JOIN caisse_delivery_zones z ON z.code=c.zone_code
+                   WHERE c.active=TRUE AND z.active=TRUE
+                   ORDER BY c.id"""
+            ).fetchall()
+            wanted = _norm_city(city)
+            rows = [r for r in candidates if _norm_city(r["city"]) == wanted]
 
     if not rows:
         return jsonify({
@@ -93,20 +117,17 @@ def _validate_delivery_payload(payload, db):
             "error": f"{city} n'est pas dans une zone de livraison autorisée",
             "reason": "OUT_OF_ZONE",
             "city": city,
+            "postal_code": postal_code,
         }), 409
-
-    if postal_code:
-        postal_rows = [r for r in rows if str(r["postal_code"]) == postal_code]
-        if postal_rows:
-            rows = postal_rows
 
     signatures = {(str(r["code"]), _money(r["minimum_order"])) for r in rows}
     if len(signatures) != 1:
         return jsonify({
             "ok": False,
-            "error": "Ville ambiguë : précisez le code postal",
+            "error": "Ville ou code postal ambigu : vérifiez l'adresse",
             "reason": "AMBIGUOUS_CITY",
             "city": city,
+            "postal_code": postal_code,
         }), 409
 
     zone_code, minimum = next(iter(signatures))
@@ -121,6 +142,7 @@ def _validate_delivery_payload(payload, db):
             "order_total": float(total),
             "missing_amount": float(missing_amount),
             "city": city,
+            "postal_code": postal_code,
         }), 409
 
     return None
