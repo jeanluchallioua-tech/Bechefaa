@@ -1,23 +1,42 @@
 """Pont public isolé vers le catalogue V2 existant.
 
-Étape d'isolation uniquement : ce module expose GET /api/public/catalog et
-renvoie directement la structure du catalogue V2 attendue par BÉCHÉFAA-Site
-(categories/products), sans modifier le catalogue ni sa persistance.
+Expose GET /api/public/catalog sans modifier le catalogue ni sa persistance.
+Les photos encodées en data: sont sorties du JSON principal et servies via une
+route dédiée afin d'alléger fortement le chargement du catalogue côté site.
 """
 
-from flask import jsonify
+import base64
+from urllib.parse import quote
+
+from flask import Response, jsonify, request
 
 
 def _public_catalog_response(payload, status=200):
     response = jsonify(payload)
     response.status_code = status
-    # Catalogue volontairement public : aucune donnée privée ni authentification.
-    # Autorise le navigateur du site à le lire directement sans passer par un
-    # deuxième relais HTTP côté serveur.
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET"
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _absolute_photo_url(product_id):
+    forwarded = request.headers.get("X-Forwarded-Proto", "")
+    scheme = (forwarded.split(",")[0].strip() if forwarded else request.scheme) or "https"
+    return f"{scheme}://{request.host}/api/public/catalog/photo/{quote(str(product_id), safe='')}"
+
+
+def _split_data_uri(value):
+    if not isinstance(value, str) or not value.startswith("data:"):
+        return None
+    try:
+        header, encoded = value.split(",", 1)
+        if ";base64" not in header:
+            return None
+        mime = header[5:].split(";", 1)[0] or "application/octet-stream"
+        return mime, encoded
+    except ValueError:
+        return None
 
 
 def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
@@ -36,6 +55,53 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
         payload = dict(data)
         payload.setdefault("categories", [])
         payload.setdefault("products", [])
+
+        # Copie légère des produits : on ne renvoie plus les gros blobs Base64
+        # dans le JSON. Le front continue d'utiliser p.photo sans autre changement.
+        light_products = []
+        for product in payload.get("products") or []:
+            if not isinstance(product, dict):
+                light_products.append(product)
+                continue
+            item = dict(product)
+            photo = item.get("photo")
+            if _split_data_uri(photo):
+                product_id = item.get("id")
+                item["photo"] = _absolute_photo_url(product_id) if product_id is not None else ""
+            light_products.append(item)
+
+        payload["products"] = light_products
         payload["updatedAt"] = updated_at
         payload["source"] = "catalog_admin_v2"
         return _public_catalog_response(payload, 200)
+
+    @app.get("/api/public/catalog/photo/<path:product_id>")
+    def public_catalog_photo_phase6(product_id):
+        data, _updated_at = load_catalog()
+        if not isinstance(data, dict):
+            return Response(status=404)
+
+        product = next(
+            (
+                p for p in (data.get("products") or [])
+                if isinstance(p, dict) and str(p.get("id")) == str(product_id)
+            ),
+            None,
+        )
+        if not product:
+            return Response(status=404)
+
+        parsed = _split_data_uri(product.get("photo"))
+        if not parsed:
+            return Response(status=404)
+
+        mime, encoded = parsed
+        try:
+            raw = base64.b64decode(encoded, validate=False)
+        except Exception:
+            return Response(status=404)
+
+        response = Response(raw, status=200, mimetype=mime)
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
