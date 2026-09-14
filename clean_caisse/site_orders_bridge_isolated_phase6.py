@@ -10,6 +10,7 @@ import re
 
 from flask import jsonify, request
 from clean_caisse.app import db
+from clean_caisse.order_price_guard_phase26 import _canonical_price, _catalog_products
 
 
 def _digits(value):
@@ -110,7 +111,7 @@ def map_site_order_payload(payload):
             "unit_price": unit_price,
             "options": _structured_options(item),
             # Conservé pour l'affichage Cuisine/Historiques des commandes SITE.
-            # La validation des prix continue d'utiliser exclusivement options[].
+            # Les prix sont recalculés côté caisse avant création.
             "options_text": options_text,
         })
 
@@ -126,6 +127,22 @@ def map_site_order_payload(payload):
         },
     }
     return internal, None
+
+
+def _apply_server_catalog_prices(internal):
+    """Remplace les prix reçus du site par les prix canoniques du catalogue V2.
+
+    Le site et la caisse lisent le même catalogue, mais la caisse reste autoritaire.
+    On conserve donc le garde-fou Phase 2.6 sans accepter un montant fourni par le
+    navigateur lorsque le serveur peut le recalculer lui-même.
+    """
+    by_id, duplicates = _catalog_products(db)
+    for index, item in enumerate(internal.get("items") or []):
+        product_id = str(item.get("product_id") or "").strip()
+        if not product_id or product_id in duplicates or product_id not in by_id:
+            raise ValueError("Produit catalogue introuvable ou ambigu : ligne " + str(index + 1))
+        selected = item.get("options") if isinstance(item.get("options"), list) else []
+        item["unit_price"] = float(_canonical_price(by_id[product_id], selected))
 
 
 def _dispatch_internal(app, path, payload):
@@ -164,6 +181,13 @@ def register_site_orders_bridge_isolated_phase6(app):
         internal, error = map_site_order_payload(external)
         if error:
             return jsonify({"ok": False, "error": error}), 400
+
+        try:
+            _apply_server_catalog_prices(internal)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Calcul du prix catalogue impossible", "detail": str(exc)}), 503
 
         created = _dispatch_internal(app, "/api/orders", internal)
         if created.status_code < 200 or created.status_code >= 300:
