@@ -3,10 +3,49 @@
 Point d'entrée isolé et en lecture seule vers les modules déjà validés.
 Aucune logique métier de caisse, paiement, cuisine, catalogue ou Z n'est modifiée.
 """
-from flask import Response
+from flask import Response, request
 
 
 def register_admin_dashboard_isolated_phase6(app):
+    @app.after_request
+    def admin_navigation_phase6(response):
+        """Ajoute une navigation Administration / Caisse aux écrans de gestion."""
+        if response.status_code != 200 or response.mimetype != "text/html":
+            return response
+
+        path = request.path
+        is_admin_module = (
+            path.startswith("/administration/")
+            or path.startswith("/parametres")
+            or path.startswith("/securite")
+            or path.startswith("/clients")
+            or path.startswith("/historique-modification")
+            or path.startswith("/statistiques")
+            or path.startswith("/maintenance/phase44/cash-")
+            or path.startswith("/caisse/x")
+            or path.startswith("/caisse/z")
+        )
+        if not is_admin_module:
+            return response
+
+        html = response.get_data(as_text=True)
+        if "admin-global-nav-phase6" in html:
+            return response
+
+        addon = r'''
+<style>
+.admin-global-nav-phase6{position:fixed;top:10px;right:12px;z-index:99999;display:flex;gap:8px;align-items:center}
+.admin-global-nav-phase6 a{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 12px;border-radius:8px;background:#263244;color:#fff!important;text-decoration:none!important;font:800 13px Arial,sans-serif;box-shadow:0 2px 8px #0002}
+.admin-global-nav-phase6 a:hover{background:#111827}
+@media(max-width:620px){.admin-global-nav-phase6{top:6px;right:6px;gap:5px}.admin-global-nav-phase6 a{min-height:36px;padding:6px 9px;font-size:12px}}
+</style>
+<nav class="admin-global-nav-phase6" aria-label="Navigation administration"><a href="/administration">Administration</a><a href="/pos">Caisse</a></nav>
+'''
+        html = html.replace("<body>", "<body>" + addon, 1)
+        response.set_data(html)
+        response.content_length = len(response.get_data())
+        return response
+
     @app.get("/administration")
     def admin_dashboard_phase6():
         html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Administration</title><style>
