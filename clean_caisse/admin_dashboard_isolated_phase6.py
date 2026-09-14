@@ -36,11 +36,14 @@ def register_admin_dashboard_isolated_phase6(app):
         if "admin-global-nav-phase6" in html:
             return response
 
-        # Les anciens modules avaient parfois déjà leurs propres boutons de retour.
-        # On retire uniquement ces liens de navigation afin d'éviter les doublons,
-        # puis on injecte une barre commune Administration / Caisse.
-        html = re.sub(r'<a\b[^>]*href=["\']/administration["\'][^>]*>\s*Administration\s*</a>', '', html, flags=re.I)
-        html = re.sub(r'<a\b[^>]*href=["\']/pos["\'][^>]*>\s*Caisse\s*</a>', '', html, flags=re.I)
+        # Retire tous les anciens boutons de navigation vers Administration/Caisse,
+        # quelle que soit leur étiquette (flèche, icône, BÉCHÉFAA-Caisse, etc.).
+        # Les liens placés dans le JavaScript ne sont pas concernés : uniquement
+        # les balises <a> du HTML rendu sont nettoyées avant injection de la barre commune.
+        html = re.sub(
+            r'<a\b[^>]*href\s*=\s*["\']/(?:administration|pos)["\'][^>]*>.*?</a>',
+            '', html, flags=re.I | re.S
+        )
 
         addon = r'''
 <style>
