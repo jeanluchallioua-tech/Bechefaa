@@ -1,4 +1,5 @@
 """Phase 1 / Phase 3.3 — impression 80 mm BÉCHÉFAA."""
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 from flask import Response, request
@@ -65,6 +66,32 @@ def _base_css():
 
 
 def _option_lines(item):
+    # Pour les commandes SITE, options_text est volontairement conservé comme
+    # libellé complet choisi par le client. Il peut être plus complet que
+    # options_json lorsqu'une option V2 n'a pas de mapping structuré.
+    text = str(item.get("options_text") or "").strip()
+    if text:
+        normalized = text.replace(";;", " • ").replace("::", ": ")
+        rendered, last_group = [], None
+        for part in [p.strip() for p in re.split(r"\s*[•·]\s*", normalized) if p.strip()]:
+            if ":" in part:
+                group, value = [x.strip() for x in part.split(":", 1)]
+                values = [x.strip() for x in value.split("|") if x.strip()] or [value]
+                for index, option_value in enumerate(values):
+                    if not option_value:
+                        continue
+                    if group == last_group or index > 0:
+                        rendered.append(f'<div class="kopt kcontinuation">{escape(option_value)}</div>')
+                    else:
+                        rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(option_value)}</div>')
+                    last_group = group or None
+            else:
+                rendered.append(f'<div class="kopt">{escape(part)}</div>')
+                last_group = None
+        if rendered:
+            return "".join(rendered)
+
+    # Repli pour les commandes qui n'ont que les options structurées.
     options = item.get("options") or []
     lines, last_group = [], None
     for option in options:
@@ -77,19 +104,7 @@ def _option_lines(item):
             last_group = group or None
         elif option is not None:
             lines.append(f'<div class="kopt">{escape(str(option))}</div>'); last_group = None
-    if lines: return "".join(lines)
-    text = str(item.get("options_text") or "").strip()
-    if not text: return ""
-    rendered, last_group = [], None
-    for part in [p.strip() for p in text.split(" • ") if p.strip()]:
-        if ":" in part:
-            group, value = [x.strip() for x in part.split(":", 1)]
-            if group == last_group: rendered.append(f'<div class="kopt kcontinuation">{escape(value)}</div>')
-            else: rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(value)}</div>')
-            last_group = group
-        else:
-            rendered.append(f'<div class="kopt">{escape(part)}</div>'); last_group = None
-    return "".join(rendered)
+    return "".join(lines)
 
 
 def register_printing_phase1(app, db, ensure_order_schema, order_payload):
