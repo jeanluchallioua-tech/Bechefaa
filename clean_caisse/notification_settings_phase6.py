@@ -4,9 +4,10 @@ Module isolé : paramètres persistés en PostgreSQL, sans modifier les commande
 La table est créée uniquement lors de l'accès au module/API, jamais au démarrage.
 """
 from flask import Response, jsonify, request
+from .app import db
 
 
-def register_notification_settings_phase6(app, db):
+def register_notification_settings_phase6(app):
     def ensure_schema(conn):
         conn.execute("""CREATE TABLE IF NOT EXISTS caisse_notification_settings (
             id INTEGER PRIMARY KEY,
