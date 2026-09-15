@@ -46,6 +46,10 @@ def _payment_methods(conn, order_id):
     return [str(r["method"] or "").strip().upper() for r in rows if str(r["method"] or "").strip()]
 
 
+def _is_refund_status(value):
+    return "REMBOURS" in str(value or "").strip().upper()
+
+
 def register_payment_topup_mixed_isolated_phase5(app, db, ensure_order_schema):
     original_meta = app.view_functions.get("history_meta_phase44")
     original_get = app.view_functions.get("get_order_payment_phase41")
@@ -76,6 +80,10 @@ def register_payment_topup_mixed_isolated_phase5(app, db, ensure_order_schema):
                 """, (ids,)).fetchall()
             net_by_id = {str(r["order_id"]): (_money(r["paid"]) - _money(r["refunded"])).quantize(CENT) for r in rows}
             for order_id, info in orders.items():
+                if _is_refund_status(info.get("payment_status")):
+                    info.pop("topup_required", None)
+                    info.pop("remaining_amount", None)
+                    continue
                 total = _money(info.get("total"))
                 net = net_by_id.get(str(order_id), Decimal("0.00"))
                 if Decimal("0.00") < net < total:
@@ -93,6 +101,11 @@ def register_payment_topup_mixed_isolated_phase5(app, db, ensure_order_schema):
             return response
         payload = response.get_json(silent=True) or {}
         info = payload.get("order") or {}
+        if _is_refund_status(info.get("payment_status")):
+            info["topup_required"] = False
+            info["mixed_payment_allowed"] = False
+            info.pop("remaining_amount", None)
+            return jsonify(payload)
         try:
             with db() as conn:
                 ensure_order_schema(conn)
@@ -123,9 +136,11 @@ def register_payment_topup_mixed_isolated_phase5(app, db, ensure_order_schema):
             with db() as conn:
                 ensure_order_schema(conn)
                 ensure_payment_transaction_schema(conn)
-                order = conn.execute("SELECT id,total,z_closure_id FROM caisse_orders WHERE id=%s", (order_id,)).fetchone()
+                order = conn.execute("SELECT id,total,z_closure_id,payment_status FROM caisse_orders WHERE id=%s", (order_id,)).fetchone()
                 if not order:
                     return jsonify({"ok": False, "error": "Commande introuvable"}), 404
+                if _is_refund_status(order["payment_status"]):
+                    return jsonify({"ok": False, "error": "Commande remboursée : aucun complément d'encaissement n'est attendu"}), 409
                 net = _ledger_net(conn, order_id)
                 total = _money(order["total"])
             if not (Decimal("0.00") < net < total):
@@ -145,13 +160,15 @@ def register_payment_topup_mixed_isolated_phase5(app, db, ensure_order_schema):
                     ensure_payment_transaction_schema(conn)
                     order = conn.execute("""
                         SELECT id,num,total,payment_method,payment,cash_received,change_due,
-                               z_closure_id,fiscal_ticket_number
+                               z_closure_id,fiscal_ticket_number,payment_status
                         FROM caisse_orders WHERE id=%s FOR UPDATE
                     """, (order_id,)).fetchone()
                     if not order:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
                     if order["z_closure_id"] is not None:
                         return jsonify({"ok": False, "error": "Commande clôturée par le Z : encaissement interdit", "code": "ORDER_Z_LOCKED"}), 409
+                    if _is_refund_status(order["payment_status"]):
+                        return jsonify({"ok": False, "error": "Commande remboursée : aucun complément d'encaissement n'est attendu"}), 409
 
                     net = _ledger_net(conn, order_id)
                     total = _money(order["total"])
