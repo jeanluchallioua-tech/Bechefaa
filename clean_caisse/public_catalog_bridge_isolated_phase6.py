@@ -20,10 +20,13 @@ def _public_catalog_response(payload, status=200):
     return response
 
 
-def _absolute_photo_url(product_id):
+def _absolute_photo_url(product_id, version=None):
     forwarded = request.headers.get("X-Forwarded-Proto", "")
     scheme = (forwarded.split(",")[0].strip() if forwarded else request.scheme) or "https"
-    return f"{scheme}://{request.host}/api/public/catalog/photo/{quote(str(product_id), safe='')}"
+    url = f"{scheme}://{request.host}/api/public/catalog/photo/{quote(str(product_id), safe='')}"
+    if version not in (None, ""):
+        url += f"?v={quote(str(version), safe='')}"
+    return url
 
 
 def _split_data_uri(value):
@@ -58,6 +61,9 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
 
         # Copie légère des produits : on ne renvoie plus les gros blobs Base64
         # dans le JSON. Le front continue d'utiliser p.photo sans autre changement.
+        # L'updated_at du catalogue versionne désormais l'URL de la photo : quand
+        # une image est remplacée, le navigateur reçoit une nouvelle URL et ne peut
+        # plus conserver l'ancienne image dans son cache pendant 24 heures.
         light_products = []
         for product in payload.get("products") or []:
             if not isinstance(product, dict):
@@ -67,7 +73,7 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
             photo = item.get("photo")
             if _split_data_uri(photo):
                 product_id = item.get("id")
-                item["photo"] = _absolute_photo_url(product_id) if product_id is not None else ""
+                item["photo"] = _absolute_photo_url(product_id, updated_at) if product_id is not None else ""
             light_products.append(item)
 
         payload["products"] = light_products
