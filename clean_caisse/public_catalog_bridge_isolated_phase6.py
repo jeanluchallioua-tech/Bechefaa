@@ -3,6 +3,8 @@
 Expose GET /api/public/catalog sans modifier le catalogue ni sa persistance.
 Les photos encodées en data: sont sorties du JSON principal et servies via une
 route dédiée afin d'alléger fortement le chargement du catalogue côté site.
+Les avis Google et les zones de livraison administrées sont aussi exposés en
+lecture seule pour éviter les valeurs codées en dur côté Site.
 """
 
 import base64
@@ -43,6 +45,39 @@ def _split_data_uri(value):
         return None
 
 
+def _delivery_zones_snapshot():
+    """Lit uniquement les zones existantes ; aucune création de table au boot."""
+    try:
+        from clean_caisse.app import db
+        with db() as conn:
+            zones = conn.execute(
+                "SELECT code,minimum_order,active FROM caisse_delivery_zones ORDER BY code"
+            ).fetchall()
+            cities = conn.execute(
+                "SELECT zone_code,postal_code,city,active FROM caisse_delivery_cities "
+                "ORDER BY zone_code,postal_code,city"
+            ).fetchall()
+        return [
+            {
+                "code": str(zone["code"]),
+                "minimum_order": float(zone["minimum_order"]),
+                "active": bool(zone["active"]),
+                "cities": [
+                    {
+                        "postal_code": str(city["postal_code"]),
+                        "city": str(city["city"]),
+                        "active": bool(city["active"]),
+                    }
+                    for city in cities
+                    if str(city["zone_code"]) == str(zone["code"])
+                ],
+            }
+            for zone in zones
+        ]
+    except Exception:
+        return []
+
+
 def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
     @app.get("/api/public/catalog")
     def public_catalog_phase6():
@@ -52,6 +87,7 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
                 "categories": [],
                 "products": [],
                 "google_reviews": read_google_reviews(),
+                "deliveryZones": _delivery_zones_snapshot(),
                 "error": "Catalogue V2 indisponible",
                 "updatedAt": updated_at,
                 "source": "catalog_admin_v2",
@@ -61,11 +97,6 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
         payload.setdefault("categories", [])
         payload.setdefault("products", [])
 
-        # Copie légère des produits : on ne renvoie plus les gros blobs Base64
-        # dans le JSON. Le front continue d'utiliser p.photo sans autre changement.
-        # L'updated_at du catalogue versionne désormais l'URL de la photo : quand
-        # une image est remplacée, le navigateur reçoit une nouvelle URL et ne peut
-        # plus conserver l'ancienne image dans son cache pendant 24 heures.
         light_products = []
         for product in payload.get("products") or []:
             if not isinstance(product, dict):
@@ -80,6 +111,7 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
 
         payload["products"] = light_products
         payload["google_reviews"] = read_google_reviews()
+        payload["deliveryZones"] = _delivery_zones_snapshot()
         payload["updatedAt"] = updated_at
         payload["source"] = "catalog_admin_v2"
         return _public_catalog_response(payload, 200)
