@@ -19,7 +19,7 @@ from clean_caisse.fiscal_ticket_phase44 import (
 )
 
 CENT = Decimal("0.01")
-ALLOWED_METHODS = {"ESPÈCES", "CB", "CHÈQUE", "VIREMENT"}
+ALLOWED_METHODS = {"ESPÈCES", "CB", "TITRE RESTAURANT"}
 
 
 def _money(value):
