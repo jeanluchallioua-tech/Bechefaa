@@ -73,7 +73,10 @@ def register_payment_history_ui_phase41(app):
      let meta={};try{const r=await fetch('/api/orders/history-meta-phase44',{cache:'no-store'});const d=await r.json();if(r.ok&&d.ok&&d.orders)meta=d.orders}catch(e){return}
      const cards=[...document.querySelectorAll('#list .order')];for(const card of cards){const id=orderId(card);if(!id)continue;const order=meta[id];if(!order)continue;const existing=[...card.querySelectorAll('.p41-pay-btn')];if(existing.length>1)existing.slice(1).forEach(x=>x.remove());const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());const partialBadges=[...card.querySelectorAll('.p41-partial-badge')];if(partialBadges.length>1)partialBadges.slice(1).forEach(x=>x.remove());if(order.payment_status==='PAYÉE'){showPaid(card,order);continue}if(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)showPartial(card,order);else card.querySelectorAll('.p41-partial-badge').forEach(x=>x.remove());if(order.z_locked)continue;let btn=card.querySelector('.p41-pay-btn');if(!btn){btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.addEventListener('click',()=>openPayment(card,id,btn));card.appendChild(btn)}btn.textContent=(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)?'💳 Régler le reste':'💳 Encaisser'}
    }
-   function scheduleDecorate(){clearTimeout(decorateTimer);decorateTimer=setTimeout(decorate,80)}scheduleDecorate();const list=document.getElementById('list');if(list)new MutationObserver(scheduleDecorate).observe(list,{childList:true,subtree:true});
+   function scheduleDecorate(){clearTimeout(decorateTimer);decorateTimer=setTimeout(decorate,80)}
+   scheduleDecorate();
+   const historyObserver=new MutationObserver(scheduleDecorate);
+   historyObserver.observe(document.body,{childList:true,subtree:true});
  });
 })();
 </script>
