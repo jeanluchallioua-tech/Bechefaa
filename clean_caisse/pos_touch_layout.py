@@ -4,12 +4,13 @@
 - Trois modes de commande : Salle, Emporter, Livraison.
 - Salle n'utilise pas de coordonnées client.
 - Le client courant est effacé après envoi réussi en cuisine.
+- Accès immédiat aux commandes récentes et à leurs tickets depuis la caisse.
 - Aucun Wix / V1 / localStorage.
 """
 import importlib
 import json
 
-from flask import g, request
+from flask import g, jsonify, request
 
 
 def register_pos_touch_layout(app, db):
@@ -27,6 +28,39 @@ def register_pos_touch_layout(app, db):
         return "Comptoir"  # compatibilité des anciens tickets déjà enregistrés
 
     core.ticket_type = clean_ticket_type
+
+    @app.get("/api/pos/recent-orders")
+    def pos_recent_orders():
+        try:
+            with db() as conn:
+                rows = conn.execute("""
+                    SELECT id, num, customer_name, source, status, total,
+                           COALESCE(payment_status, 'À ENCAISSER') AS payment_status,
+                           fiscal_ticket_number, created_at
+                    FROM caisse_orders
+                    WHERE COALESCE(cancellation_hidden, FALSE) = FALSE
+                      AND UPPER(COALESCE(status, '')) <> 'ANNULÉE'
+                      AND (to_timestamp(created_at / 1000.0) AT TIME ZONE 'Europe/Paris')::date
+                          = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date
+                    ORDER BY created_at DESC
+                    LIMIT 30
+                """).fetchall()
+            return jsonify({
+                "ok": True,
+                "orders": [{
+                    "id": r["id"],
+                    "num": r["num"],
+                    "customer_name": r.get("customer_name") or "",
+                    "ticket_type": clean_ticket_type(r.get("source")),
+                    "status": r.get("status") or "",
+                    "total": float(r.get("total") or 0),
+                    "payment_status": r.get("payment_status") or "À ENCAISSER",
+                    "fiscal_ticket_number": r.get("fiscal_ticket_number"),
+                    "created_at": r.get("created_at"),
+                } for r in rows],
+            })
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Commandes récentes indisponibles", "detail": str(exc)}), 500
 
     @app.before_request
     def capture_order_mode():
@@ -82,6 +116,17 @@ def register_pos_touch_layout(app, db):
 .customer-box.touch-modal h3{font-size:22px;padding-right:50px;margin-bottom:14px}.customer-box.touch-modal input{font-size:16px;min-height:46px}.customer-box.touch-modal button{min-height:44px}.order-box{scroll-margin-top:70px}
 .pos-settings-link{display:flex;align-items:center;gap:9px;width:100%;padding:13px 10px;margin:0 0 10px;border:0;border-radius:8px;background:#111827;color:#fff!important;text-decoration:none;text-align:left;font-weight:900;font-size:14px;cursor:pointer;touch-action:manipulation;position:sticky;top:0;z-index:20;box-shadow:0 2px 8px #0002}
 .pos-settings-link:hover{background:#263244}.pos-settings-link .gear{font-size:19px;line-height:1}
+
+/* Commandes récentes : accès opérationnel depuis la caisse */
+.pos-recent-orders-btn{width:100%;min-height:48px;margin:0 0 10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#111827;font-size:14px;font-weight:900;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:8px}
+.pos-recent-orders-btn:hover{background:#f3f4f6}
+.pos-recent-backdrop{display:none;position:fixed;inset:0;z-index:10020;background:rgba(15,23,42,.62);padding:18px;align-items:flex-start;justify-content:center;overflow:auto}
+.pos-recent-backdrop.open{display:flex}
+.pos-recent-panel{width:min(760px,98vw);background:#fff;border-radius:16px;margin-top:max(10px,3vh);box-shadow:0 20px 60px #0005;overflow:hidden}
+.pos-recent-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid #e5e7eb}.pos-recent-head h2{margin:0;font-size:21px;flex:1}.pos-recent-close{border:0;background:#eef0f3;border-radius:9px;width:42px;height:42px;font-size:24px;font-weight:900;cursor:pointer}
+.pos-recent-list{padding:10px;max-height:72vh;overflow:auto}.pos-recent-empty{padding:28px;text-align:center;color:#6b7280}.pos-recent-error{padding:14px;background:#fff1f2;color:#9f1239;border-radius:10px}
+.pos-recent-row{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:9px}.pos-recent-main{display:flex;gap:10px;align-items:flex-start}.pos-recent-info{flex:1;min-width:0}.pos-recent-title{font-size:16px;font-weight:900}.pos-recent-meta{font-size:12px;color:#667085;margin-top:4px}.pos-recent-ticket{font-size:11px;font-weight:800;color:#1e3a8a;margin-top:5px}.pos-recent-actions{display:flex;gap:7px;margin-top:10px}.pos-recent-actions a{flex:1;text-align:center;text-decoration:none;border-radius:9px;padding:10px 8px;font-weight:900;font-size:13px}.pos-recent-client{background:#2563eb;color:#fff}.pos-recent-kitchen{background:#d97706;color:#fff}
+@media(max-width:600px){.pos-recent-main{display:block}.pos-recent-actions a{padding:12px 8px}.pos-recent-list{max-height:78vh}}
 </style>
 <script>
 (function(){
@@ -119,9 +164,38 @@ def register_pos_touch_layout(app, db):
    if(ticket.parentNode===cart)cart.insertBefore(ticket,cart.firstChild);
    ticket.innerHTML='<button data-ticket="Salle">Salle</button><button data-ticket="Emporter">Emporter</button><button data-ticket="Livraison">Livraison</button>';
 
+   const recentBtn=document.createElement('button');
+   recentBtn.type='button';recentBtn.className='pos-recent-orders-btn';recentBtn.innerHTML='<span>🧾</span><span>Commandes récentes</span>';
+   ticket.insertAdjacentElement('afterend',recentBtn);
+
+   const recent=document.createElement('div');recent.className='pos-recent-backdrop';
+   recent.innerHTML='<div class="pos-recent-panel"><div class="pos-recent-head"><h2>Commandes récentes</h2><button type="button" class="pos-recent-close" aria-label="Fermer">×</button></div><div class="pos-recent-list"><div class="pos-recent-empty">Chargement…</div></div></div>';
+   document.body.appendChild(recent);
+   const recentList=recent.querySelector('.pos-recent-list');
+   const recentClose=recent.querySelector('.pos-recent-close');
+   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+   const euro=v=>Number(v||0).toFixed(2).replace('.',',')+' €';
+   async function loadRecent(){
+     recentList.innerHTML='<div class="pos-recent-empty">Chargement…</div>';
+     try{
+       const r=await fetch('/api/pos/recent-orders',{cache:'no-store'}),d=await r.json();
+       if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');
+       const rows=d.orders||[];
+       if(!rows.length){recentList.innerHTML='<div class="pos-recent-empty">Aucune commande aujourd’hui.</div>';return}
+       recentList.innerHTML=rows.map(o=>{
+         const who=o.customer_name&&o.customer_name!=='Client comptoir'?' · '+esc(o.customer_name):'';
+         const fiscal=o.fiscal_ticket_number!=null?'<div class="pos-recent-ticket">Ticket comptable #'+esc(o.fiscal_ticket_number)+'</div>':'';
+         return '<div class="pos-recent-row"><div class="pos-recent-main"><div class="pos-recent-info"><div class="pos-recent-title">#'+esc(o.num)+' · '+esc(o.ticket_type)+who+' · '+euro(o.total)+'</div><div class="pos-recent-meta">'+esc(o.status)+' · '+esc(o.payment_status)+'</div>'+fiscal+'</div></div><div class="pos-recent-actions"><a class="pos-recent-client" target="_blank" rel="noopener" href="/impression/client/'+encodeURIComponent(o.id)+'">🧾 Ticket client</a><a class="pos-recent-kitchen" target="_blank" rel="noopener" href="/impression/cuisine/'+encodeURIComponent(o.id)+'">🍳 Ticket cuisine</a></div></div>';
+       }).join('');
+     }catch(e){recentList.innerHTML='<div class="pos-recent-error">'+esc(e.message||'Commandes récentes indisponibles')+'</div>'}
+   }
+   function openRecent(){recent.classList.add('open');loadRecent()}
+   function closeRecent(){recent.classList.remove('open')}
+   recentBtn.addEventListener('click',openRecent);recentClose.addEventListener('click',closeRecent);recent.addEventListener('click',e=>{if(e.target===recent)closeRecent()});
+
    const summary=document.createElement('div');summary.className='touch-client-summary hidden';
    summary.innerHTML='<div class="tc-main"><b id="tc-name">Client</b><span id="tc-detail">Toucher pour rechercher ou enregistrer un client</span></div><div class="tc-edit">Client</div>';
-   ticket.insertAdjacentElement('afterend',summary);
+   recentBtn.insertAdjacentElement('afterend',summary);
 
    const panel=document.createElement('div');panel.className='touch-client-panel';
    while(box.firstChild)panel.appendChild(box.firstChild);
@@ -139,7 +213,7 @@ def register_pos_touch_layout(app, db):
      if(mode==='Salle'){shut();clearCustomer()}
      else document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
    }
-   summary.onclick=open;close.onclick=shut;box.addEventListener('click',e=>{if(e.target===box)shut()});document.addEventListener('keydown',e=>{if(e.key==='Escape')shut()});panel.addEventListener('input',updateSummary);
+   summary.onclick=open;close.onclick=shut;box.addEventListener('click',e=>{if(e.target===box)shut()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){shut();closeRecent()}});panel.addEventListener('input',updateSummary);
    panel.addEventListener('click',e=>{
      if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);
      if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);
