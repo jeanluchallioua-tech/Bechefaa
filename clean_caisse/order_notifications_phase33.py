@@ -4,8 +4,8 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
 - Cuisine et Caisse utilisent des marqueurs de dernière commande distincts.
 - Sur /pos, toute nouvelle commande déclenche le même événement sonore,
   quelle que soit sa provenance / son canal de vente.
-- Le son de la Caisse est déverrouillé à chaque interaction utile sur /pos,
-  même si la préférence audio a déjà été mémorisée par la Cuisine.
+- Le son de la Caisse doit être réellement déverrouillé par le navigateur :
+  le bouton reste visible tant que l'AudioContext de /pos n'est pas actif.
 - Alerte sonore renforcée : plusieurs impulsions courtes, volume nettement supérieur.
 """
 from flask import request
@@ -42,10 +42,14 @@ def register_order_notifications_phase33(app):
      return audioCtx;
    }catch(e){return null}
  }
+ function isAudioReady(){
+   const ctx=audioCtx;
+   return !!(wanted&&ctx&&ctx.state==='running');
+ }
  async function unlock(test){
    const ctx=getCtx();if(!ctx)return false;
    try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
-   if(ctx.state!=='running')return false;
+   if(ctx.state!=='running'){updateButton();return false}
    wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
    if(test)beep();
    return true;
@@ -72,7 +76,13 @@ def register_order_notifications_phase33(app):
  }
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
-   b.classList.toggle('hidden',wanted);b.textContent='🔇 Activer le son';
+   if(PAGE==='pos'){
+     b.classList.toggle('hidden',isAudioReady());
+     b.textContent='🔊 Activer le son caisse';
+     return;
+   }
+   b.classList.toggle('hidden',wanted);
+   b.textContent='🔇 Activer le son';
  }
  function installButton(){
    if(document.getElementById('phase33-audio'))return;
@@ -86,12 +96,15 @@ def register_order_notifications_phase33(app):
  async function unlockOnInteraction(){
    if(PAGE!=='pos')return;
    const ctx=getCtx();
-   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');return}
+   if(ctx&&ctx.state==='running'){
+     wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();return;
+   }
    await unlock(false);
  }
  document.addEventListener('pointerdown',unlockOnInteraction,{passive:true});
  document.addEventListener('keydown',unlockOnInteraction);
  document.addEventListener('touchstart',unlockOnInteraction,{passive:true});
+ document.addEventListener('visibilitychange',()=>{if(PAGE==='pos'&&!document.hidden)updateButton()});
 
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
