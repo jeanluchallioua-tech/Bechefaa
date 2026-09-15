@@ -5,8 +5,10 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
 - Sur /pos, seules les commandes provenant du SITE déclenchent l'alerte Caisse.
 - Les commandes saisies directement en Caisse restent silencieuses sur /pos,
   mais déclenchent normalement la notification Cuisine après envoi.
-- Le son Caisse est activé par défaut et se déverrouille à la première interaction
-  utilisateur, sans bouton rouge récurrent.
+- Le son Caisse et Cuisine est activé par défaut et se déverrouille à la première
+  interaction utilisateur ; le bouton Cuisine reste disponible en secours navigateur.
+- La Cuisine ne mémorise que les commandes réellement au statut À préparer afin
+  d'éviter de perdre le son si le polling voit l'ordre entre création et envoi cuisine.
 - Le volume et l'activation Caisse/Cuisine sont pilotés depuis Administration.
 """
 from flask import request
@@ -35,11 +37,11 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
- const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v4':'bechefaa_phase6_last_order_kitchen';
+ const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v4':'bechefaa_phase6_last_ready_order_kitchen_v2';
  let audioCtx=null;
- let wanted=PAGE==='pos' ? true : localStorage.getItem(SOUND_KEY)==='1';
+ let wanted=true;
  let soundSettings={enabled:true,volume:.82};
- if(PAGE==='pos')localStorage.setItem(SOUND_KEY,'1');
+ localStorage.setItem(SOUND_KEY,'1');
 
  async function loadSoundSettings(){
    try{
@@ -57,11 +59,12 @@ def register_order_notifications_phase33(app):
      return audioCtx;
    }catch(e){return null}
  }
+ function isAudioReady(){return !!(audioCtx&&audioCtx.state==='running')}
  async function unlock(test){
    if(!soundSettings.enabled)return false;
    const ctx=getCtx();if(!ctx)return false;
    try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
-   if(ctx.state!=='running')return false;
+   if(ctx.state!=='running'){updateButton();return false}
    wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
    if(test)beep();
    return true;
@@ -85,7 +88,7 @@ def register_order_notifications_phase33(app):
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
    if(PAGE==='pos'||!soundSettings.enabled){b.classList.add('hidden');return}
-   b.classList.toggle('hidden',wanted);
+   b.classList.toggle('hidden',isAudioReady());
    b.textContent='🔇 Activer le son';
  }
  function installButton(){
@@ -96,9 +99,9 @@ def register_order_notifications_phase33(app):
    updateButton();
  }
  async function unlockOnInteraction(){
-   if(PAGE!=='pos'||!soundSettings.enabled)return;
+   if(!soundSettings.enabled)return;
    const ctx=getCtx();
-   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');return}
+   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();return}
    await unlock(false);
  }
  document.addEventListener('pointerdown',unlockOnInteraction,{passive:true});
@@ -138,15 +141,15 @@ def register_order_notifications_phase33(app):
      const newest=newer[newer.length-1];showSiteNotice(newest);beep();return;
    }
 
-   const maxSeen=Math.max.apply(null,all.map(o=>Number(o.num)));
+   const ready=all.filter(o=>String(o.status||'').trim()==='À préparer');
+   if(!ready.length)return;
+   const maxReady=Math.max.apply(null,ready.map(o=>Number(o.num)));
    const storedRaw=localStorage.getItem(LAST_KEY);
-   if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
+   if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxReady));return}
    const last=Number(storedRaw);
-   const newer=all.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
-   if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
-   if(!newer.length)return;
-   const kitchenNewer=newer.filter(o=>o.status==='À préparer');
-   if(kitchenNewer.length)beep();
+   const newerReady=ready.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
+   if(maxReady>last)localStorage.setItem(LAST_KEY,String(maxReady));
+   if(newerReady.length)beep();
  }
  async function poll(){
    try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);}catch(e){}
