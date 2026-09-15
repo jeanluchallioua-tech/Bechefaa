@@ -6,12 +6,15 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
   quelle que soit sa provenance / son canal de vente.
 - Le son de la Caisse doit être réellement déverrouillé par le navigateur :
   le bouton reste visible tant que l'AudioContext de /pos n'est pas actif.
-- Alerte sonore renforcée : plusieurs impulsions courtes, volume nettement supérieur.
+- Le volume et l'activation Caisse/Cuisine sont pilotés depuis Administration.
 """
 from flask import request
+from .notification_settings_phase6 import register_notification_settings_phase6
 
 
 def register_order_notifications_phase33(app):
+    register_notification_settings_phase6(app)
+
     @app.after_request
     def inject_order_notifications_phase33(response):
         if request.path not in ("/cuisine-preparation", "/pos") or response.status_code != 200 or response.mimetype != "text/html":
@@ -34,7 +37,17 @@ def register_order_notifications_phase33(app):
  const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_order_pos_all_v3':'bechefaa_phase6_last_order_kitchen';
  let audioCtx=null;
  let wanted=localStorage.getItem(SOUND_KEY)==='1';
+ let soundSettings={enabled:true,volume:.82};
 
+ async function loadSoundSettings(){
+   try{
+     const r=await fetch('/api/notification-settings',{cache:'no-store'}),d=await r.json();
+     if(!r.ok||!d||!d.ok)return;
+     if(PAGE==='pos')soundSettings={enabled:!!d.pos_enabled,volume:Math.max(0,Math.min(1,Number(d.pos_volume||0)/100))};
+     else soundSettings={enabled:!!d.kitchen_enabled,volume:Math.max(0,Math.min(1,Number(d.kitchen_volume||0)/100))};
+     updateButton();
+   }catch(e){}
+ }
  function getCtx(){
    try{
      const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
@@ -47,6 +60,7 @@ def register_order_notifications_phase33(app):
    return !!(wanted&&ctx&&ctx.state==='running');
  }
  async function unlock(test){
+   if(!soundSettings.enabled){updateButton();return false}
    const ctx=getCtx();if(!ctx)return false;
    try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
    if(ctx.state!=='running'){updateButton();return false}
@@ -59,23 +73,24 @@ def register_order_notifications_phase33(app):
    osc.type='square';
    osc.frequency.setValueAtTime(freq,start);
    gain.gain.setValueAtTime(.001,start);
-   gain.gain.exponentialRampToValueAtTime(volume,start+.015);
-   gain.gain.setValueAtTime(volume,start+Math.max(.02,duration-.055));
+   gain.gain.exponentialRampToValueAtTime(Math.max(.001,volume),start+.015);
+   gain.gain.setValueAtTime(Math.max(.001,volume),start+Math.max(.02,duration-.055));
    gain.gain.exponentialRampToValueAtTime(.001,start+duration);
    osc.connect(gain);gain.connect(ctx.destination);
    osc.start(start);osc.stop(start+duration+.02);
  }
  function beep(){
    try{
-     const ctx=getCtx();if(!wanted||!ctx||ctx.state!=='running')return;
-     const t=ctx.currentTime+.015;
-     tone(ctx,t,920,.22,.72);
-     tone(ctx,t+.28,1080,.22,.78);
-     tone(ctx,t+.56,920,.30,.82);
+     const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted||!ctx||ctx.state!=='running')return;
+     const t=ctx.currentTime+.015,v=soundSettings.volume;
+     tone(ctx,t,920,.22,v*.88);
+     tone(ctx,t+.28,1080,.22,v*.95);
+     tone(ctx,t+.56,920,.30,v);
    }catch(e){}
  }
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
+   if(!soundSettings.enabled){b.classList.add('hidden');return}
    if(PAGE==='pos'){
      b.classList.toggle('hidden',isAudioReady());
      b.textContent='🔊 Activer le son caisse';
@@ -89,12 +104,12 @@ def register_order_notifications_phase33(app):
    const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
    b.onclick=async function(e){
      e.preventDefault();e.stopPropagation();
-     if(!(await unlock(true)))alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');
+     if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');
    };
    updateButton();
  }
  async function unlockOnInteraction(){
-   if(PAGE!=='pos')return;
+   if(PAGE!=='pos'||!soundSettings.enabled)return;
    const ctx=getCtx();
    if(ctx&&ctx.state==='running'){
      wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();return;
@@ -168,7 +183,8 @@ def register_order_notifications_phase33(app):
  }
  installButton();
  ensureSiteNotice();
- poll();setInterval(poll,4000);
+ loadSoundSettings();
+ poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
 '''.replace('__PAGE__', page)
