@@ -1,14 +1,12 @@
 """Phase 3.3 / Phase 6 — notifications des nouvelles commandes.
 
 Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/ticket/TVA.
-- Cuisine et Caisse utilisent désormais des marqueurs de dernière commande distincts.
-- Sur /pos, une nouvelle commande SITE déclenche le même événement pour le son
-  et pour une notification visuelle.
+- Cuisine et Caisse utilisent des marqueurs de dernière commande distincts.
+- Sur /pos, toute nouvelle commande déclenche le même événement sonore,
+  quelle que soit sa provenance / son canal de vente.
 - Le son de la Caisse est déverrouillé à chaque interaction utile sur /pos,
   même si la préférence audio a déjà été mémorisée par la Cuisine.
-- Correctif Phase 6 : sur la Caisse, le marqueur suit uniquement les commandes SITE.
-  Une commande Livraison qui reçoit son canal SITE avec un léger décalage ne peut
-  donc plus être consommée par le marqueur global avant d'être notifiée.
+- Alerte sonore renforcée : plusieurs impulsions courtes, volume nettement supérieur.
 """
 from flask import request
 
@@ -33,7 +31,7 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
- const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v2':'bechefaa_phase6_last_order_kitchen';
+ const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_order_pos_all_v3':'bechefaa_phase6_last_order_kitchen';
  let audioCtx=null;
  let wanted=localStorage.getItem(SOUND_KEY)==='1';
 
@@ -52,13 +50,24 @@ def register_order_notifications_phase33(app):
    if(test)beep();
    return true;
  }
+ function tone(ctx,start,freq,duration,volume){
+   const osc=ctx.createOscillator(),gain=ctx.createGain();
+   osc.type='square';
+   osc.frequency.setValueAtTime(freq,start);
+   gain.gain.setValueAtTime(.001,start);
+   gain.gain.exponentialRampToValueAtTime(volume,start+.015);
+   gain.gain.setValueAtTime(volume,start+Math.max(.02,duration-.055));
+   gain.gain.exponentialRampToValueAtTime(.001,start+duration);
+   osc.connect(gain);gain.connect(ctx.destination);
+   osc.start(start);osc.stop(start+duration+.02);
+ }
  function beep(){
    try{
      const ctx=getCtx();if(!wanted||!ctx||ctx.state!=='running')return;
-     const osc=ctx.createOscillator(),gain=ctx.createGain();
-     osc.type='sine';osc.frequency.value=880;
-     gain.gain.setValueAtTime(.22,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.65);
-     osc.connect(gain);gain.connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.65);
+     const t=ctx.currentTime+.015;
+     tone(ctx,t,920,.22,.72);
+     tone(ctx,t+.28,1080,.22,.78);
+     tone(ctx,t+.56,920,.30,.82);
    }catch(e){}
  }
  function updateButton(){
@@ -101,7 +110,8 @@ def register_order_notifications_phase33(app):
    const el=ensureSiteNotice();if(!el)return;
    const name=String(order.customer_name||'Client').trim();
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.textContent='⚡ NOUVELLE COMMANDE SITE — '+name+' • '+mode;
+   const channel=String(order.sales_channel||order.source||'CAISSE').trim().toUpperCase()||'CAISSE';
+   el.textContent='⚡ NOUVELLE COMMANDE — '+channel+' — '+name+' • '+mode;
    el.classList.remove('show');
    void el.offsetWidth;
    el.classList.add('show');
@@ -114,13 +124,11 @@ def register_order_notifications_phase33(app):
    if(!all.length)return;
 
    if(PAGE==='pos'){
-     const site=all.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
-     if(!site.length)return;
-     const maxSeen=Math.max.apply(null,site.map(o=>Number(o.num)));
+     const maxSeen=Math.max.apply(null,all.map(o=>Number(o.num)));
      const storedRaw=localStorage.getItem(LAST_KEY);
      if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
      const last=Number(storedRaw);
-     const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
+     const newer=all.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
      if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
      if(!newer.length)return;
      const newest=newer[newer.length-1];
