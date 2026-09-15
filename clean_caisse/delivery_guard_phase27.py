@@ -1,8 +1,9 @@
-"""Phase 2.7 — verrouillage serveur des commandes Livraison.
+"""Phase 2.7 — verrouillage serveur des commandes Livraison provenant du SITE.
 
-Aucun frais de livraison. La validation est exécutée directement autour de la vue
-POST /api/orders afin qu'une commande Livraison ne puisse pas être enregistrée
-avant contrôle de la ville et du minimum de sa zone.
+Le SITE public doit respecter les villes et minimums configurés dans
+Administration -> Zones de livraison. Les commandes saisies directement sur la
+Caisse restent libres : l'opérateur décide lui-même d'accepter une livraison,
+même hors zone ou sous le minimum.
 """
 import re
 import unicodedata
@@ -47,6 +48,13 @@ def _ensure_delivery_schema(conn):
 
 
 def _validate_delivery_payload(payload, db):
+    # Règle métier : le contrôle automatique des zones/minimums ne concerne que
+    # les commandes publiques du SITE. Une commande créée directement depuis la
+    # caisse doit rester à la discrétion de l'opérateur.
+    sales_channel = str(payload.get("sales_channel") or "").strip().upper()
+    if sales_channel != "SITE":
+        return None
+
     ticket_type = str(payload.get("ticket_type") or payload.get("source") or "").strip().lower()
     if ticket_type not in {"livraison", "delivery"}:
         return None
@@ -87,7 +95,6 @@ def _validate_delivery_payload(payload, db):
         conn.commit()
         rows = []
 
-        # Le code postal est la référence la plus stable pour une adresse de livraison.
         if postal_code:
             rows = conn.execute(
                 """SELECT c.city,c.postal_code,z.code,z.minimum_order
@@ -98,8 +105,6 @@ def _validate_delivery_payload(payload, db):
                 (postal_code,),
             ).fetchall()
 
-        # Repli sur un nom de ville normalisé : tirets, accents, apostrophes et espaces
-        # ne doivent pas faire sortir une adresse de sa zone.
         if not rows:
             candidates = conn.execute(
                 """SELECT c.city,c.postal_code,z.code,z.minimum_order
@@ -187,7 +192,7 @@ def register_delivery_guard_phase27(app, db):
             return jsonify({
                 "ok": True,
                 "phase": "2.7",
-                "guard": "endpoint-wrapper",
+                "guard": "site-only-endpoint-wrapper",
                 "create_order_wrapped": app.view_functions.get("create_order") is create_order_with_delivery_guard,
                 "zones": [dict(r) for r in zones],
             })
