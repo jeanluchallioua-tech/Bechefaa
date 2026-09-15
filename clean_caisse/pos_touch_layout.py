@@ -14,7 +14,6 @@ from flask import g, jsonify, request
 
 
 def register_pos_touch_layout(app, db):
-    # Harmonise l'affichage des types de tickets dans toutes les vues propres.
     core = importlib.import_module("clean_caisse.app")
 
     def clean_ticket_type(source):
@@ -25,7 +24,7 @@ def register_pos_touch_layout(app, db):
             return "Emporter"
         if value in {"LIVRAISON", "DELIVERY"}:
             return "Livraison"
-        return "Comptoir"  # compatibilité des anciens tickets déjà enregistrés
+        return "Comptoir"
 
     core.ticket_type = clean_ticket_type
 
@@ -34,9 +33,9 @@ def register_pos_touch_layout(app, db):
         try:
             with db() as conn:
                 rows = conn.execute("""
-                    SELECT id, num, customer_name, source, status, total,
+                    SELECT id, customer_name, source, status, total,
                            COALESCE(payment_status, 'À ENCAISSER') AS payment_status,
-                           fiscal_ticket_number, created_at
+                           table_number, table_label, created_at
                     FROM caisse_orders
                     WHERE COALESCE(cancellation_hidden, FALSE) = FALSE
                       AND UPPER(COALESCE(status, '')) <> 'ANNULÉE'
@@ -49,13 +48,13 @@ def register_pos_touch_layout(app, db):
                 "ok": True,
                 "orders": [{
                     "id": r["id"],
-                    "num": r["num"],
                     "customer_name": r.get("customer_name") or "",
                     "ticket_type": clean_ticket_type(r.get("source")),
+                    "table_number": r.get("table_number"),
+                    "table_label": r.get("table_label") or "",
                     "status": r.get("status") or "",
                     "total": float(r.get("total") or 0),
                     "payment_status": r.get("payment_status") or "À ENCAISSER",
-                    "fiscal_ticket_number": r.get("fiscal_ticket_number"),
                     "created_at": r.get("created_at"),
                 } for r in rows],
             })
@@ -76,8 +75,6 @@ def register_pos_touch_layout(app, db):
 
     @app.after_request
     def apply_order_mode_and_touch_layout(response):
-        # Le backend historique ne connaissait que CAISSE/LIVRAISON.
-        # On conserve le cœur stable et on spécialise la source après création.
         if request.path == "/api/orders" and request.method == "POST" and response.status_code == 201:
             mode = getattr(g, "pos_order_mode", "SALLE")
             try:
@@ -100,7 +97,6 @@ def register_pos_touch_layout(app, db):
         html = response.get_data(as_text=True)
         addon = r'''
 <style>
-/* Phase 1 — ergonomie tactile */
 @media(min-width:901px){
   .cart{position:relative;height:calc(100vh - 64px);overflow-y:auto;overscroll-behavior:contain}
   .main,.cats{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
@@ -116,8 +112,6 @@ def register_pos_touch_layout(app, db):
 .customer-box.touch-modal h3{font-size:22px;padding-right:50px;margin-bottom:14px}.customer-box.touch-modal input{font-size:16px;min-height:46px}.customer-box.touch-modal button{min-height:44px}.order-box{scroll-margin-top:70px}
 .pos-settings-link{display:flex;align-items:center;gap:9px;width:100%;padding:13px 10px;margin:0 0 10px;border:0;border-radius:8px;background:#111827;color:#fff!important;text-decoration:none;text-align:left;font-weight:900;font-size:14px;cursor:pointer;touch-action:manipulation;position:sticky;top:0;z-index:20;box-shadow:0 2px 8px #0002}
 .pos-settings-link:hover{background:#263244}.pos-settings-link .gear{font-size:19px;line-height:1}
-
-/* Commandes récentes : accès opérationnel depuis la caisse */
 .pos-recent-orders-btn{width:100%;min-height:48px;margin:0 0 10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#111827;font-size:14px;font-weight:900;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:8px}
 .pos-recent-orders-btn:hover{background:#f3f4f6}
 .pos-recent-backdrop{display:none;position:fixed;inset:0;z-index:10020;background:rgba(15,23,42,.62);padding:18px;align-items:flex-start;justify-content:center;overflow:auto}
@@ -125,7 +119,7 @@ def register_pos_touch_layout(app, db):
 .pos-recent-panel{width:min(760px,98vw);background:#fff;border-radius:16px;margin-top:max(10px,3vh);box-shadow:0 20px 60px #0005;overflow:hidden}
 .pos-recent-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid #e5e7eb}.pos-recent-head h2{margin:0;font-size:21px;flex:1}.pos-recent-close{border:0;background:#eef0f3;border-radius:9px;width:42px;height:42px;font-size:24px;font-weight:900;cursor:pointer}
 .pos-recent-list{padding:10px;max-height:72vh;overflow:auto}.pos-recent-empty{padding:28px;text-align:center;color:#6b7280}.pos-recent-error{padding:14px;background:#fff1f2;color:#9f1239;border-radius:10px}
-.pos-recent-row{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:9px}.pos-recent-main{display:flex;gap:10px;align-items:flex-start}.pos-recent-info{flex:1;min-width:0}.pos-recent-title{font-size:16px;font-weight:900}.pos-recent-meta{font-size:12px;color:#667085;margin-top:4px}.pos-recent-ticket{font-size:11px;font-weight:800;color:#1e3a8a;margin-top:5px}.pos-recent-actions{display:flex;gap:7px;margin-top:10px}.pos-recent-actions a{flex:1;text-align:center;text-decoration:none;border-radius:9px;padding:10px 8px;font-weight:900;font-size:13px}.pos-recent-client{background:#2563eb;color:#fff}.pos-recent-kitchen{background:#d97706;color:#fff}
+.pos-recent-row{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:9px}.pos-recent-main{display:flex;gap:10px;align-items:flex-start}.pos-recent-info{flex:1;min-width:0}.pos-recent-title{font-size:16px;font-weight:900}.pos-recent-meta{font-size:12px;color:#667085;margin-top:4px}.pos-recent-actions{display:flex;gap:7px;margin-top:10px}.pos-recent-actions a{flex:1;text-align:center;text-decoration:none;border-radius:9px;padding:10px 8px;font-weight:900;font-size:13px}.pos-recent-client{background:#2563eb;color:#fff}.pos-recent-kitchen{background:#d97706;color:#fff}
 @media(max-width:600px){.pos-recent-main{display:block}.pos-recent-actions a{padding:12px 8px}.pos-recent-list{max-height:78vh}}
 </style>
 <script>
@@ -139,113 +133,50 @@ def register_pos_touch_layout(app, db):
      const cats=document.querySelector('.cats');
      if(!cats)return;
      let link=cats.querySelector('.pos-settings-link');
-     if(!link){
-       link=document.createElement('a');
-       link.className='pos-settings-link';
-       link.href='/administration';
-       link.innerHTML='<span class="gear">⚙</span><span>Paramètres</span>';
-       cats.insertBefore(link,cats.firstChild);
-     }else if(cats.firstChild!==link){
-       cats.insertBefore(link,cats.firstChild);
-     }
+     if(!link){link=document.createElement('a');link.className='pos-settings-link';link.href='/administration';link.innerHTML='<span class="gear">⚙</span><span>Paramètres</span>';cats.insertBefore(link,cats.firstChild)}
+     else if(cats.firstChild!==link){cats.insertBefore(link,cats.firstChild)}
    }
    ensureSettingsLink();
    const cats=document.querySelector('.cats');
-   if(cats){
-     let restoring=false;
-     new MutationObserver(function(){
-       if(restoring)return;
-       if(!cats.querySelector('.pos-settings-link')||cats.firstElementChild?.classList.contains('pos-settings-link')===false){
-         restoring=true;ensureSettingsLink();restoring=false;
-       }
-     }).observe(cats,{childList:true});
-   }
+   if(cats){let restoring=false;new MutationObserver(function(){if(restoring)return;if(!cats.querySelector('.pos-settings-link')||cats.firstElementChild?.classList.contains('pos-settings-link')===false){restoring=true;ensureSettingsLink();restoring=false}}).observe(cats,{childList:true})}
 
    if(ticket.parentNode===cart)cart.insertBefore(ticket,cart.firstChild);
    ticket.innerHTML='<button data-ticket="Salle">Salle</button><button data-ticket="Emporter">Emporter</button><button data-ticket="Livraison">Livraison</button>';
 
-   const recentBtn=document.createElement('button');
-   recentBtn.type='button';recentBtn.className='pos-recent-orders-btn';recentBtn.innerHTML='<span>🧾</span><span>Commandes récentes</span>';
-   ticket.insertAdjacentElement('afterend',recentBtn);
-
-   const recent=document.createElement('div');recent.className='pos-recent-backdrop';
-   recent.innerHTML='<div class="pos-recent-panel"><div class="pos-recent-head"><h2>Commandes récentes</h2><button type="button" class="pos-recent-close" aria-label="Fermer">×</button></div><div class="pos-recent-list"><div class="pos-recent-empty">Chargement…</div></div></div>';
-   document.body.appendChild(recent);
-   const recentList=recent.querySelector('.pos-recent-list');
-   const recentClose=recent.querySelector('.pos-recent-close');
+   const recentBtn=document.createElement('button');recentBtn.type='button';recentBtn.className='pos-recent-orders-btn';recentBtn.innerHTML='<span>🧾</span><span>Commandes récentes</span>';ticket.insertAdjacentElement('afterend',recentBtn);
+   const recent=document.createElement('div');recent.className='pos-recent-backdrop';recent.innerHTML='<div class="pos-recent-panel"><div class="pos-recent-head"><h2>Commandes récentes</h2><button type="button" class="pos-recent-close" aria-label="Fermer">×</button></div><div class="pos-recent-list"><div class="pos-recent-empty">Chargement…</div></div></div>';document.body.appendChild(recent);
+   const recentList=recent.querySelector('.pos-recent-list'),recentClose=recent.querySelector('.pos-recent-close');
    const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
    const euro=v=>Number(v||0).toFixed(2).replace('.',',')+' €';
+   function recentTitle(o){
+     if(o.table_number)return esc(o.table_label||('Table '+o.table_number));
+     const name=o.customer_name&&o.customer_name!=='Client comptoir'&&o.customer_name!=='Client livraison'&&o.customer_name!=='Client emporter'?' — '+esc(o.customer_name):'';
+     if(String(o.ticket_type||'').toLowerCase()==='livraison')return 'Livraison'+name;
+     if(String(o.ticket_type||'').toLowerCase()==='emporter')return 'À emporter'+name;
+     return esc(o.ticket_type||'Commande')+name;
+   }
    async function loadRecent(){
      recentList.innerHTML='<div class="pos-recent-empty">Chargement…</div>';
      try{
-       const r=await fetch('/api/pos/recent-orders',{cache:'no-store'}),d=await r.json();
-       if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');
-       const rows=d.orders||[];
-       if(!rows.length){recentList.innerHTML='<div class="pos-recent-empty">Aucune commande aujourd’hui.</div>';return}
-       recentList.innerHTML=rows.map(o=>{
-         const who=o.customer_name&&o.customer_name!=='Client comptoir'?' · '+esc(o.customer_name):'';
-         const fiscal=o.fiscal_ticket_number!=null?'<div class="pos-recent-ticket">Ticket comptable #'+esc(o.fiscal_ticket_number)+'</div>':'';
-         return '<div class="pos-recent-row"><div class="pos-recent-main"><div class="pos-recent-info"><div class="pos-recent-title">#'+esc(o.num)+' · '+esc(o.ticket_type)+who+' · '+euro(o.total)+'</div><div class="pos-recent-meta">'+esc(o.status)+' · '+esc(o.payment_status)+'</div>'+fiscal+'</div></div><div class="pos-recent-actions"><a class="pos-recent-client" target="_blank" rel="noopener" href="/impression/client/'+encodeURIComponent(o.id)+'">🧾 Ticket client</a><a class="pos-recent-kitchen" target="_blank" rel="noopener" href="/impression/cuisine/'+encodeURIComponent(o.id)+'">🍳 Ticket cuisine</a></div></div>';
-       }).join('');
+       const r=await fetch('/api/pos/recent-orders',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');
+       const rows=d.orders||[];if(!rows.length){recentList.innerHTML='<div class="pos-recent-empty">Aucune commande aujourd’hui.</div>';return}
+       recentList.innerHTML=rows.map(o=>'<div class="pos-recent-row"><div class="pos-recent-main"><div class="pos-recent-info"><div class="pos-recent-title">'+recentTitle(o)+' · '+euro(o.total)+'</div><div class="pos-recent-meta">'+esc(o.status)+' · '+esc(o.payment_status)+'</div></div></div><div class="pos-recent-actions"><a class="pos-recent-client" target="_blank" rel="noopener" href="/impression/client/'+encodeURIComponent(o.id)+'">🧾 Ticket client</a><a class="pos-recent-kitchen" target="_blank" rel="noopener" href="/impression/cuisine/'+encodeURIComponent(o.id)+'">🍳 Ticket cuisine</a></div></div>').join('');
      }catch(e){recentList.innerHTML='<div class="pos-recent-error">'+esc(e.message||'Commandes récentes indisponibles')+'</div>'}
    }
-   function openRecent(){recent.classList.add('open');loadRecent()}
-   function closeRecent(){recent.classList.remove('open')}
+   function openRecent(){recent.classList.add('open');loadRecent()}function closeRecent(){recent.classList.remove('open')}
    recentBtn.addEventListener('click',openRecent);recentClose.addEventListener('click',closeRecent);recent.addEventListener('click',e=>{if(e.target===recent)closeRecent()});
 
-   const summary=document.createElement('div');summary.className='touch-client-summary hidden';
-   summary.innerHTML='<div class="tc-main"><b id="tc-name">Client</b><span id="tc-detail">Toucher pour rechercher ou enregistrer un client</span></div><div class="tc-edit">Client</div>';
-   recentBtn.insertAdjacentElement('afterend',summary);
+   const summary=document.createElement('div');summary.className='touch-client-summary hidden';summary.innerHTML='<div class="tc-main"><b id="tc-name">Client</b><span id="tc-detail">Toucher pour rechercher ou enregistrer un client</span></div><div class="tc-edit">Client</div>';recentBtn.insertAdjacentElement('afterend',summary);
+   const panel=document.createElement('div');panel.className='touch-client-panel';while(box.firstChild)panel.appendChild(box.firstChild);const close=document.createElement('button');close.type='button';close.className='touch-client-close';close.setAttribute('aria-label','Fermer');close.textContent='×';panel.insertBefore(close,panel.firstChild);box.appendChild(panel);box.classList.add('touch-modal');document.body.appendChild(box);
 
-   const panel=document.createElement('div');panel.className='touch-client-panel';
-   while(box.firstChild)panel.appendChild(box.firstChild);
-   const close=document.createElement('button');close.type='button';close.className='touch-client-close';close.setAttribute('aria-label','Fermer');close.textContent='×';panel.insertBefore(close,panel.firstChild);box.appendChild(panel);box.classList.add('touch-modal');document.body.appendChild(box);
-
-   function updateSummary(){
-     const first=document.getElementById('cust-first')?.value.trim()||'',last=document.getElementById('cust-last')?.value.trim()||'',phone=document.getElementById('cust-phone')?.value.trim()||'',city=document.getElementById('cust-city')?.value.trim()||'';
-     const name=(first+' '+last).trim();document.getElementById('tc-name').textContent=name||'Client';document.getElementById('tc-detail').textContent=[phone,city].filter(Boolean).join(' • ')||'Toucher pour rechercher ou enregistrer un client';
-   }
-   function clearCustomer(){document.getElementById('cust-clear')?.click();updateSummary()}
-   function open(){box.classList.add('open');setTimeout(()=>document.getElementById('cust-search')?.focus(),80)}
-   function shut(){box.classList.remove('open');updateSummary()}
-   function applyMode(mode){
-     summary.classList.toggle('hidden',mode==='Salle');
-     if(mode==='Salle'){shut();clearCustomer()}
-     else document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
-   }
+   function updateSummary(){const first=document.getElementById('cust-first')?.value.trim()||'',last=document.getElementById('cust-last')?.value.trim()||'',phone=document.getElementById('cust-phone')?.value.trim()||'',city=document.getElementById('cust-city')?.value.trim()||'';const name=(first+' '+last).trim();document.getElementById('tc-name').textContent=name||'Client';document.getElementById('tc-detail').textContent=[phone,city].filter(Boolean).join(' • ')||'Toucher pour rechercher ou enregistrer un client'}
+   function clearCustomer(){document.getElementById('cust-clear')?.click();updateSummary()}function open(){box.classList.add('open');setTimeout(()=>document.getElementById('cust-search')?.focus(),80)}function shut(){box.classList.remove('open');updateSummary()}
+   function applyMode(mode){summary.classList.toggle('hidden',mode==='Salle');if(mode==='Salle'){shut();clearCustomer()}else document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter')}
    summary.onclick=open;close.onclick=shut;box.addEventListener('click',e=>{if(e.target===box)shut()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){shut();closeRecent()}});panel.addEventListener('input',updateSummary);
-   panel.addEventListener('click',e=>{
-     if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);
-     if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);
-     if(e.target.closest('#cust-save'))setTimeout(updateSummary,100);
-   });
-
-   const note=document.getElementById('cust-note');
-   if(note){
-     new MutationObserver(()=>{
-       const text=(note.textContent||'').toLowerCase();
-       if(text.includes('client enregistré'))setTimeout(()=>{updateSummary();shut()},120);
-     }).observe(note,{childList:true,subtree:true,characterData:true});
-   }
-
-   ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});
-   document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
-
-   /* Une fois l'envoi cuisine confirmé, prépare immédiatement la caisse pour le client suivant. */
-   const msg=document.getElementById('order-message');
-   if(msg){
-     const observer=new MutationObserver(function(){
-       const text=(msg.textContent||'').toLowerCase();
-       if(text.includes('envoyée en cuisine')){
-         clearCustomer();
-         shut();
-         const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'';
-         if(mode && mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter');
-       }
-     });
-     observer.observe(msg,{childList:true,subtree:true,characterData:true});
-   }
-
+   panel.addEventListener('click',e=>{if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);if(e.target.closest('#cust-save'))setTimeout(updateSummary,100)});
+   const note=document.getElementById('cust-note');if(note){new MutationObserver(()=>{const text=(note.textContent||'').toLowerCase();if(text.includes('client enregistré'))setTimeout(()=>{updateSummary();shut()},120)}).observe(note,{childList:true,subtree:true,characterData:true})}
+   ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
+   const msg=document.getElementById('order-message');if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine')){clearCustomer();shut();const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'';if(mode&&mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter')}});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
    updateSummary();
  });
 })();
