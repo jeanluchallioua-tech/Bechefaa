@@ -2,8 +2,8 @@
 
 Aucune écriture financière. Un endpoint groupé retourne les montants remboursés.
 Pour les commandes remboursées, le bouton Encaisser hérité de Phase 4.3 reste
-neutralisé sans être supprimé du DOM. Le badge de remboursement n'est plus
-affiché : le détail est disponible via l'action Rembourser.
+neutralisé sans être supprimé du DOM. Une commande encore partiellement payée
+conserve toujours son action « Régler le reste ».
 """
 from flask import jsonify, request
 
@@ -57,9 +57,9 @@ def register_refund_history_ui_phase44(app, db):
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  function orderId(card){
    const buttons=[...card.querySelectorAll('button')];
-   for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/editOrder\('([^']+)'\)/);if(!m)m=oc.match(/viewOrder\('([^']+)'\)/);if(m)return m[1]}
+   for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/editOrder\\('([^']+)'\\)/);if(!m)m=oc.match(/viewOrder\\('([^']+)'\\)/);if(m)return m[1]}
    const a=card.querySelector('a[href*="/impression/client/"]');
-   if(a){const m=a.getAttribute('href').match(/\/impression\/client\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
+   if(a){const m=a.getAttribute('href').match(/\\/impression\\/client\\/([^/?#]+)/);if(m)return decodeURIComponent(m[1])}
    return null;
  }
  ready(function(){
@@ -68,7 +68,25 @@ def register_refund_history_ui_phase44(app, db):
    function decorate(){
      for(const card of document.querySelectorAll('#list .order')){
        const id=orderId(card);if(!id||!data[id])continue;
-       card.querySelectorAll('.p41-pay-btn').forEach(b=>{b.disabled=true;b.setAttribute('data-p44-refund-locked','1')});
+       const info=data[id]||{};
+       const status=String(info.payment_status||'').trim().toUpperCase();
+       if(status==='PARTIELLEMENT PAYÉE'){
+         card.querySelectorAll('.p41-pay-btn').forEach(b=>{
+           b.disabled=false;
+           b.removeAttribute('data-p44-refund-locked');
+         });
+         continue;
+       }
+       card.querySelectorAll('.p41-pay-btn').forEach(b=>{
+         const isTopup=/RÉGLER LE RESTE/i.test(String(b.textContent||''));
+         if(isTopup){
+           b.disabled=false;
+           b.removeAttribute('data-p44-refund-locked');
+           return;
+         }
+         b.disabled=true;
+         b.setAttribute('data-p44-refund-locked','1');
+       });
        card.querySelectorAll('.p41-paid-badge').forEach(b=>b.remove());
        card.querySelectorAll('.p44-refund-badge').forEach(b=>b.remove());
      }
