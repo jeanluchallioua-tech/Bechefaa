@@ -101,14 +101,11 @@ def register_delivery_zones(app, db):
         try:
             with db() as conn:
                 ensure_schema(conn);conn.commit()
-                if city:
-                    rows=conn.execute("""SELECT c.city,c.postal_code,z.code,z.minimum_order FROM caisse_delivery_cities c JOIN caisse_delivery_zones z ON z.code=c.zone_code WHERE c.active=TRUE AND z.active=TRUE AND LOWER(TRIM(c.city))=LOWER(TRIM(%s)) ORDER BY c.id""",(city,)).fetchall()
-                    if postal:
-                        matching=[r for r in rows if str(r['postal_code'])==postal]
-                        if matching:rows=matching
-                    row=rows[0] if rows else None
-                else:
-                    row=conn.execute("""SELECT c.city,c.postal_code,z.code,z.minimum_order FROM caisse_delivery_cities c JOIN caisse_delivery_zones z ON z.code=c.zone_code WHERE c.active=TRUE AND z.active=TRUE AND c.postal_code=%s LIMIT 1""",(postal,)).fetchone()
+                row=None
+                if postal:
+                    row=conn.execute("""SELECT c.city,c.postal_code,z.code,z.minimum_order FROM caisse_delivery_cities c JOIN caisse_delivery_zones z ON z.code=c.zone_code WHERE c.active=TRUE AND z.active=TRUE AND c.postal_code=%s ORDER BY c.id LIMIT 1""",(postal,)).fetchone()
+                if not row and city:
+                    row=conn.execute("""SELECT c.city,c.postal_code,z.code,z.minimum_order FROM caisse_delivery_cities c JOIN caisse_delivery_zones z ON z.code=c.zone_code WHERE c.active=TRUE AND z.active=TRUE AND LOWER(TRIM(c.city))=LOWER(TRIM(%s)) ORDER BY c.id LIMIT 1""",(city,)).fetchone()
             if not row:return jsonify({'ok':True,'deliverable':False,'reason':'OUT_OF_ZONE','message':'Désolé, cette adresse se situe actuellement hors de notre zone de livraison.'})
             minimum=Decimal(str(row['minimum_order']))
             if amount<minimum:return jsonify({'ok':True,'deliverable':False,'reason':'MINIMUM_NOT_REACHED','zone':row['code'],'minimum_order':float(minimum),'missing':float(minimum-amount),'message':f'Le minimum de commande pour votre zone de livraison est de {minimum:.2f} €.'})
