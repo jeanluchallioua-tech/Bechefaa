@@ -32,6 +32,21 @@ def register_notification_settings_phase6(app):
             'kitchen_volume': int(row['kitchen_volume']),
         }
 
+    @app.after_request
+    def inject_notification_admin_card(response):
+        if request.path != '/administration' or response.status_code != 200 or response.mimetype != 'text/html':
+            return response
+        html = response.get_data(as_text=True)
+        if '/administration/notifications' in html:
+            return response
+        card = '<a class="card" href="/administration/notifications"><div class="icon">🔊</div><b>Notifications sonores</b><span>Régler séparément le volume de la Caisse et de la Cuisine et tester les alertes.</span></a>'
+        marker = '</section><div class="note">'
+        if marker in html:
+            html = html.replace(marker, card + marker, 1)
+            response.set_data(html)
+            response.content_length = len(response.get_data())
+        return response
+
     @app.get('/api/notification-settings')
     def notification_settings_get():
         try:
