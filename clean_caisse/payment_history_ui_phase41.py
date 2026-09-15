@@ -55,28 +55,78 @@ def register_payment_history_ui_phase41(app):
  function showPartial(card,payment){card.querySelectorAll('.p41-paid-badge').forEach(x=>x.remove());let badge=card.querySelector('.p41-partial-badge');if(!badge){badge=document.createElement('span');badge.className='p41-partial-badge';card.appendChild(badge)}badge.textContent='PARTIEL · réglé '+euro(payment.paid_amount)+' · reste '+euro(payment.remaining_amount)}
  ready(function(){
    const overlay=document.getElementById('p43-overlay'),totalEl=document.getElementById('p43-total'),orderEl=document.getElementById('p43-order'),amountEl=document.getElementById('p43-amount'),cashBox=document.getElementById('p43-cash'),received=document.getElementById('p43-received'),changeEl=document.getElementById('p43-change'),errorEl=document.getElementById('p43-error'),confirmBtn=document.getElementById('p43-confirm');
-   if(!overlay)return;let current=null,method=null,decorateTimer=null;
+   if(!overlay)return;
+   let current=null,method=null,metaCache={};
    function amount(){return num(amountEl.value)}
    function valid(){if(!current||!method)return false;const a=amount(),max=Number(current.order.total||0);if(!Number.isFinite(a)||a<=0||a>max)return false;if(method==='ESPÈCES'){const r=num(received.value);if(!Number.isFinite(r)||r<a)return false}return true}
    function refresh(){const a=amount(),max=current?Number(current.order.total||0):0;if(current&&Number.isFinite(a)&&a>max)errorEl.textContent='Le montant dépasse le reste à payer.';else errorEl.textContent='';if(method==='ESPÈCES'){const r=num(received.value);changeEl.textContent=Number.isFinite(r)&&Number.isFinite(a)?(r>=a?'À rendre : '+euro(r-a):'Il manque : '+euro(a-r)):''}confirmBtn.disabled=!valid()}
    function close(){overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');current=null;method=null;document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));cashBox.classList.remove('show');amountEl.value='';received.value='';changeEl.textContent='';errorEl.textContent='';confirmBtn.disabled=true}
    document.querySelector('.p43-close').onclick=close;document.querySelector('.p43-cancel').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});amountEl.addEventListener('input',()=>{if(method==='ESPÈCES'&&!received.dataset.useredit)received.value=amountEl.value;refresh()});received.addEventListener('input',()=>{received.dataset.useredit='1';refresh()});
    document.querySelectorAll('.p43-method').forEach(btn=>btn.addEventListener('click',()=>{method=btn.dataset.method;document.querySelectorAll('.p43-method').forEach(b=>b.classList.toggle('active',b===btn));cashBox.classList.toggle('show',method==='ESPÈCES');received.dataset.useredit='';if(method==='ESPÈCES'){received.value=amountEl.value;setTimeout(()=>received.focus(),30)}refresh()}));
+
    async function openPayment(card,id,btn){
-     btn.disabled=true;try{const s=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());if(!s.ok)throw new Error(s.error||'Encaissement indisponible');if(s.order.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}if(s.order.payment_status==='PAYÉE'){showPaid(card,s.order);return}current={card,id,order:s.order,button:btn};method=null;orderEl.textContent='Commande #'+s.order.num+(s.order.topup_required?' · reste à payer':'');totalEl.textContent=euro(s.order.total);amountEl.value=Number(s.order.total||0).toFixed(2);received.value='';received.dataset.useredit='';document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));cashBox.classList.remove('show');confirmBtn.disabled=true;overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');setTimeout(()=>amountEl.select(),30)}catch(e){alert(e.message||'Encaissement impossible')}finally{btn.disabled=false}
+     btn.disabled=true;
+     try{
+       const s=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
+       if(!s.ok)throw new Error(s.error||'Encaissement indisponible');
+       if(s.order.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}
+       if(s.order.payment_status==='PAYÉE'){showPaid(card,s.order);return}
+       current={card,id,order:s.order,button:btn};method=null;
+       orderEl.textContent='Commande #'+s.order.num+(s.order.topup_required?' · reste à payer':'');
+       totalEl.textContent=euro(s.order.total);amountEl.value=Number(s.order.total||0).toFixed(2);received.value='';received.dataset.useredit='';
+       document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));cashBox.classList.remove('show');confirmBtn.disabled=true;
+       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');setTimeout(()=>amountEl.select(),30);
+     }catch(e){alert(e.message||'Encaissement impossible')}finally{btn.disabled=false}
    }
+
+   function decorateWithMeta(meta){
+     const cards=[...document.querySelectorAll('#list .order')];
+     for(const card of cards){
+       const id=orderId(card);if(!id)continue;const order=meta[id];if(!order)continue;
+       const existing=[...card.querySelectorAll('.p41-pay-btn')];if(existing.length>1)existing.slice(1).forEach(x=>x.remove());
+       const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());
+       const partialBadges=[...card.querySelectorAll('.p41-partial-badge')];if(partialBadges.length>1)partialBadges.slice(1).forEach(x=>x.remove());
+       if(order.payment_status==='PAYÉE'){showPaid(card,order);continue}
+       if(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)showPartial(card,order);else card.querySelectorAll('.p41-partial-badge').forEach(x=>x.remove());
+       if(order.z_locked)continue;
+       let btn=card.querySelector('.p41-pay-btn');
+       if(!btn){btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.addEventListener('click',()=>openPayment(card,id,btn));card.appendChild(btn)}
+       btn.textContent=(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)?'💳 Régler le reste':'💳 Encaisser';
+     }
+   }
+
+   async function refreshMeta(){
+     try{
+       const r=await fetch('/api/orders/history-meta-phase44',{cache:'no-store'});const d=await r.json();
+       if(r.ok&&d.ok&&d.orders){metaCache=d.orders;decorateWithMeta(metaCache)}
+     }catch(e){}
+   }
+
    confirmBtn.addEventListener('click',async()=>{
      if(!valid())return;errorEl.textContent='';confirmBtn.disabled=true;const a=amount();let payload={method,amount:a};if(method==='ESPÈCES')payload.received=num(received.value);
-     try{const res=await fetch('/api/orders/'+encodeURIComponent(current.id)+'/payment-phase41',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await res.json();if(!res.ok||!d.ok)throw new Error(d.error||'Encaissement impossible');const card=current.card;if(d.payment_status==='PAYÉE')showPaid(card,d);else showPartial(card,d);close();scheduleDecorate()}catch(e){errorEl.textContent=e.message||'Encaissement impossible';confirmBtn.disabled=false}
+     try{
+       const res=await fetch('/api/orders/'+encodeURIComponent(current.id)+'/payment-phase41',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+       const d=await res.json();if(!res.ok||!d.ok)throw new Error(d.error||'Encaissement impossible');
+       const card=current.card;if(d.payment_status==='PAYÉE')showPaid(card,d);else showPartial(card,d);close();await refreshMeta();
+     }catch(e){errorEl.textContent=e.message||'Encaissement impossible';confirmBtn.disabled=false}
    });
-   async function decorate(){
-     let meta={};try{const r=await fetch('/api/orders/history-meta-phase44',{cache:'no-store'});const d=await r.json();if(r.ok&&d.ok&&d.orders)meta=d.orders}catch(e){return}
-     const cards=[...document.querySelectorAll('#list .order')];for(const card of cards){const id=orderId(card);if(!id)continue;const order=meta[id];if(!order)continue;const existing=[...card.querySelectorAll('.p41-pay-btn')];if(existing.length>1)existing.slice(1).forEach(x=>x.remove());const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());const partialBadges=[...card.querySelectorAll('.p41-partial-badge')];if(partialBadges.length>1)partialBadges.slice(1).forEach(x=>x.remove());if(order.payment_status==='PAYÉE'){showPaid(card,order);continue}if(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)showPartial(card,order);else card.querySelectorAll('.p41-partial-badge').forEach(x=>x.remove());if(order.z_locked)continue;let btn=card.querySelector('.p41-pay-btn');if(!btn){btn=document.createElement('button');btn.type='button';btn.className='p41-pay-btn';btn.addEventListener('click',()=>openPayment(card,id,btn));card.appendChild(btn)}btn.textContent=(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)?'💳 Régler le reste':'💳 Encaisser'}
+
+   /* L'Historique reconstruit #list toutes les 8 secondes. On décore donc
+      immédiatement après CHAQUE render avec le cache déjà connu, sans délai
+      ni clignotement, puis on rafraîchit les métadonnées en arrière-plan. */
+   if(typeof render==='function' && !render.__p41PaymentWrapped){
+     const originalRender=render;
+     const wrappedRender=function(){
+       const result=originalRender.apply(this,arguments);
+       if(metaCache && Object.keys(metaCache).length)decorateWithMeta(metaCache);
+       setTimeout(refreshMeta,0);
+       return result;
+     };
+     wrappedRender.__p41PaymentWrapped=true;
+     render=wrappedRender;
    }
-   function scheduleDecorate(){clearTimeout(decorateTimer);decorateTimer=setTimeout(decorate,80)}
-   scheduleDecorate();
-   const historyObserver=new MutationObserver(scheduleDecorate);
-   historyObserver.observe(document.body,{childList:true,subtree:true});
+
+   refreshMeta();
  });
 })();
 </script>
