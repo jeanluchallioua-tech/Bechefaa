@@ -2,10 +2,11 @@
 
 Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/ticket/TVA.
 - Cuisine et Caisse utilisent des marqueurs de dernière commande distincts.
-- Sur /pos, toute nouvelle commande déclenche le même événement sonore,
-  quelle que soit sa provenance / son canal de vente.
-- Le son de la Caisse doit être réellement déverrouillé par le navigateur :
-  le bouton reste visible tant que l'AudioContext de /pos n'est pas actif.
+- Sur /pos, seules les commandes provenant du SITE déclenchent l'alerte Caisse.
+- Les commandes saisies directement en Caisse restent silencieuses sur /pos,
+  mais déclenchent normalement la notification Cuisine après envoi.
+- Le son Caisse est activé par défaut et se déverrouille à la première interaction
+  utilisateur, sans bouton rouge récurrent.
 - Le volume et l'activation Caisse/Cuisine sont pilotés depuis Administration.
 """
 from flask import request
@@ -34,10 +35,11 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
- const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_order_pos_all_v3':'bechefaa_phase6_last_order_kitchen';
+ const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v4':'bechefaa_phase6_last_order_kitchen';
  let audioCtx=null;
- let wanted=localStorage.getItem(SOUND_KEY)==='1';
+ let wanted=PAGE==='pos' ? true : localStorage.getItem(SOUND_KEY)==='1';
  let soundSettings={enabled:true,volume:.82};
+ if(PAGE==='pos')localStorage.setItem(SOUND_KEY,'1');
 
  async function loadSoundSettings(){
    try{
@@ -55,96 +57,68 @@ def register_order_notifications_phase33(app):
      return audioCtx;
    }catch(e){return null}
  }
- function isAudioReady(){
-   const ctx=audioCtx;
-   return !!(wanted&&ctx&&ctx.state==='running');
- }
  async function unlock(test){
-   if(!soundSettings.enabled){updateButton();return false}
+   if(!soundSettings.enabled)return false;
    const ctx=getCtx();if(!ctx)return false;
    try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
-   if(ctx.state!=='running'){updateButton();return false}
+   if(ctx.state!=='running')return false;
    wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
    if(test)beep();
    return true;
  }
  function tone(ctx,start,freq,duration,volume){
    const osc=ctx.createOscillator(),gain=ctx.createGain();
-   osc.type='square';
-   osc.frequency.setValueAtTime(freq,start);
+   osc.type='square';osc.frequency.setValueAtTime(freq,start);
    gain.gain.setValueAtTime(.001,start);
    gain.gain.exponentialRampToValueAtTime(Math.max(.001,volume),start+.015);
    gain.gain.setValueAtTime(Math.max(.001,volume),start+Math.max(.02,duration-.055));
    gain.gain.exponentialRampToValueAtTime(.001,start+duration);
-   osc.connect(gain);gain.connect(ctx.destination);
-   osc.start(start);osc.stop(start+duration+.02);
+   osc.connect(gain);gain.connect(ctx.destination);osc.start(start);osc.stop(start+duration+.02);
  }
  function beep(){
    try{
      const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted||!ctx||ctx.state!=='running')return;
      const t=ctx.currentTime+.015,v=soundSettings.volume;
-     tone(ctx,t,920,.22,v*.88);
-     tone(ctx,t+.28,1080,.22,v*.95);
-     tone(ctx,t+.56,920,.30,v);
+     tone(ctx,t,920,.22,v*.88);tone(ctx,t+.28,1080,.22,v*.95);tone(ctx,t+.56,920,.30,v);
    }catch(e){}
  }
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
-   if(!soundSettings.enabled){b.classList.add('hidden');return}
-   if(PAGE==='pos'){
-     b.classList.toggle('hidden',isAudioReady());
-     b.textContent='🔊 Activer le son caisse';
-     return;
-   }
+   if(PAGE==='pos'||!soundSettings.enabled){b.classList.add('hidden');return}
    b.classList.toggle('hidden',wanted);
    b.textContent='🔇 Activer le son';
  }
  function installButton(){
+   if(PAGE==='pos')return;
    if(document.getElementById('phase33-audio'))return;
    const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
-   b.onclick=async function(e){
-     e.preventDefault();e.stopPropagation();
-     if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');
-   };
+   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');};
    updateButton();
  }
  async function unlockOnInteraction(){
    if(PAGE!=='pos'||!soundSettings.enabled)return;
    const ctx=getCtx();
-   if(ctx&&ctx.state==='running'){
-     wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();return;
-   }
+   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');return}
    await unlock(false);
  }
  document.addEventListener('pointerdown',unlockOnInteraction,{passive:true});
  document.addEventListener('keydown',unlockOnInteraction);
  document.addEventListener('touchstart',unlockOnInteraction,{passive:true});
- document.addEventListener('visibilitychange',()=>{if(PAGE==='pos'&&!document.hidden)updateButton()});
 
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
-   let el=document.getElementById('phase6-site-order-notice');
-   if(el)return el;
-   const top=document.querySelector('.top');
-   const spacer=top&&top.querySelector('.navspacer');
-   if(!top||!spacer)return null;
-   el=document.createElement('span');
-   el.id='phase6-site-order-notice';
-   top.insertBefore(el,spacer);
-   return el;
+   let el=document.getElementById('phase6-site-order-notice');if(el)return el;
+   const top=document.querySelector('.top');const spacer=top&&top.querySelector('.navspacer');if(!top||!spacer)return null;
+   el=document.createElement('span');el.id='phase6-site-order-notice';top.insertBefore(el,spacer);return el;
  }
  function showSiteNotice(order){
    if(PAGE!=='pos')return;
    const el=ensureSiteNotice();if(!el)return;
    const name=String(order.customer_name||'Client').trim();
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   const channel=String(order.sales_channel||order.source||'CAISSE').trim().toUpperCase()||'CAISSE';
-   el.textContent='⚡ NOUVELLE COMMANDE — '+channel+' — '+name+' • '+mode;
-   el.classList.remove('show');
-   void el.offsetWidth;
-   el.classList.add('show');
-   clearTimeout(el._hideTimer);
-   el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
+   el.textContent='⚡ NOUVELLE COMMANDE SITE — '+name+' • '+mode;
+   el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
+   clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
  }
 
  function inspect(orders){
@@ -152,17 +126,16 @@ def register_order_notifications_phase33(app):
    if(!all.length)return;
 
    if(PAGE==='pos'){
-     const maxSeen=Math.max.apply(null,all.map(o=>Number(o.num)));
+     const site=all.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
+     if(!site.length)return;
+     const maxSeen=Math.max.apply(null,site.map(o=>Number(o.num)));
      const storedRaw=localStorage.getItem(LAST_KEY);
      if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
      const last=Number(storedRaw);
-     const newer=all.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
+     const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
      if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
      if(!newer.length)return;
-     const newest=newer[newer.length-1];
-     showSiteNotice(newest);
-     beep();
-     return;
+     const newest=newer[newer.length-1];showSiteNotice(newest);beep();return;
    }
 
    const maxSeen=Math.max.apply(null,all.map(o=>Number(o.num)));
@@ -176,15 +149,9 @@ def register_order_notifications_phase33(app):
    if(kitchenNewer.length)beep();
  }
  async function poll(){
-   try{
-     const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();
-     if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);
-   }catch(e){}
+   try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);}catch(e){}
  }
- installButton();
- ensureSiteNotice();
- loadSoundSettings();
- poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
+ installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
 '''.replace('__PAGE__', page)
