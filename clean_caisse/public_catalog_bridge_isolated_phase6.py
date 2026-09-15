@@ -9,6 +9,7 @@ import base64
 from urllib.parse import quote
 
 from flask import Response, jsonify, request
+from .google_reviews_phase6 import read_google_reviews
 
 
 def _public_catalog_response(payload, status=200):
@@ -50,6 +51,7 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
             return _public_catalog_response({
                 "categories": [],
                 "products": [],
+                "google_reviews": read_google_reviews(),
                 "error": "Catalogue V2 indisponible",
                 "updatedAt": updated_at,
                 "source": "catalog_admin_v2",
@@ -77,6 +79,7 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
             light_products.append(item)
 
         payload["products"] = light_products
+        payload["google_reviews"] = read_google_reviews()
         payload["updatedAt"] = updated_at
         payload["source"] = "catalog_admin_v2"
         return _public_catalog_response(payload, 200)
