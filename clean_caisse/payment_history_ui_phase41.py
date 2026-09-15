@@ -2,7 +2,7 @@
 
 Le backend payment_core_phase41 reste l'unique source de vérité.
 Cette phase remplace seulement les prompt() par une fenêtre tactile et expose
-les quatre moyens déjà supportés par le socle : Espèces, CB, Chèque, Virement.
+les trois moyens supportés par le socle : Espèces, CB, Titre restaurant.
 Le chargement des états de paiement utilise désormais les métadonnées groupées
 Phase 4.4 afin d'éviter une requête HTTP par commande affichée.
 """
@@ -44,8 +44,7 @@ def register_payment_history_ui_phase41(app):
     <div class="p43-methods">
       <button type="button" class="p43-method" data-method="ESPÈCES">💶 Espèces</button>
       <button type="button" class="p43-method" data-method="CB">💳 Carte bancaire</button>
-      <button type="button" class="p43-method" data-method="CHÈQUE">🧾 Chèque</button>
-      <button type="button" class="p43-method" data-method="VIREMENT">🏦 Virement</button>
+      <button type="button" class="p43-method" data-method="TITRE RESTAURANT">🍽️ Titre restaurant</button>
     </div>
     <div id="p43-cash" class="p43-cash"><label for="p43-received">Montant reçu</label><input id="p43-received" inputmode="decimal" autocomplete="off"><div id="p43-change" class="p43-change"></div></div>
     <div id="p43-error" class="p43-error"></div>
