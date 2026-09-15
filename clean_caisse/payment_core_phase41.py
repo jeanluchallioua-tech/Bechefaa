@@ -1,8 +1,8 @@
 """Phase 4.1 — socle d'encaissement BÉCHÉFAA.
 
-Ajoute un état d'encaissement persistant sans modifier le flux Cuisine, le
-catalogue, les tickets ni le Z. Les commandes clôturées restent protégées par
-le verrou Z de Phase 3.7.
+Encaissement persistant avec Espèces, CB et Titre restaurant.
+Le premier règlement peut être total ou partiel. Les compléments sont ensuite
+pris en charge par les modules de paiement mixte.
 """
 import time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -50,20 +50,14 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                 _ensure_payment_schema(conn, ensure_order_schema)
                 conn.commit()
                 row = conn.execute("""
-                    SELECT
-                        COUNT(*) AS orders,
-                        COUNT(*) FILTER (WHERE payment_status='PAYÉE') AS paid,
-                        COUNT(*) FILTER (WHERE payment_status<>'PAYÉE') AS unpaid
+                    SELECT COUNT(*) AS orders,
+                           COUNT(*) FILTER (WHERE payment_status='PAYÉE') AS paid,
+                           COUNT(*) FILTER (WHERE payment_status<>'PAYÉE') AS unpaid
                     FROM caisse_orders
                 """).fetchone()
-            return jsonify({
-                "ok": True,
-                "phase": "4.1-payment-core",
-                "methods": sorted(ALLOWED_METHODS),
-                "orders": int(row["orders"] or 0),
-                "paid": int(row["paid"] or 0),
-                "unpaid": int(row["unpaid"] or 0),
-            })
+            return jsonify({"ok": True, "phase": "4.1-payment-core", "methods": sorted(ALLOWED_METHODS),
+                            "orders": int(row["orders"] or 0), "paid": int(row["paid"] or 0),
+                            "unpaid": int(row["unpaid"] or 0)})
         except Exception as exc:
             return jsonify({"ok": False, "error": "Socle d'encaissement indisponible", "detail": str(exc)}), 500
 
@@ -81,19 +75,16 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                 """, (order_id,)).fetchone()
             if not row:
                 return jsonify({"ok": False, "error": "Commande introuvable"}), 404
-            return jsonify({
-                "ok": True,
-                "order": {
-                    "id": row["id"], "num": row["num"], "total": float(row["total"]),
-                    "payment": row["payment"], "payment_status": row["payment_status"],
-                    "payment_method": row["payment_method"], "paid_amount": float(row["paid_amount"] or 0),
-                    "cash_received": None if row["cash_received"] is None else float(row["cash_received"]),
-                    "change_due": float(row["change_due"] or 0), "paid_at": row["paid_at"],
-                    "fiscal_ticket_number": row["fiscal_ticket_number"],
-                    "fiscal_ticket_issued_at": row["fiscal_ticket_issued_at"],
-                    "z_locked": row.get("z_closure_id") is not None,
-                }
-            })
+            return jsonify({"ok": True, "order": {
+                "id": row["id"], "num": row["num"], "total": float(row["total"]),
+                "payment": row["payment"], "payment_status": row["payment_status"],
+                "payment_method": row["payment_method"], "paid_amount": float(row["paid_amount"] or 0),
+                "cash_received": None if row["cash_received"] is None else float(row["cash_received"]),
+                "change_due": float(row["change_due"] or 0), "paid_at": row["paid_at"],
+                "fiscal_ticket_number": row["fiscal_ticket_number"],
+                "fiscal_ticket_issued_at": row["fiscal_ticket_issued_at"],
+                "z_locked": row.get("z_closure_id") is not None,
+            }})
         except Exception as exc:
             return jsonify({"ok": False, "error": "Encaissement indisponible", "detail": str(exc)}), 500
 
@@ -110,7 +101,10 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
             with db() as conn:
                 with conn.transaction():
                     _ensure_payment_schema(conn, ensure_order_schema)
-                    row = conn.execute("SELECT id,num,total,payment_status,z_closure_id FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)).fetchone()
+                    row = conn.execute(
+                        "SELECT id,num,total,payment_status,z_closure_id FROM caisse_orders WHERE id=%s FOR UPDATE",
+                        (order_id,),
+                    ).fetchone()
                     if not row:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
                     if row.get("z_closure_id") is not None:
@@ -119,22 +113,31 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                         return jsonify({"ok": False, "error": "Commande déjà encaissée", "code": "ORDER_ALREADY_PAID"}), 409
 
                     total = _money(row["total"])
+                    amount = _money(payload.get("amount")) if payload.get("amount") is not None else total
+                    if amount <= 0:
+                        return jsonify({"ok": False, "error": "Le montant à encaisser doit être supérieur à 0"}), 400
+                    if amount > total:
+                        return jsonify({"ok": False, "error": "Le montant à encaisser dépasse le total de la commande"}), 400
+
                     cash_received = None
                     change_due = Decimal("0.00")
                     if method == "ESPÈCES":
                         cash_received = _money(payload.get("received"))
-                        if cash_received < total:
+                        if cash_received < amount:
                             return jsonify({"ok": False, "error": "Montant reçu insuffisant"}), 400
-                        change_due = (cash_received - total).quantize(CENT, rounding=ROUND_HALF_UP)
+                        change_due = (cash_received - amount).quantize(CENT, rounding=ROUND_HALF_UP)
 
                     paid_at = int(time.time() * 1000)
-                    fiscal_ticket_number = allocate_fiscal_ticket_number(
-                        conn, ensure_order_schema, order_id, paid_at
-                    )
+                    is_full = amount == total
+                    payment_status = "PAYÉE" if is_full else "PARTIELLEMENT PAYÉE"
+                    fiscal_ticket_number = None
+                    if is_full:
+                        fiscal_ticket_number = allocate_fiscal_ticket_number(conn, ensure_order_schema, order_id, paid_at)
+
                     conn.execute("""
                         UPDATE caisse_orders
                         SET payment=%s,
-                            payment_status='PAYÉE',
+                            payment_status=%s,
                             payment_method=%s,
                             paid_amount=%s,
                             cash_received=%s,
@@ -142,21 +145,25 @@ def register_payment_core_phase41(app, db, ensure_order_schema):
                             paid_at=%s,
                             updated_at=%s
                         WHERE id=%s
-                    """, (method, method, total, cash_received, change_due, paid_at, paid_at, order_id))
-                    transaction_id = record_payment_transaction(conn, order_id, method, total, provider="LOCAL")
+                    """, (method, payment_status, method, amount, cash_received, change_due, paid_at, paid_at, order_id))
+                    transaction_id = record_payment_transaction(conn, order_id, method, amount, provider="LOCAL")
 
+            remaining = (total - amount).quantize(CENT)
             return jsonify({
                 "ok": True,
                 "id": order_id,
                 "num": row["num"],
                 "fiscal_ticket_number": fiscal_ticket_number,
-                "payment_status": "PAYÉE",
+                "payment_status": payment_status,
                 "payment_method": method,
-                "paid_amount": float(total),
+                "paid_amount": float(amount),
+                "remaining_amount": float(remaining),
+                "order_total": float(total),
                 "cash_received": None if cash_received is None else float(cash_received),
                 "change_due": float(change_due),
                 "paid_at": paid_at,
                 "transaction_id": transaction_id,
+                "partial": not is_full,
             })
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
