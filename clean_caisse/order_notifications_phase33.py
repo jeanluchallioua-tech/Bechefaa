@@ -29,6 +29,7 @@ def register_order_notifications_phase33(app):
 <style>
 .phase33-audio{position:fixed;right:14px;top:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
 .phase33-audio.hidden{display:none}
+.phase33-audio.ready{background:#16a34a}
 #phase6-site-order-notice{display:none;align-items:center;white-space:nowrap;font-size:15px;font-weight:900;color:#ffd21f;text-transform:uppercase;letter-spacing:.4px;text-shadow:0 0 7px rgba(255,210,31,.75);pointer-events:none;margin-left:4px}
 #phase6-site-order-notice.show{display:inline-flex;animation:phase6SiteTextPulse .8s ease-in-out 4}
 @keyframes phase6SiteTextPulse{0%,100%{color:#ffd21f;transform:scale(1)}50%{color:#ff5a36;transform:scale(1.04)}}
@@ -40,6 +41,7 @@ def register_order_notifications_phase33(app):
  const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v4':'bechefaa_phase6_last_ready_order_kitchen_v2';
  let audioCtx=null;
  let wanted=true;
+ let unlocking=false;
  let soundSettings={enabled:true,volume:.82};
  localStorage.setItem(SOUND_KEY,'1');
 
@@ -61,9 +63,17 @@ def register_order_notifications_phase33(app):
  }
  function isAudioReady(){return !!(audioCtx&&audioCtx.state==='running')}
  async function unlock(test){
-   if(!soundSettings.enabled)return false;
-   const ctx=getCtx();if(!ctx)return false;
-   try{if(ctx.state==='suspended')await ctx.resume()}catch(e){}
+   if(!soundSettings.enabled||unlocking)return isAudioReady();
+   unlocking=true;
+   const ctx=getCtx();
+   if(!ctx){unlocking=false;return false}
+   try{
+     if(ctx.state!=='running'){
+       const p=ctx.resume();
+       if(p&&typeof p.then==='function')await p;
+     }
+   }catch(e){}
+   unlocking=false;
    if(ctx.state!=='running'){updateButton();return false}
    wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
    if(test)beep();
@@ -88,25 +98,39 @@ def register_order_notifications_phase33(app):
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
    if(PAGE==='pos'||!soundSettings.enabled){b.classList.add('hidden');return}
-   b.classList.toggle('hidden',isAudioReady());
-   b.textContent='🔇 Activer le son';
+   if(isAudioReady()){
+     b.classList.add('ready');
+     b.textContent='🔊 Son cuisine prêt';
+     clearTimeout(b._hideTimer);
+     b._hideTimer=setTimeout(()=>b.classList.add('hidden'),1400);
+   }else{
+     b.classList.remove('hidden','ready');
+     b.textContent='🔇 Son en attente — touchez l’écran';
+   }
  }
  function installButton(){
    if(PAGE==='pos')return;
    if(document.getElementById('phase33-audio'))return;
    const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
-   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Cliquez à nouveau sur Activer le son.');};
+   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Touchez une fois l’écran Cuisine puis réessayez.');};
    updateButton();
  }
- async function unlockOnInteraction(){
-   if(!soundSettings.enabled)return;
+ function unlockOnInteraction(){
+   if(!soundSettings.enabled||isAudioReady()||unlocking)return;
    const ctx=getCtx();
-   if(ctx&&ctx.state==='running'){wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();return}
-   await unlock(false);
+   if(!ctx)return;
+   try{
+     const p=ctx.resume();
+     if(p&&typeof p.then==='function'){
+       p.then(()=>{wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();}).catch(()=>updateButton());
+     }else{
+       wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
+     }
+   }catch(e){updateButton()}
  }
- document.addEventListener('pointerdown',unlockOnInteraction,{passive:true});
- document.addEventListener('keydown',unlockOnInteraction);
- document.addEventListener('touchstart',unlockOnInteraction,{passive:true});
+ ['pointerdown','mousedown','touchstart','click','keydown'].forEach(function(evt){
+   document.addEventListener(evt,unlockOnInteraction,{capture:true,passive:evt!=='keydown'});
+ });
 
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
