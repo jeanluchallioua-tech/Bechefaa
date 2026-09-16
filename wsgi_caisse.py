@@ -18,6 +18,7 @@ from clean_caisse.public_catalog_bridge_isolated_phase6 import register_public_c
 from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
 from clean_caisse.pos_touch_layout import register_pos_touch_layout
+from clean_caisse.pos_design_v2 import register_pos_design_v2
 from clean_caisse.printing_phase1 import register_printing_phase1
 from clean_caisse.history_print_buttons import register_history_print_buttons
 from clean_caisse.phase1_audit_guard import register_phase1_audit_guard
@@ -123,6 +124,7 @@ register_kitchen_ready_isolated_phase5(app, db, ensure_order_schema)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
 register_kitchen_resend_prepared_isolated_phase5(app, db)
 register_pos_touch_layout(app, db)
+register_pos_design_v2(app)
 register_customer_phase1(app, db, ensure_order_schema)
 register_clients_management_isolated_phase6(app, db, ensure_order_schema)
 register_site_orders_bridge_isolated_phase6(app)
