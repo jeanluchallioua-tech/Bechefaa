@@ -5,17 +5,23 @@
 - Diagnostic runtime non destructif pour vérifier que wsgi_caisse sert bien /pos.
 - Active la couche visuelle sombre de référence du POS.
 - Active le hotfix ergonomique POS sombre.
+- Active la finition POS (logo, upsell séquentiel, navigation compacte).
+- Rend l'activation audio Cuisine discrète sans changer la logique sonore.
 
 Correctif d'interface uniquement : aucune modification de schéma ni de données métier.
 """
 from flask import jsonify, request
 from clean_caisse.pos_reference_dark import register_pos_reference_dark
 from clean_caisse.pos_reference_hotfix import register_pos_reference_hotfix
+from clean_caisse.pos_reference_finish import register_pos_reference_finish
+from clean_caisse.kitchen_audio_visual_fix import register_kitchen_audio_visual_fix
 
 
 def register_phase35_ui_stability(app):
     register_pos_reference_dark(app)
     register_pos_reference_hotfix(app)
+    register_pos_reference_finish(app)
+    register_kitchen_audio_visual_fix(app)
 
     @app.get("/api/pos/runtime-check")
     def pos_runtime_check_phase35():
@@ -23,7 +29,7 @@ def register_phase35_ui_stability(app):
             "ok": True,
             "runtime": "wsgi_caisse",
             "module": "phase35_ui_stability",
-            "pos_design_expected": "dark-reference-hotfix",
+            "pos_design_expected": "dark-reference-finish",
         })
 
     @app.after_request
