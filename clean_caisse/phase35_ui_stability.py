@@ -4,15 +4,18 @@
 - L'écran Cuisine lit explicitement le tableau PostgreSQL complet /api/kitchen/board.
 - Diagnostic runtime non destructif pour vérifier que wsgi_caisse sert bien /pos.
 - Active la couche visuelle sombre de référence du POS.
+- Active le hotfix ergonomique POS sombre.
 
 Correctif d'interface uniquement : aucune modification de schéma ni de données métier.
 """
 from flask import jsonify, request
 from clean_caisse.pos_reference_dark import register_pos_reference_dark
+from clean_caisse.pos_reference_hotfix import register_pos_reference_hotfix
 
 
 def register_phase35_ui_stability(app):
     register_pos_reference_dark(app)
+    register_pos_reference_hotfix(app)
 
     @app.get("/api/pos/runtime-check")
     def pos_runtime_check_phase35():
@@ -20,7 +23,7 @@ def register_phase35_ui_stability(app):
             "ok": True,
             "runtime": "wsgi_caisse",
             "module": "phase35_ui_stability",
-            "pos_design_expected": "dark-reference",
+            "pos_design_expected": "dark-reference-hotfix",
         })
 
     @app.after_request
