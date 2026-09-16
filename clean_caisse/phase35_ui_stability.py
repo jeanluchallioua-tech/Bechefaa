@@ -7,6 +7,7 @@
 - Active le hotfix ergonomique POS sombre.
 - Active la finition POS (logo, upsell séquentiel, navigation compacte).
 - Rend l'activation audio Cuisine discrète sans changer la logique sonore.
+- Finalise Sur place, barre catégories et action Cuisine unique.
 
 Correctif d'interface uniquement : aucune modification de schéma ni de données métier.
 """
@@ -15,6 +16,7 @@ from clean_caisse.pos_reference_dark import register_pos_reference_dark
 from clean_caisse.pos_reference_hotfix import register_pos_reference_hotfix
 from clean_caisse.pos_reference_finish import register_pos_reference_finish
 from clean_caisse.kitchen_audio_visual_fix import register_kitchen_audio_visual_fix
+from clean_caisse.pos_reference_final_patch import register_pos_reference_final_patch
 
 
 def register_phase35_ui_stability(app):
@@ -22,6 +24,7 @@ def register_phase35_ui_stability(app):
     register_pos_reference_hotfix(app)
     register_pos_reference_finish(app)
     register_kitchen_audio_visual_fix(app)
+    register_pos_reference_final_patch(app)
 
     @app.get("/api/pos/runtime-check")
     def pos_runtime_check_phase35():
@@ -29,7 +32,7 @@ def register_phase35_ui_stability(app):
             "ok": True,
             "runtime": "wsgi_caisse",
             "module": "phase35_ui_stability",
-            "pos_design_expected": "dark-reference-finish",
+            "pos_design_expected": "dark-reference-final-patch",
         })
 
     @app.after_request
