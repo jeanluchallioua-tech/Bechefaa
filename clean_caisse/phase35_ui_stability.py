@@ -2,15 +2,28 @@
 
 - L'historique ne se reconstruit plus automatiquement toutes les 8 secondes.
 - L'écran Cuisine lit explicitement le tableau PostgreSQL complet /api/kitchen/board.
+- Diagnostic runtime non destructif pour vérifier que wsgi_caisse sert bien /pos.
 
 Correctif d'interface uniquement : aucune modification de schéma ni de données métier.
 """
-from flask import request
+from flask import jsonify, request
 
 
 def register_phase35_ui_stability(app):
+    @app.get("/api/pos/runtime-check")
+    def pos_runtime_check_phase35():
+        return jsonify({
+            "ok": True,
+            "runtime": "wsgi_caisse",
+            "module": "phase35_ui_stability",
+            "pos_design_expected": "v2",
+        })
+
     @app.after_request
     def phase35_ui_stability(response):
+        if request.path == "/pos":
+            response.headers["X-Bechefaa-Pos-Runtime"] = "wsgi_caisse-phase35"
+
         if response.status_code != 200 or response.mimetype != "text/html":
             return response
 
