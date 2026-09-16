@@ -5,6 +5,8 @@ Correction isolée sans modifier cash_z_phase35.py :
 - ANNULÉE n'est pas visible dans le compteur opérationnel du Z ;
 - ANNULÉE reste en base et est verrouillée avec la journée ;
 - ANNULÉE est exclue du CA, des totaux et du nombre de commandes commerciales du Z ;
+- une commande PAYÉE restée ENREGISTRÉE ne bloque plus le Z ;
+- les commandes À PRÉPARER / EN PRÉPARATION continuent de bloquer le Z ;
 - le comptage espèces définitif est exigé et rattaché au Z dans la même transaction.
 """
 import json
@@ -18,10 +20,20 @@ from flask import jsonify
 PARIS = ZoneInfo("Europe/Paris")
 TERMINAL_STATUSES = {"TERMINÉE", "TERMINEE"}
 CANCELLED_STATUSES = {"ANNULÉE", "ANNULEE"}
+REGISTERED_STATUSES = {"ENREGISTRÉE", "ENREGISTREE"}
+PAID_STATUSES = {"PAYÉE", "PAYEE"}
 
 
 def _norm_status(value):
     return str(value or "").strip().upper()
+
+
+def _is_z_complete(row):
+    status = _norm_status(row.get("status"))
+    payment_status = _norm_status(row.get("payment_status"))
+    return status in TERMINAL_STATUSES or (
+        status in REGISTERED_STATUSES and payment_status in PAID_STATUSES
+    )
 
 
 def _fallback_tax(ttc):
@@ -75,6 +87,7 @@ def _ensure_z_schema(conn):
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12,2)")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'À ENCAISSER'")
 
 
 def _ensure_cash_link_schema(conn):
@@ -110,20 +123,21 @@ def register_z_cancelled_guard_phase44(app, db):
                 conn.commit()
                 closed = conn.execute("SELECT id FROM caisse_z_closures WHERE business_date=%s", (day,)).fetchone()
                 rows = conn.execute(
-                    "SELECT num,status FROM caisse_orders WHERE created_at >= %s AND created_at <= %s ORDER BY num",
+                    "SELECT num,status,payment_status FROM caisse_orders WHERE created_at >= %s AND created_at <= %s ORDER BY num",
                     (start_ms, end_ms),
                 ).fetchall()
             visible_rows = [r for r in rows if _norm_status(r.get("status")) not in CANCELLED_STATUSES]
-            open_rows = [
-                r for r in visible_rows
-                if _norm_status(r.get("status")) not in TERMINAL_STATUSES
-            ]
+            open_rows = [r for r in visible_rows if not _is_z_complete(r)]
             return jsonify({
                 "ok": True,
                 "business_date": day,
                 "already_closed": bool(closed),
                 "orders": len(visible_rows),
-                "open_orders": [{"num": r["num"], "status": r["status"]} for r in open_rows],
+                "open_orders": [{
+                    "num": r["num"],
+                    "status": r["status"],
+                    "payment_status": r.get("payment_status"),
+                } for r in open_rows],
                 "can_close": not closed and len(visible_rows) > 0 and not open_rows,
             })
         except Exception as exc:
@@ -159,7 +173,7 @@ def register_z_cancelled_guard_phase44(app, db):
                         }), 409
 
                     rows = conn.execute("""
-                        SELECT id,num,payment,status,total,total_ttc,total_ht,tax_amount,z_closure_id
+                        SELECT id,num,payment,payment_status,status,total,total_ttc,total_ht,tax_amount,z_closure_id
                         FROM caisse_orders
                         WHERE created_at >= %s AND created_at <= %s
                         ORDER BY num
@@ -169,12 +183,16 @@ def register_z_cancelled_guard_phase44(app, db):
                         return jsonify({"ok": False, "error": "Aucune commande à clôturer aujourd'hui"}), 409
 
                     active_rows = [r for r in rows if _norm_status(r.get("status")) not in CANCELLED_STATUSES]
-                    opened = [r for r in active_rows if _norm_status(r.get("status")) not in TERMINAL_STATUSES]
+                    opened = [r for r in active_rows if not _is_z_complete(r)]
                     if opened:
                         return jsonify({
                             "ok": False,
-                            "error": "Z refusé : toutes les commandes actives doivent être terminées",
-                            "open_orders": [{"num": r["num"], "status": r["status"]} for r in opened],
+                            "error": "Z refusé : toutes les commandes actives doivent être terminées ou, si elles sont restées enregistrées, entièrement encaissées",
+                            "open_orders": [{
+                                "num": r["num"],
+                                "status": r["status"],
+                                "payment_status": r.get("payment_status"),
+                            } for r in opened],
                         }), 409
 
                     if any(r.get("z_closure_id") is not None for r in rows):
