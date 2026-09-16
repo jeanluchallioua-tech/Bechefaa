@@ -17,45 +17,59 @@ def register_pos_site_button_colors(app):
 
     addon = r'''
 <style id="pos-site-button-colors-style">
-/* Couleur de référence visuelle du site BÉCHÉFAA. */
-.cart .action.save,
-.cart [data-action="save-order"],
-.cart .pos-ref-top-kitchen{
+/* Couleur dorée de référence BÉCHÉFAA — sélecteurs réels du POS. */
+button[data-action="save-order"],
+.action.save,
+button[data-action="send-kitchen"],
+a[data-action="send-kitchen"],
+.pos-ref-top-kitchen,
+.print-kitchen{
   background:#f0bd45!important;
   background-image:none!important;
   color:#111!important;
   border-color:#f0bd45!important;
 }
-.cart .action.save:hover,
-.cart [data-action="save-order"]:hover,
-.cart .pos-ref-top-kitchen:hover{
-  background:#d99a18!important;
+button[data-action="save-order"]:hover,
+.action.save:hover,
+button[data-action="send-kitchen"]:hover,
+a[data-action="send-kitchen"]:hover,
+.pos-ref-top-kitchen:hover,
+.print-kitchen:hover{
+  background:#f0bd45!important;
   background-image:none!important;
   color:#111!important;
+  filter:brightness(.96)!important;
 }
+/* Le ticket client reste volontairement bleu. */
+.print-client{background:#2563eb!important;color:#fff!important}
 </style>
 <script id="pos-site-button-colors-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
-   const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-   function gold(el,blackText){
+   function gold(el){
      if(!el)return;
      el.style.setProperty('background','#f0bd45','important');
      el.style.setProperty('background-image','none','important');
      el.style.setProperty('border-color','#f0bd45','important');
-     if(blackText)el.style.setProperty('color','#111','important');
+     el.style.setProperty('color','#111','important');
    }
    function apply(){
-     document.querySelectorAll('.cart [data-action="save-order"],.cart .action.save,.cart .pos-ref-top-kitchen').forEach(el=>gold(el,true));
-     document.querySelectorAll('.cart a,.cart button').forEach(el=>{
-       const t=norm(el.textContent);
-       if(t.includes('ticket cuisine')&&t.includes('80'))gold(el,true);
+     document.querySelectorAll(
+       'button[data-action="save-order"],.action.save,'+
+       'button[data-action="send-kitchen"],a[data-action="send-kitchen"],'+
+       '.pos-ref-top-kitchen,.print-kitchen'
+     ).forEach(gold);
+     /* Ne jamais recolorer le ticket client. */
+     document.querySelectorAll('.print-client').forEach(function(el){
+       el.style.setProperty('background','#2563eb','important');
+       el.style.setProperty('color','#fff','important');
      });
    }
    apply();
-   const cart=document.querySelector('.cart');
-   if(cart)new MutationObserver(()=>setTimeout(apply,0)).observe(cart,{childList:true,subtree:true});
+   new MutationObserver(function(){setTimeout(apply,0)}).observe(document.body,{childList:true,subtree:true});
+   /* Sécurité contre les modules qui recréent/restylent les actions après coup. */
+   setInterval(apply,500);
  })
 })();
 </script>
@@ -70,7 +84,7 @@ def register_pos_site_button_colors(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Button-Colors"] = "site-gold"
+                response.headers["X-Bechefaa-POS-Button-Colors"] = "site-gold-real-selectors"
         except Exception:
             pass
         return response
