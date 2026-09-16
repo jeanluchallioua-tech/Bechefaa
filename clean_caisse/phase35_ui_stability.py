@@ -2,13 +2,17 @@
 
 - L'historique ne se reconstruit plus automatiquement toutes les 8 secondes.
 - L'écran Cuisine lit explicitement le tableau PostgreSQL complet /api/kitchen/board.
+- Active la couche visuelle POS V2 isolée (design professionnel + upsell).
 
 Correctif d'interface uniquement : aucune modification de schéma ni de données métier.
 """
 from flask import request
+from clean_caisse.pos_design_v2 import register_pos_design_v2
 
 
 def register_phase35_ui_stability(app):
+    register_pos_design_v2(app)
+
     @app.after_request
     def phase35_ui_stability(response):
         if response.status_code != 200 or response.mimetype != "text/html":
