@@ -1,4 +1,4 @@
-"""Finition ergonomique POS : options en modale et upsell à l'enregistrement.
+"""Finition ergonomique POS : options en modale et upsell uniquement à l'enregistrement.
 
 Couche d'interface uniquement : réutilise showOptions/renderOptions/addCurrent/saveOrder
 sans modifier les règles métier, les prix, PostgreSQL ou la cuisine.
@@ -14,7 +14,6 @@ def register_pos_options_modal_final(app):
 
     addon = r'''
 <style id="pos-options-modal-final-style">
-/* Modes de service avec icônes visibles. */
 .pos-v3-service .ticket-choice button{display:flex!important;align-items:center!important;justify-content:center!important;gap:10px!important}
 .pos-final-mode-icon{font-size:20px!important;line-height:1!important;display:inline-block!important}
 
@@ -23,7 +22,7 @@ def register_pos_options_modal_final(app):
 .cat{flex:0 1 auto!important;min-width:0!important;padding:10px 12px!important;font-size:11.5px!important;line-height:1.1!important;white-space:nowrap!important}
 @media(max-width:1500px){.cats{gap:4px!important;padding-left:10px!important;padding-right:10px!important}.cat{padding:9px 9px!important;font-size:10.5px!important}}
 
-/* Le bloc options quitte la colonne commande et devient une fenêtre tactile. */
+/* Options produit en fenêtre modale. */
 .pos-final-options-overlay{display:none;position:fixed;inset:0;z-index:32000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:22px}
 .pos-final-options-overlay.open{display:flex}
 .pos-final-options-panel{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#0f1316;border:1px solid #343b42;border-radius:16px;box-shadow:0 28px 80px #000b;overflow:hidden;color:#fff}
@@ -34,17 +33,21 @@ def register_pos_options_modal_final(app):
 .pos-final-options-overlay #options{display:block!important;margin:0!important;background:#0f1316!important;border:0!important;padding:0!important}
 .pos-final-options-overlay #options .action.add{position:sticky!important;bottom:0!important;z-index:5!important;margin:14px 0 0!important;min-height:56px!important;background:linear-gradient(180deg,#f0c568,#e4ad43)!important;color:#111!important;border-radius:9px!important;font-size:15px!important;font-weight:950!important;box-shadow:0 -8px 18px #0f1316!important}
 body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:block!important}
-
-/* Le panneau commande reste compact maintenant que les options sont en modale. */
 .cart #options{display:none!important}
+
+/* Heure / utilisateur dans la barre supérieure globale. */
+.top .pos-v3-clock{display:flex!important;position:static!important;grid-column:auto!important;grid-row:auto!important;margin:0!important;align-items:center!important;gap:9px!important;color:#aeb4ba!important}
+.top .pos-v3-time{font-size:16px!important;color:#fff!important}.top .pos-v3-user{width:34px!important;height:34px!important;flex:0 0 34px!important}
+.top{padding-left:16px!important}
 </style>
 <script id="pos-options-modal-final-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
    const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+   const euro=v=>Number(v||0).toFixed(2).replace('.',',')+' €';
+   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-   /* Icônes et libellés des trois modes. */
    function paintModes(){
      const salle=document.querySelector('.ticket-choice [data-ticket="Salle"]');
      const emp=document.querySelector('.ticket-choice [data-ticket="Emporter"]');
@@ -55,26 +58,20 @@ body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:blo
    }
    paintModes();setTimeout(paintModes,150);setTimeout(paintModes,500);
 
+   /* Déplace heure + Administrateur + AD dans la barre tout en haut à gauche. */
+   const top=document.querySelector('.top');
+   const clock=document.querySelector('.pos-v3-clock');
+   if(top&&clock&&clock.parentNode!==top)top.insertBefore(clock,top.firstChild);
+
    const options=document.getElementById('options');
    if(!options)return;
 
-   /* Création de la modale options en réutilisant le vrai #options du moteur actuel. */
    const overlay=document.createElement('div');overlay.className='pos-final-options-overlay';
    overlay.innerHTML='<div class="pos-final-options-panel"><div class="pos-final-options-head"><h2 id="pos-final-options-title">Options produit</h2><button type="button" class="pos-final-options-close" aria-label="Fermer">×</button></div><div class="pos-final-options-body"></div></div>';
    document.body.appendChild(overlay);
    overlay.querySelector('.pos-final-options-body').appendChild(options);
    const modalTitle=overlay.querySelector('#pos-final-options-title');
    const closeBtn=overlay.querySelector('.pos-final-options-close');
-
-   let upsellFlow=false;
-   let upsellPhase='drink';
-   let waitingUpsellProduct=false;
-   let savingAfterUpsell=false;
-   const upsell=document.querySelector('.pos-ref-upsell-overlay');
-   const upsellList=upsell?.querySelector('.pos-ref-upsell-list');
-   const upsellNo=upsell?.querySelector('.pos-ref-no');
-   const upsellModal=upsell?.querySelector('.pos-ref-modal');
-   const upsellTitle=upsellModal?.querySelector('h2');
 
    function openOptions(name){
      document.body.classList.remove('pos-ref-options-closed');
@@ -86,32 +83,29 @@ body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:blo
    overlay.addEventListener('click',e=>{if(e.target===overlay)closeOptions()});
    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOptions()});
 
-   /* Ouvre la modale à chaque clic produit. Le moteur existant remplit #options. */
+   /* Un clic produit ouvre uniquement ses options. Aucun upsell ici. */
    document.addEventListener('click',function(e){
      const p=e.target.closest('.product');
      if(!p)return;
      setTimeout(()=>openOptions(p.dataset.name||''),0);
    },true);
 
-   /* Ajouter à la commande depuis la modale : conserve addCurrent() et ferme ensuite. */
-   options.addEventListener('click',function(e){
-     const add=e.target.closest('[data-action="add-current"]');
-     if(!add)return;
-     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-     const before=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:0;
-     if(typeof addCurrent==='function')addCurrent();
-     const after=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:before;
-     if(after>before){
-       closeOptions();
-       if(waitingUpsellProduct){
-         waitingUpsellProduct=false;
-         setTimeout(function(){
-           if(upsellPhase==='drink'){upsellPhase='dessert';openUpsellPhase()}
-           else finishUpsellAndSave();
-         },80);
-       }
-     }
-   },true);
+   let upsellFlow=false;
+   let upsellPhase='drink';
+   let waitingUpsellProduct=false;
+   let savingAfterUpsell=false;
+
+   /* Clone la modale upsell pour supprimer tous les anciens listeners empilés. */
+   let oldUpsell=document.querySelector('.pos-ref-upsell-overlay');
+   let upsell=null,upsellList=null,upsellNo=null,upsellTitle=null;
+   if(oldUpsell){
+     upsell=oldUpsell.cloneNode(true);
+     oldUpsell.replaceWith(upsell);
+     upsell.classList.remove('open');
+     upsellList=upsell.querySelector('.pos-ref-upsell-list');
+     upsellNo=upsell.querySelector('.pos-ref-no');
+     upsellTitle=upsell.querySelector('.pos-ref-modal h2');
+   }
 
    function upsellItems(category){
      try{
@@ -120,8 +114,6 @@ body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:blo
        return DATA.items.filter(p=>p&&p.active!==false&&!inCart.has(String(p.id||''))&&norm(p.category)===category);
      }catch(e){return[]}
    }
-   function euro(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
-   function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
    function renderUpsell(){
      if(!upsell||!upsellList||!upsellNo)return;
      const cat=upsellPhase==='drink'?'boissons':'desserts';
@@ -134,43 +126,80 @@ body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:blo
      if(!upsell){finishUpsellAndSave();return}
      upsellFlow=true;upsell.classList.add('open');setTimeout(renderUpsell,0);
    }
+   function advanceUpsell(){
+     if(upsellPhase==='drink'){upsellPhase='dessert';setTimeout(openUpsellPhase,60)}
+     else finishUpsellAndSave();
+   }
    function finishUpsellAndSave(){
      if(savingAfterUpsell)return;
      savingAfterUpsell=true;upsellFlow=false;if(upsell)upsell.classList.remove('open');
-     setTimeout(()=>{try{if(typeof saveOrder==='function')saveOrder()}finally{setTimeout(()=>{savingAfterUpsell=false},300)}},40);
+     setTimeout(()=>{try{if(typeof saveOrder==='function')saveOrder()}finally{setTimeout(()=>{savingAfterUpsell=false},350)}},40);
+   }
+
+   /* Ajout normal depuis la modale produit. Si c'est un produit upsell, avance ensuite. */
+   options.addEventListener('click',function(e){
+     const add=e.target.closest('[data-action="add-current"]');
+     if(!add)return;
+     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+     const before=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:0;
+     if(typeof addCurrent==='function')addCurrent();
+     const after=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:before;
+     if(after>before){
+       closeOptions();
+       if(waitingUpsellProduct){waitingUpsellProduct=false;advanceUpsell()}
+     }
+   },true);
+
+   async function chooseUpsellProduct(id,name){
+     if(!id)return;
+     try{
+       const r=await fetch('/api/catalog/product/'+encodeURIComponent(id)+'/options',{cache:'no-store'});
+       const d=await r.json();
+       if(!r.ok||!d||!d.ok)throw new Error('Produit indisponible');
+       const groups=Array.isArray(d.groups)?d.groups:[];
+       if(groups.length){
+         waitingUpsellProduct=true;
+         if(typeof showOptions==='function')showOptions(id,name);
+         setTimeout(()=>openOptions(name),0);
+         return;
+       }
+       /* Sans option : ajout immédiat au panier puis étape suivante. */
+       if(typeof ORDER!=='undefined'&&Array.isArray(ORDER)){
+         const p=d.product||{};
+         ORDER.push({line_id:'line-'+Date.now()+'-'+Math.random().toString(16).slice(2),product_id:String(p.id||id),name:String(p.name||name||''),qty:1,unit_price:Number(Number(p.price||0).toFixed(2)),options:[]});
+         if(typeof renderOrder==='function')renderOrder();
+       }
+       advanceUpsell();
+     }catch(err){
+       waitingUpsellProduct=true;
+       if(typeof showOptions==='function')showOptions(id,name);
+       setTimeout(()=>openOptions(name),0);
+     }
    }
 
    if(upsell){
-     /* Bloque les ouvertures automatiques héritées : upsell uniquement lors de l'enregistrement. */
-     new MutationObserver(function(){
-       if(upsell.classList.contains('open')&&!upsellFlow)upsell.classList.remove('open');
-     }).observe(upsell,{attributes:true,attributeFilter:['class']});
-
      upsell.addEventListener('click',function(e){
        const item=e.target.closest('[data-final-upsell-id]');
        if(item){
          e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
          upsell.classList.remove('open');
-         waitingUpsellProduct=true;
-         if(typeof showOptions==='function')showOptions(item.dataset.finalUpsellId,item.dataset.finalUpsellName);
-         setTimeout(()=>openOptions(item.dataset.finalUpsellName),0);
+         chooseUpsellProduct(item.dataset.finalUpsellId,item.dataset.finalUpsellName);
          return;
        }
        if(e.target.closest('.pos-ref-no')){
          e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-         upsell.classList.remove('open');
-         if(upsellPhase==='drink'){upsellPhase='dessert';setTimeout(openUpsellPhase,50)}else finishUpsellAndSave();
+         upsell.classList.remove('open');advanceUpsell();
        }
      },true);
    }
 
-   /* Enregistrer = Boissons -> Desserts -> enregistrement réel. */
+   /* SEUL déclencheur upsell : Enregistrer la commande. */
    document.addEventListener('click',function(e){
      const save=e.target.closest('[data-action="save-order"]');
      if(!save||savingAfterUpsell)return;
      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
      if(typeof ORDER==='undefined'||!Array.isArray(ORDER)||!ORDER.length)return;
-     upsellPhase='drink';waitingUpsellProduct=false;openUpsellPhase();
+     upsellPhase='drink';waitingUpsellProduct=false;upsellFlow=true;openUpsellPhase();
    },true);
  })
 })();
@@ -186,7 +215,7 @@ body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:blo
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Options"] = "modal-upsell-on-save"
+                response.headers["X-Bechefaa-POS-Options"] = "modal-upsell-save-only-v2"
         except Exception:
             pass
         return response
