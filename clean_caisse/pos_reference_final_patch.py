@@ -3,6 +3,7 @@
 - Salle devient Sur place dans la barre haute.
 - Un seul bouton Envoyer en cuisine : celui de l'encart haut.
 - La barre des catégories est légèrement plus aérée sans scroll horizontal.
+- Le bouton Envoyer en cuisine reprend l'accent couleur du site BÉCHÉFAA.
 Aucune logique métier ni base de données modifiée.
 """
 
@@ -26,7 +27,9 @@ def register_pos_reference_final_patch(app):
 .pos-ref-actions button[data-action*="kitchen"],
 .pos-ref-actions a[data-action*="kitchen"]{display:none!important}
 
-.pos-ref-top-kitchen{display:flex!important;width:100%!important;min-height:50px!important;background:linear-gradient(180deg,#f0c568,#df9d18)!important;color:#111!important;border:0!important;border-radius:9px!important;font-size:14px!important;font-weight:950!important;align-items:center!important;justify-content:center!important;gap:8px!important;text-transform:uppercase!important}
+/* Couleur exactement alignée sur le site BÉCHÉFAA. */
+.pos-ref-top-kitchen{display:flex!important;width:100%!important;min-height:50px!important;background:#d99a18!important;color:#111!important;border:1px solid #d99a18!important;border-radius:9px!important;font-size:14px!important;font-weight:950!important;align-items:center!important;justify-content:center!important;gap:8px!important;text-transform:uppercase!important}
+.pos-ref-top-kitchen:hover,.pos-ref-top-kitchen:active{background:#f0bd45!important;border-color:#f0bd45!important;color:#111!important}
 
 @media(max-width:1250px){.cats{gap:8px!important;padding:11px 14px 12px!important}.cat{padding:11px 14px!important}}
 </style>
@@ -81,7 +84,7 @@ def register_pos_reference_final_patch(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-1"
+                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-2"
         except Exception:
             pass
         return response
