@@ -8,6 +8,7 @@ Le flux historique POST /api/public/orders reste inchangé.
 """
 from flask import jsonify, request
 
+from clean_caisse.mollie_payments_isolated_phase6 import _site_enabled
 from clean_caisse.site_orders_bridge_isolated_phase6 import (
     map_site_order_payload,
     _apply_server_catalog_prices,
@@ -31,6 +32,12 @@ def register_site_mollie_checkout_isolated_phase6(app):
     def site_mollie_order_phase6():
         if request.method == "OPTIONS":
             return ("", 204)
+        if not _site_enabled():
+            return jsonify({
+                "ok": False,
+                "error": "Paiement Mollie SITE désactivé",
+                "code": "MOLLIE_SITE_DISABLED",
+            }), 403
 
         external = request.get_json(silent=True) or {}
         internal, error = map_site_order_payload(external)
