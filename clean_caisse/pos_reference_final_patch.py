@@ -2,7 +2,7 @@
 
 - Salle devient Sur place dans la barre haute.
 - Un seul bouton Envoyer en cuisine : celui de l'encart haut.
-- La barre des catégories est légèrement plus aérée sans scroll horizontal.
+- La barre des catégories reste sur une seule ligne, plus lisible et défilable horizontalement.
 - Le bouton Envoyer en cuisine reprend l'accent couleur du site BÉCHÉFAA.
 Aucune logique métier ni base de données modifiée.
 """
@@ -17,9 +17,11 @@ def register_pos_reference_final_patch(app):
 
     addon = r'''
 <style id="pos-reference-final-patch-style">
-/* Catégories : un peu plus d'air, toujours sans ascenseur horizontal. */
-.cats{gap:10px!important;padding:12px 16px 13px!important;overflow-x:hidden!important;overflow-y:visible!important;flex-wrap:wrap!important}
-.cat{padding:12px 17px!important;font-size:12px!important;line-height:1.15!important}
+/* Catégories : une seule ligne, boutons entiers, défilement horizontal discret. */
+.cats{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:9px!important;padding:11px 16px 12px!important;overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;scrollbar-width:none!important;-ms-overflow-style:none!important;scroll-behavior:smooth!important;overscroll-behavior-x:contain!important}
+.cats::-webkit-scrollbar{display:none!important}
+.cat{flex:0 0 auto!important;min-width:max-content!important;max-width:none!important;overflow:visible!important;text-overflow:clip!important;white-space:nowrap!important;padding:11px 15px!important;font-size:12px!important;line-height:1.15!important;border-radius:9px!important}
+.cat:first-child{margin-left:0!important}.cat:last-child{margin-right:8px!important}
 
 /* Un seul bouton Envoyer en cuisine : celui de l'encart haut. */
 .pos-ref-actions .pos-ref-kitchen,
@@ -31,7 +33,7 @@ def register_pos_reference_final_patch(app):
 .pos-ref-top-kitchen{display:flex!important;width:100%!important;min-height:50px!important;background:#d99a18!important;color:#111!important;border:1px solid #d99a18!important;border-radius:9px!important;font-size:14px!important;font-weight:950!important;align-items:center!important;justify-content:center!important;gap:8px!important;text-transform:uppercase!important}
 .pos-ref-top-kitchen:hover,.pos-ref-top-kitchen:active{background:#f0bd45!important;border-color:#f0bd45!important;color:#111!important}
 
-@media(max-width:1250px){.cats{gap:8px!important;padding:11px 14px 12px!important}.cat{padding:11px 14px!important}}
+@media(max-width:1250px){.cats{gap:8px!important;padding:10px 14px 11px!important}.cat{padding:10px 13px!important;font-size:11.5px!important}}
 </style>
 <script id="pos-reference-final-patch-script">
 (function(){
@@ -84,7 +86,7 @@ def register_pos_reference_final_patch(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-2"
+                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-scroll-3"
         except Exception:
             pass
         return response
