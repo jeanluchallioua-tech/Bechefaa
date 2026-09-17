@@ -13,6 +13,7 @@ from .accounting_export_monthly_phase6 import register_accounting_export_monthly
 from .mollie_payments_isolated_phase6 import register_mollie_payments_isolated_phase6
 from .site_mollie_checkout_isolated_phase6 import register_site_mollie_checkout_isolated_phase6
 from .pos_category_outline_isolated_phase6 import register_pos_category_outline_isolated_phase6
+from .env_diagnostic_isolated_phase6 import register_env_diagnostic_isolated_phase6
 
 
 def register_settings_admin_phase44(app):
@@ -36,6 +37,9 @@ def register_settings_admin_phase44(app):
     # identifiants Mollie et le flux de validation ne sont pas explicitement activés.
     register_mollie_payments_isolated_phase6(app, db, ensure_order_schema)
     register_site_mollie_checkout_isolated_phase6(app)
+
+    # Diagnostic temporaire : présence des variables uniquement, jamais leur valeur.
+    register_env_diagnostic_isolated_phase6(app)
 
     @app.get("/parametres")
     def settings_admin_phase44():
