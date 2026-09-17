@@ -2,7 +2,8 @@
 
 - Salle devient Sur place dans la barre haute.
 - Un seul bouton Envoyer en cuisine : celui de l'encart haut.
-- La barre des catégories reste sur une seule ligne, plus lisible et défilable horizontalement.
+- La barre des catégories affiche uniquement les catégories métier en grille 5 x 2.
+- Le bouton Tous les produits est masqué visuellement sans supprimer sa logique interne.
 - Le bouton Envoyer en cuisine reprend l'accent couleur du site BÉCHÉFAA.
 Aucune logique métier ni base de données modifiée.
 """
@@ -17,11 +18,10 @@ def register_pos_reference_final_patch(app):
 
     addon = r'''
 <style id="pos-reference-final-patch-style">
-/* Catégories : une seule ligne, boutons entiers, défilement horizontal discret. */
-.cats{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:9px!important;padding:11px 16px 12px!important;overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;scrollbar-width:none!important;-ms-overflow-style:none!important;scroll-behavior:smooth!important;overscroll-behavior-x:contain!important}
-.cats::-webkit-scrollbar{display:none!important}
-.cat{flex:0 0 auto!important;min-width:max-content!important;max-width:none!important;overflow:visible!important;text-overflow:clip!important;white-space:nowrap!important;padding:11px 15px!important;font-size:12px!important;line-height:1.15!important;border-radius:9px!important}
-.cat:first-child{margin-left:0!important}.cat:last-child{margin-right:8px!important}
+/* Catégories : 10 catégories métier en grille 5 x 2, sans changer le filtrage interne. */
+.cats{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;grid-auto-rows:minmax(44px,auto)!important;align-items:stretch!important;gap:9px!important;padding:11px 16px 12px!important;overflow:visible!important;white-space:normal!important}
+.cat{width:100%!important;min-width:0!important;max-width:none!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;padding:11px 10px!important;font-size:12px!important;line-height:1.15!important;border-radius:9px!important;text-align:center!important;display:flex!important;align-items:center!important;justify-content:center!important}
+.cat.pos-ref-all-hidden{display:none!important}
 
 /* Un seul bouton Envoyer en cuisine : celui de l'encart haut. */
 .pos-ref-actions .pos-ref-kitchen,
@@ -33,7 +33,8 @@ def register_pos_reference_final_patch(app):
 .pos-ref-top-kitchen{display:flex!important;width:100%!important;min-height:50px!important;background:#d99a18!important;color:#111!important;border:1px solid #d99a18!important;border-radius:9px!important;font-size:14px!important;font-weight:950!important;align-items:center!important;justify-content:center!important;gap:8px!important;text-transform:uppercase!important}
 .pos-ref-top-kitchen:hover,.pos-ref-top-kitchen:active{background:#f0bd45!important;border-color:#f0bd45!important;color:#111!important}
 
-@media(max-width:1250px){.cats{gap:8px!important;padding:10px 14px 11px!important}.cat{padding:10px 13px!important;font-size:11.5px!important}}
+@media(max-width:1250px){.cats{gap:8px!important;padding:10px 14px 11px!important}.cat{padding:10px 8px!important;font-size:11.5px!important}}
+@media(max-width:900px){.cats{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:7px!important}.cat{font-size:11px!important;padding:9px 6px!important}}
 </style>
 <script id="pos-reference-final-patch-script">
 (function(){
@@ -44,6 +45,17 @@ def register_pos_reference_final_patch(app):
    function fixServiceLabel(){
      document.querySelectorAll('.ticket-choice [data-ticket="Salle"]').forEach(function(b){
        b.innerHTML='🍴&nbsp;&nbsp;SUR PLACE';
+     });
+   }
+
+   function hideAllProductsCategory(){
+     const cats=document.querySelector('.cats');
+     if(!cats)return;
+     cats.querySelectorAll('.cat').forEach(function(el){
+       const t=norm(el.textContent);
+       if(t==='tous les produits'||t==='tous nos produits'||t==='tous produits'){
+         el.classList.add('pos-ref-all-hidden');
+       }
      });
    }
 
@@ -68,8 +80,9 @@ def register_pos_reference_final_patch(app):
      });
    }
 
-   function apply(){fixServiceLabel();hideDuplicateKitchen();styleTopKitchen()}
+   function apply(){fixServiceLabel();hideAllProductsCategory();hideDuplicateKitchen();styleTopKitchen()}
    apply();
+   const cats=document.querySelector('.cats');if(cats)new MutationObserver(()=>setTimeout(hideAllProductsCategory,0)).observe(cats,{childList:true,subtree:true});
    const cart=document.querySelector('.cart');if(cart)new MutationObserver(()=>setTimeout(apply,0)).observe(cart,{childList:true,subtree:true});
    const toolbar=document.querySelector('.pos-v3-toolbar');if(toolbar)new MutationObserver(()=>setTimeout(fixServiceLabel,0)).observe(toolbar,{childList:true,subtree:true});
  })
@@ -86,7 +99,7 @@ def register_pos_reference_final_patch(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-scroll-3"
+                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-grid-4"
         except Exception:
             pass
         return response
