@@ -42,6 +42,7 @@ def register_pos_reference_final_patch(app):
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
    const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+   const isAllProducts=el=>{const t=norm(el&&el.textContent);return t==='tous les produits'||t==='tous nos produits'||t==='tous produits'};
 
    function fixServiceLabel(){
      document.querySelectorAll('.ticket-choice [data-ticket="Salle"]').forEach(function(b){
@@ -61,6 +62,11 @@ def register_pos_reference_final_patch(app):
      cats.style.setProperty('overflow','visible','important');
      cats.style.setProperty('white-space','normal','important');
      cats.querySelectorAll('.cat').forEach(function(el){
+       if(isAllProducts(el)){
+         el.classList.add('pos-ref-all-hidden');
+         el.style.setProperty('display','none','important');
+         return;
+       }
        el.style.setProperty('width','100%','important');
        el.style.setProperty('min-width','0','important');
        el.style.setProperty('max-width','none','important');
@@ -79,8 +85,7 @@ def register_pos_reference_final_patch(app):
      const cats=document.querySelector('.cats');
      if(!cats)return;
      cats.querySelectorAll('.cat').forEach(function(el){
-       const t=norm(el.textContent);
-       if(t==='tous les produits'||t==='tous nos produits'||t==='tous produits'){
+       if(isAllProducts(el)){
          el.classList.add('pos-ref-all-hidden');
          el.style.setProperty('display','none','important');
        }
@@ -113,8 +118,8 @@ def register_pos_reference_final_patch(app):
    const cats=document.querySelector('.cats');if(cats)new MutationObserver(()=>setTimeout(()=>{forceCategoryGrid();hideAllProductsCategory()},0)).observe(cats,{childList:true,subtree:true});
    const cart=document.querySelector('.cart');if(cart)new MutationObserver(()=>setTimeout(apply,0)).observe(cart,{childList:true,subtree:true});
    const toolbar=document.querySelector('.pos-v3-toolbar');if(toolbar)new MutationObserver(()=>setTimeout(fixServiceLabel,0)).observe(toolbar,{childList:true,subtree:true});
-   setTimeout(forceCategoryGrid,150);
-   setTimeout(forceCategoryGrid,500);
+   setTimeout(()=>{forceCategoryGrid();hideAllProductsCategory()},150);
+   setTimeout(()=>{forceCategoryGrid();hideAllProductsCategory()},500);
  })
 })();
 </script>
@@ -129,7 +134,7 @@ def register_pos_reference_final_patch(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-grid-force-5"
+                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-grid-force-6"
         except Exception:
             pass
         return response
