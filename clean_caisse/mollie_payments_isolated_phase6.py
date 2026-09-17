@@ -1,11 +1,11 @@
 """Phase 6 — intégration Mollie isolée pour les paiements SITE.
 
-Cette première couche ne modifie pas le fonctionnement actuel de la caisse ni
-le TPE BNP. Elle expose un socle Mollie CB prêt à être branché au site :
-création de paiement, lecture du statut et webhook idempotent.
+Cette couche ne modifie pas le fonctionnement du TPE BNP. Elle expose un socle
+Mollie CB : création de paiement, lecture du statut et webhook idempotent.
 
-Aucune clé n'est stockée dans le dépôt. La variable MOLLIE_API_KEY sera fournie
-par Clever Cloud au moment de l'activation.
+Aucune clé n'est stockée dans le dépôt. La variable MOLLIE_API_KEY est fournie
+par Clever Cloud. Le parcours SITE n'est activé que si
+BECHEFAA_MOLLIE_SITE_ENABLED vaut 1/true/yes/on.
 """
 import json
 import os
@@ -40,6 +40,11 @@ def _mollie_key():
 
 def _configured_return_url():
     return str(os.getenv("BECHEFAA_MOLLIE_RETURN_URL") or "").strip()
+
+
+def _site_enabled():
+    raw = str(os.getenv("BECHEFAA_MOLLIE_SITE_ENABLED") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _public_base_url():
@@ -141,6 +146,7 @@ def _apply_paid_payment(conn, ensure_order_schema, payment):
             "order_id": order_id,
             "transaction_id": existing["id"],
             "duplicate": True,
+            "payment_status": "PAYÉE",
         }
 
     amount_obj = payment.get("amount") if isinstance(payment.get("amount"), dict) else {}
@@ -194,9 +200,27 @@ def _apply_paid_payment(conn, ensure_order_schema, payment):
     }
 
 
+def _send_paid_order_to_kitchen(app, order_id):
+    """Envoie une commande payée en cuisine via la route métier existante."""
+    with app.test_request_context(
+        f"/api/orders/{order_id}/send-kitchen",
+        method="POST",
+        json={},
+    ):
+        response = app.full_dispatch_request()
+    data = response.get_json(silent=True) or {}
+    return {
+        "ok": 200 <= response.status_code < 300,
+        "status_code": response.status_code,
+        "status": data.get("status"),
+        "error": data.get("error"),
+    }
+
+
 def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
     @app.get("/api/mollie/status-phase6")
     def mollie_status_phase6():
+        configured = bool(_mollie_key()) and bool(_configured_return_url())
         return jsonify({
             "ok": True,
             "provider": "MOLLIE",
@@ -204,6 +228,8 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             "restaurant_provider": "BNP_TPE",
             "api_key_configured": bool(_mollie_key()),
             "return_url_configured": bool(_configured_return_url()),
+            "site_enabled": _site_enabled(),
+            "site_ready": configured and _site_enabled(),
             "webhook_url": _public_base_url() + "/api/mollie/webhook-phase6",
             "active_method": "CB",
             "vouchers": "PREPARED_LATER",
@@ -294,8 +320,6 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
 
     @app.post("/api/mollie/webhook-phase6")
     def mollie_webhook_phase6():
-        # Webhook classique : Mollie poste un champ form `id`. On accepte aussi
-        # un JSON contenant `id` afin de faciliter les diagnostics contrôlés.
         payload = request.get_json(silent=True) if request.is_json else None
         payment_id = str(request.form.get("id") or ((payload or {}).get("id") if isinstance(payload, dict) else "") or "").strip()
         if not payment_id:
@@ -304,8 +328,7 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             return jsonify({"ok": False, "error": "Mollie non configuré"}), 503
 
         try:
-            # Sécurité : on ne fait jamais confiance au contenu du webhook seul.
-            # On relit toujours le paiement depuis l'API Mollie.
+            # Sécurité : le webhook ne fait foi qu'après relecture API côté serveur.
             payment = _mollie_request("GET", "/payments/" + payment_id)
             status = str(payment.get("status") or "").lower()
             order_id = _payment_order_id(payment)
@@ -313,13 +336,17 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
                 return jsonify({"ok": False, "error": "Paiement Mollie sans order_id BÉCHÉFAA"}), 400
 
             result = None
+            kitchen = None
             if status == "paid":
                 with db() as conn:
                     with conn.transaction():
                         result = _apply_paid_payment(conn, ensure_order_schema, payment)
 
-            # Les statuts pending/open/failed/canceled/expired ne créent aucune
-            # transaction comptable réussie.
+                # La transaction financière est validée avant la cuisine. En cas
+                # de webhook répété, l'encaissement reste idempotent et l'envoi
+                # cuisine peut être retenté sans doubler la commande.
+                kitchen = _send_paid_order_to_kitchen(app, order_id)
+
             return jsonify({
                 "ok": True,
                 "payment_id": payment_id,
@@ -327,6 +354,7 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
                 "status": status,
                 "recorded": bool(result),
                 "result": result,
+                "kitchen": kitchen,
             })
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
