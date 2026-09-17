@@ -2,7 +2,7 @@
 
 Le module ne modifie ni commandes, ni paiements, ni Z. Il consolide les
 snapshots fiscaux existants et le journal des transactions pour fournir un
-aperçu mensuel et un PDF téléchargeable sans dépendance PDF externe.
+aperçu mensuel et un PDF téléchargeable.
 """
 from datetime import datetime, time
 from calendar import monthrange
@@ -13,6 +13,7 @@ from flask import Response, jsonify, request
 
 PARIS = ZoneInfo("Europe/Paris")
 UTC = ZoneInfo("UTC")
+EXCLUDED_METHODS = {"CHEQUE", "CHÈQUE", "VIREMENT"}
 
 
 def _month_bounds(value):
@@ -23,8 +24,7 @@ def _month_bounds(value):
         first = datetime.strptime(raw, "%Y-%m").date().replace(day=1)
     except ValueError:
         raise ValueError("Mois invalide (format attendu : AAAA-MM)")
-    last_day = monthrange(first.year, first.month)[1]
-    last = first.replace(day=last_day)
+    last = first.replace(day=monthrange(first.year, first.month)[1])
     start = datetime.combine(first, time.min, PARIS)
     if first.month == 12:
         next_first = first.replace(year=first.year + 1, month=1, day=1)
@@ -52,25 +52,23 @@ def _restaurant_identity(conn):
 
 def _summary(conn, start_ms, end_ms):
     sales = conn.execute("""
-        SELECT
-          COUNT(*) AS orders_count,
-          COALESCE(SUM(COALESCE(total_ht, ROUND(total / 1.10, 2))),0) AS ht,
-          COALESCE(SUM(COALESCE(tax_amount, total - ROUND(total / 1.10, 2))),0) AS vat,
-          COALESCE(SUM(COALESCE(total_ttc, total)),0) AS ttc
+        SELECT COUNT(*) AS orders_count,
+               COALESCE(SUM(COALESCE(total_ht, ROUND(total / 1.10, 2))),0) AS ht,
+               COALESCE(SUM(COALESCE(tax_amount, total - ROUND(total / 1.10, 2))),0) AS vat,
+               COALESCE(SUM(COALESCE(total_ttc, total)),0) AS ttc
         FROM caisse_orders
         WHERE created_at >= %s AND created_at < %s
           AND COALESCE(cancellation_hidden,FALSE)=FALSE
     """, (start_ms, end_ms)).fetchone()
 
     cashflow = conn.execute("""
-        SELECT
-          COALESCE(SUM(CASE WHEN transaction_type='PAYMENT' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS payments,
-          COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS refunds
+        SELECT COALESCE(SUM(CASE WHEN transaction_type='PAYMENT' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS payments,
+               COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS refunds
         FROM caisse_payment_transactions
         WHERE created_at >= %s AND created_at < %s
     """, (start_ms, end_ms)).fetchone()
 
-    methods = conn.execute("""
+    method_rows = conn.execute("""
         SELECT UPPER(COALESCE(NULLIF(method,''),'AUTRE')) AS method,
                COALESCE(SUM(CASE
                  WHEN transaction_type='PAYMENT' AND status='SUCCEEDED' THEN amount
@@ -80,9 +78,20 @@ def _summary(conn, start_ms, end_ms):
         WHERE created_at >= %s AND created_at < %s
         GROUP BY 1 ORDER BY net DESC, method
     """, (start_ms, end_ms)).fetchall()
+    methods = []
+    for row in method_rows:
+        method = str(row["method"] or "AUTRE").strip().upper()
+        if method in EXCLUDED_METHODS:
+            continue
+        methods.append({"method": method, "net": float(row["net"] or 0)})
 
-    sources = conn.execute("""
-        SELECT UPPER(COALESCE(NULLIF(source,''),'CAISSE')) AS source,
+    # Canaux métier : Salle/Table = RESTAURANT ; Livraison = LIVRAISON ; sinon = À EMPORTER.
+    source_rows = conn.execute("""
+        SELECT CASE
+                 WHEN table_number IS NOT NULL THEN 'RESTAURANT'
+                 WHEN UPPER(COALESCE(source,'')) IN ('LIVRAISON','DELIVERY') THEN 'LIVRAISON'
+                 ELSE 'À EMPORTER'
+               END AS source,
                COUNT(*) AS count,
                COALESCE(SUM(COALESCE(total_ttc,total)),0) AS total
         FROM caisse_orders
@@ -121,15 +130,10 @@ def _summary(conn, start_ms, end_ms):
     payments = float(cashflow["payments"] or 0)
     refunds = float(cashflow["refunds"] or 0)
     return {
-        "sales": {
-            "orders": int(sales["orders_count"] or 0),
-            "ht": float(sales["ht"] or 0),
-            "vat": float(sales["vat"] or 0),
-            "ttc": float(sales["ttc"] or 0),
-        },
+        "sales": {"orders": int(sales["orders_count"] or 0), "ht": float(sales["ht"] or 0), "vat": float(sales["vat"] or 0), "ttc": float(sales["ttc"] or 0)},
         "cashflow": {"payments": payments, "refunds": refunds, "net": payments - refunds},
-        "methods": [{"method": r["method"], "net": float(r["net"] or 0)} for r in methods],
-        "sources": [{"source": r["source"], "count": int(r["count"] or 0), "total": float(r["total"] or 0)} for r in sources],
+        "methods": methods,
+        "sources": [{"source": r["source"], "count": int(r["count"] or 0), "total": float(r["total"] or 0)} for r in source_rows],
         "daily": [days[k] for k in sorted(days)],
     }
 
@@ -139,12 +143,11 @@ def _pdf_escape(value):
 
 
 def _money(value):
-    return f"{float(value or 0):,.2f} EUR".replace(",", " ")
+    return f"{float(value or 0):,.2f} €".replace(",", " ")
 
 
 def _build_pdf(lines):
-    pages = []
-    current = []
+    pages, current = [], []
     for line in lines:
         current.append(line)
         if len(current) >= 48:
@@ -160,21 +163,20 @@ def _build_pdf(lines):
 
     catalog_id = add(b"")
     pages_id = add(b"")
-    font_id = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    font_id = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
     page_ids = []
 
     for page_lines in pages:
         stream_parts = ["BT", "/F1 10 Tf", "50 800 Td", "13 TL"]
         first = True
-        for text, size, bold in page_lines:
+        for text, size, _bold in page_lines:
             if not first:
                 stream_parts.append("T*")
             first = False
             stream_parts.append(f"/F1 {size} Tf")
-            safe = _pdf_escape(text)
-            stream_parts.append(f"({safe}) Tj")
+            stream_parts.append(f"({_pdf_escape(text)}) Tj")
         stream_parts.append("ET")
-        stream = "\n".join(stream_parts).encode("latin-1", "replace")
+        stream = "\n".join(stream_parts).encode("cp1252", "replace")
         stream_id = add(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
         page_id = add(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {stream_id} 0 R >>".encode())
         page_ids.append(page_id)
@@ -221,9 +223,7 @@ def register_accounting_export_monthly_phase6(app, db):
     def accounting_export_pdf_phase6():
         try:
             d = get_payload(request.args.get("month"))
-            r = d["restaurant"]
-            s = d["sales"]
-            c = d["cashflow"]
+            r, s, c = d["restaurant"], d["sales"], d["cashflow"]
             lines = [
                 ("BÉCHÉFAA - EXPORT COMPTABLE MENSUEL", 16, True),
                 (f"Période : {d['start_date']} au {d['end_date']}", 11, False),
@@ -266,4 +266,5 @@ def register_accounting_export_monthly_phase6(app, db):
     @app.get("/administration/export-comptable")
     def accounting_export_page_phase6():
         current = datetime.now(PARIS).strftime("%Y-%m")
-        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Export comptable</title><style>*{box-sizing:border-box}body{margin:0;background:#070707;color:#f7f7f7;font-family:Arial,sans-serif}.w{max-width:1050px;margin:0 auto;padding:34px 18px}.hero,.box,.card{background:#101010;border:1px solid #292929;border-radius:15px}.hero{padding:22px;border-color:#735314}.hero h1{margin:0 0 6px;color:#f0bd45}.hero p{margin:0;color:#aaa}.controls{display:flex;gap:10px;align-items:end;margin:18px 0}.controls label{font-size:12px;color:#aaa;font-weight:800;display:block;margin-bottom:6px}.controls input,.controls button,.controls a{height:46px;border-radius:9px;border:1px solid #3a3a3a;padding:0 13px;font-size:14px}.controls input{background:#111;color:#fff}.controls button,.controls a{display:inline-flex;align-items:center;justify-content:center;background:#d99a18;color:#111;font-weight:900;text-decoration:none;cursor:pointer;border-color:#d99a18}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.card{padding:17px}.lab{color:#999;font-size:11px;font-weight:900;text-transform:uppercase}.v{font-size:23px;font-weight:900;margin-top:7px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.box{padding:18px}.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #262626}.row:last-child{border:0}.muted{color:#999}.note{margin-top:18px;padding:12px;border-left:4px solid #d99a18;background:#0d0d0d;color:#aaa}.disabled{opacity:.45;pointer-events:none}@media(max-width:760px){.cards,.grid{grid-template-columns:1fr 1fr}.controls{flex-wrap:wrap}}@media(max-width:520px){.cards,.grid{grid-template-columns:1fr}}</style></head><body><main class="w"><section class="hero"><h1>Export comptable mensuel</h1><p>PDF de synthèse mensuelle : ventes HT / TVA / TTC, encaissements, remboursements, moyens de paiement et canaux.</p></section><div class="controls"><div><label>Mois</label><input id="month" type="month" value="''' + current + r'''"></div><button onclick="load()">Afficher</button><a id="pdf" href="#">Télécharger le PDF</a><a class="disabled" href="#" title="Activation après validation du PDF">Envoyer par e-mail</a></div><div id="period" class="muted"></div><section class="cards"><div class="card"><div class="lab">Commandes</div><div class="v" id="orders">—</div></div><div class="card"><div class="lab">CA HT</div><div class="v" id="ht">—</div></div><div class="card"><div class="lab">TVA 10 %</div><div class="v" id="vat">—</div></div><div class="card"><div class="lab">CA TTC</div><div class="v" id="ttc">—</div></div><div class="card"><div class="lab">Paiements</div><div class="v" id="payments">—</div></div><div class="card"><div class="lab">Remboursements</div><div class="v" id="refunds">—</div></div><div class="card"><div class="lab">Net encaissé</div><div class="v" id="net">—</div></div></section><section class="grid"><div class="box"><h2>Moyens de paiement</h2><div id="methods"></div></div><div class="box"><h2>Canaux de vente</h2><div id="sources"></div></div></section><div class="note">Le PDF est généré en lecture seule. Aucun encaissement, remboursement, Z ou historique n'est modifié. L'envoi e-mail sera activé après validation du format du PDF.</div></main><script>const $=x=>document.getElementById(x),eur=n=>Number(n||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'}),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));async function load(){let m=$('month').value,u='/api/accounting-export/monthly-phase6?month='+encodeURIComponent(m);$('period').textContent='Chargement…';try{let r=await fetch(u,{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');$('period').textContent=d.start_date+' → '+d.end_date;$('orders').textContent=d.sales.orders;$('ht').textContent=eur(d.sales.ht);$('vat').textContent=eur(d.sales.vat);$('ttc').textContent=eur(d.sales.ttc);$('payments').textContent=eur(d.cashflow.payments);$('refunds').textContent=eur(d.cashflow.refunds);$('net').textContent=eur(d.cashflow.net);$('methods').innerHTML=d.methods.length?d.methods.map(x=>'<div class="row"><span>'+esc(x.method)+'</span><b>'+eur(x.net)+'</b></div>').join(''):'<div class="muted">Aucun mouvement</div>';$('sources').innerHTML=d.sources.length?d.sources.map(x=>'<div class="row"><span>'+esc(x.source)+' ('+x.count+')</span><b>'+eur(x.total)+'</b></div>').join(''):'<div class="muted">Aucune vente</div>';$('pdf').href='/api/accounting-export/monthly-phase6.pdf?month='+encodeURIComponent(m)}catch(e){$('period').textContent='Erreur : '+e.message}}$('month').addEventListener('change',load);load()</script></body></html>''', content_type="text/html; charset=utf-8")
+        html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Export comptable</title><style>*{box-sizing:border-box}body{margin:0;background:#070707;color:#f7f7f7;font-family:Arial,sans-serif}.w{max-width:1050px;margin:0 auto;padding:34px 18px}.hero,.box,.card{background:#101010;border:1px solid #292929;border-radius:15px}.hero{padding:22px;border-color:#735314}.hero h1{margin:0 0 6px;color:#f0bd45}.hero p{margin:0;color:#aaa}.controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:18px 0}.controls label{display:block;color:#aaa;font-size:12px;font-weight:800;margin-bottom:5px}.controls input,.controls button,.controls a{min-height:44px;border-radius:9px;border:1px solid #3a3a3a;padding:9px 12px;font-size:14px}.controls input{background:#111;color:#fff}.controls button,.controls a{background:#d99a18;color:#111;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{padding:16px}.lab{font-size:11px;color:#9a9a9a;text-transform:uppercase;font-weight:900}.val{font-size:24px;font-weight:900;margin-top:7px}.gold{color:#f0bd45}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.box{padding:18px}.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #252525}.row:last-child{border:0}.muted{color:#999}.disabled{opacity:.45;pointer-events:none}.note{margin-top:14px;color:#999;font-size:12px}@media(max-width:760px){.grid,.cols{grid-template-columns:1fr}.controls{align-items:stretch}}</style></head><body><main class="w"><section class="hero"><h1>Export comptable mensuel</h1><p>Récapitulatif fiscal et encaissements BÉCHÉFAA, en lecture seule.</p></section><div class="controls"><div><label>Mois</label><input id="month" type="month" value="__CURRENT__"></div><button onclick="load()">Afficher</button><a id="pdf" href="#">Télécharger le PDF</a><a class="disabled" href="#">Envoyer par e-mail — bientôt</a></div><section class="grid"><div class="card"><div class="lab">Commandes</div><div class="val" id="orders">—</div></div><div class="card"><div class="lab">CA HT</div><div class="val" id="ht">—</div></div><div class="card"><div class="lab">TVA 10 %</div><div class="val" id="vat">—</div></div><div class="card"><div class="lab">CA TTC</div><div class="val gold" id="ttc">—</div></div><div class="card"><div class="lab">Remboursements</div><div class="val" id="refunds">—</div></div><div class="card"><div class="lab">Net encaissé</div><div class="val gold" id="net">—</div></div></section><section class="cols"><div class="box"><h2>Moyens de paiement</h2><div id="methods"></div></div><div class="box"><h2>Canaux de vente</h2><div id="sources"></div></div></section><div id="msg" class="note"></div></main><script>const $=x=>document.getElementById(x),euro=n=>Number(n||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'});async function load(){const m=$('month').value;$('pdf').href='/api/accounting-export/monthly-phase6.pdf?month='+encodeURIComponent(m);$('msg').textContent='Chargement…';try{const r=await fetch('/api/accounting-export/monthly-phase6?month='+encodeURIComponent(m),{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');$('orders').textContent=d.sales.orders;$('ht').textContent=euro(d.sales.ht);$('vat').textContent=euro(d.sales.vat);$('ttc').textContent=euro(d.sales.ttc);$('refunds').textContent=euro(d.cashflow.refunds);$('net').textContent=euro(d.cashflow.net);$('methods').innerHTML=d.methods.length?d.methods.map(x=>`<div class="row"><span>${x.method}</span><b>${euro(x.net)}</b></div>`).join(''):'<div class="muted">Aucun encaissement</div>';$('sources').innerHTML=d.sources.length?d.sources.map(x=>`<div class="row"><span>${x.source} (${x.count})</span><b>${euro(x.total)}</b></div>`).join(''):'<div class="muted">Aucune commande</div>';$('msg').textContent=d.start_date+' → '+d.end_date}catch(e){$('msg').textContent='Erreur : '+e.message}}load()</script></body></html>'''.replace('__CURRENT__', current)
+        return Response(html, content_type="text/html; charset=utf-8")
