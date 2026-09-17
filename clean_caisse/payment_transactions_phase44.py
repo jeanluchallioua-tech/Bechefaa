@@ -1,7 +1,7 @@
 """Phase 4.4 — journal de transactions et socle remboursements BÉCHÉFAA.
 
 PostgreSQL reste la source de vérité. Cette phase ajoute un journal financier
-séparé des commandes afin de préparer paiements mixtes, SumUp, Stripe et
+séparé des commandes afin de préparer paiements mixtes, SumUp, Stripe, Mollie et
 remboursements partiels/intégraux sans effacer l'historique d'origine.
 """
 import time
@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from flask import jsonify, request
 
 CENT = Decimal("0.01")
-EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE"}
+EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE", "MOLLIE"}
 
 
 def _money(value):
