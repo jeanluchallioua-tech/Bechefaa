@@ -1,11 +1,14 @@
-"""Export comptable mensuel BÉCHÉFAA — lecture seule.
+"""Export comptable mensuel BÉCHÉFAA — lecture seule + envoi e-mail.
 
 Le module ne modifie ni commandes, ni paiements, ni Z. Il consolide les
 snapshots fiscaux existants et le journal des transactions pour fournir un
-aperçu mensuel et un PDF téléchargeable.
+aperçu mensuel, un PDF téléchargeable et son envoi par Gmail.
 """
+import os
+import smtplib
 from datetime import datetime, time
 from calendar import monthrange
+from email.message import EmailMessage
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
@@ -14,6 +17,7 @@ from flask import Response, jsonify, request
 PARIS = ZoneInfo("Europe/Paris")
 UTC = ZoneInfo("UTC")
 EXCLUDED_METHODS = {"CHEQUE", "CHÈQUE", "VIREMENT"}
+GMAIL_USER = os.getenv("BECHEFAA_GMAIL_USER", "bechefaa26@gmail.com").strip()
 
 
 def _month_bounds(value):
@@ -85,7 +89,6 @@ def _summary(conn, start_ms, end_ms):
             continue
         methods.append({"method": method, "net": float(row["net"] or 0)})
 
-    # Canaux métier : Salle/Table = RESTAURANT ; Livraison = LIVRAISON ; sinon = À EMPORTER.
     source_rows = conn.execute("""
         SELECT CASE
                  WHEN table_number IS NOT NULL THEN 'RESTAURANT'
@@ -202,6 +205,43 @@ def _build_pdf(lines):
     return out.getvalue()
 
 
+def _pdf_bytes(d):
+    r, s, c = d["restaurant"], d["sales"], d["cashflow"]
+    lines = [
+        ("BÉCHÉFAA - EXPORT COMPTABLE MENSUEL", 16, True),
+        (f"Période : {d['start_date']} au {d['end_date']}", 11, False),
+        ("", 8, False),
+        (r.get("legal_name") or r.get("name") or "BÉCHÉFAA", 12, True),
+        (" ".join(x for x in [r.get("address"), r.get("postal_code"), r.get("city")] if x), 9, False),
+        (f"SIRET : {r.get('siret') or '-'}", 9, False),
+        (f"TVA intracommunautaire : {r.get('vat_number') or '-'}", 9, False),
+        ("", 8, False),
+        ("SYNTHÈSE DES VENTES", 12, True),
+        (f"Commandes : {s['orders']}", 10, False),
+        (f"Chiffre d'affaires HT : {_money(s['ht'])}", 10, False),
+        (f"TVA 10 % : {_money(s['vat'])}", 10, False),
+        (f"Chiffre d'affaires TTC : {_money(s['ttc'])}", 10, False),
+        ("", 8, False),
+        ("ENCAISSEMENTS", 12, True),
+        (f"Paiements reçus : {_money(c['payments'])}", 10, False),
+        (f"Remboursements : {_money(c['refunds'])}", 10, False),
+        (f"Net encaissé : {_money(c['net'])}", 10, False),
+        ("", 8, False),
+        ("MOYENS DE PAIEMENT - NET", 12, True),
+    ]
+    for item in d["methods"]:
+        lines.append((f"{item['method']} : {_money(item['net'])}", 10, False))
+    lines.extend([("", 8, False), ("CANAUX DE VENTE", 12, True)])
+    for item in d["sources"]:
+        lines.append((f"{item['source']} - {item['count']} commande(s) : {_money(item['total'])}", 10, False))
+    lines.extend([("", 8, False), ("DÉTAIL JOURNALIER", 12, True)])
+    for day in d["daily"]:
+        net = day["payments"] - day["refunds"]
+        lines.append((f"{day['day']} | {day['orders']} cmd | ventes {_money(day['ttc'])} | encaissé net {_money(net)}", 9, False))
+    lines.extend([("", 8, False), ("Document généré en lecture seule depuis BÉCHÉFAA-Caisse.", 8, False)])
+    return _build_pdf(lines)
+
+
 def register_accounting_export_monthly_phase6(app, db):
     def get_payload(month_value):
         month, first, last, start_ms, end_ms = _month_bounds(month_value)
@@ -223,48 +263,57 @@ def register_accounting_export_monthly_phase6(app, db):
     def accounting_export_pdf_phase6():
         try:
             d = get_payload(request.args.get("month"))
-            r, s, c = d["restaurant"], d["sales"], d["cashflow"]
-            lines = [
-                ("BÉCHÉFAA - EXPORT COMPTABLE MENSUEL", 16, True),
-                (f"Période : {d['start_date']} au {d['end_date']}", 11, False),
-                ("", 8, False),
-                (r.get("legal_name") or r.get("name") or "BÉCHÉFAA", 12, True),
-                (" ".join(x for x in [r.get("address"), r.get("postal_code"), r.get("city")] if x), 9, False),
-                (f"SIRET : {r.get('siret') or '-'}", 9, False),
-                (f"TVA intracommunautaire : {r.get('vat_number') or '-'}", 9, False),
-                ("", 8, False),
-                ("SYNTHÈSE DES VENTES", 12, True),
-                (f"Commandes : {s['orders']}", 10, False),
-                (f"Chiffre d'affaires HT : {_money(s['ht'])}", 10, False),
-                (f"TVA 10 % : {_money(s['vat'])}", 10, False),
-                (f"Chiffre d'affaires TTC : {_money(s['ttc'])}", 10, False),
-                ("", 8, False),
-                ("ENCAISSEMENTS", 12, True),
-                (f"Paiements reçus : {_money(c['payments'])}", 10, False),
-                (f"Remboursements : {_money(c['refunds'])}", 10, False),
-                (f"Net encaissé : {_money(c['net'])}", 10, False),
-                ("", 8, False),
-                ("MOYENS DE PAIEMENT - NET", 12, True),
-            ]
-            for item in d["methods"]:
-                lines.append((f"{item['method']} : {_money(item['net'])}", 10, False))
-            lines.extend([("", 8, False), ("CANAUX DE VENTE", 12, True)])
-            for item in d["sources"]:
-                lines.append((f"{item['source']} - {item['count']} commande(s) : {_money(item['total'])}", 10, False))
-            lines.extend([("", 8, False), ("DÉTAIL JOURNALIER", 12, True)])
-            for day in d["daily"]:
-                net = day["payments"] - day["refunds"]
-                lines.append((f"{day['day']} | {day['orders']} cmd | ventes {_money(day['ttc'])} | encaissé net {_money(net)}", 9, False))
-            lines.extend([("", 8, False), ("Document généré en lecture seule depuis BÉCHÉFAA-Caisse.", 8, False)])
-            pdf = _build_pdf(lines)
+            pdf = _pdf_bytes(d)
             return Response(pdf, content_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=bechefaa-export-comptable-{d['month']}.pdf", "Cache-Control": "no-store"})
         except ValueError as exc:
             return Response(str(exc), status=400, content_type="text/plain; charset=utf-8")
         except Exception as exc:
             return Response("Export comptable indisponible : " + str(exc), status=500, content_type="text/plain; charset=utf-8")
 
+    @app.post("/api/accounting-export/monthly-phase6/email")
+    def accounting_export_email_phase6():
+        payload = request.get_json(silent=True) or {}
+        recipient = str(payload.get("recipient") or "").strip()
+        intro = str(payload.get("intro") or "").strip()
+        month_value = str(payload.get("month") or "").strip()
+        if not recipient or "@" not in recipient:
+            return jsonify({"ok": False, "error": "Adresse e-mail destinataire invalide"}), 400
+        app_password = os.getenv("BECHEFAA_GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+        if not app_password:
+            return jsonify({"ok": False, "error": "Envoi Gmail non configuré", "detail": "Variable BECHEFAA_GMAIL_APP_PASSWORD manquante sur Clever Cloud"}), 503
+        try:
+            d = get_payload(month_value)
+            pdf = _pdf_bytes(d)
+            subject = f"BÉCHÉFAA - Export comptable {d['month']}"
+            body = intro or (
+                "Bonjour,\n\n"
+                "Veuillez trouver en pièce jointe l'export comptable mensuel de BÉCHÉFAA.\n\n"
+                "Bien cordialement,\nBÉCHÉFAA"
+            )
+            msg = EmailMessage()
+            msg["From"] = f"BÉCHÉFAA <{GMAIL_USER}>"
+            msg["To"] = recipient
+            msg["Subject"] = subject
+            msg.set_content(body)
+            msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=f"bechefaa-export-comptable-{d['month']}.pdf")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
+                smtp.login(GMAIL_USER, app_password)
+                smtp.send_message(msg)
+            return jsonify({"ok": True, "message": "E-mail envoyé", "recipient": recipient, "sender": GMAIL_USER, "month": d["month"]})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except smtplib.SMTPAuthenticationError:
+            return jsonify({"ok": False, "error": "Authentification Gmail refusée", "detail": "Vérifiez le mot de passe d'application Gmail"}), 502
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Envoi e-mail impossible", "detail": str(exc)}), 500
+
     @app.get("/administration/export-comptable")
     def accounting_export_page_phase6():
         current = datetime.now(PARIS).strftime("%Y-%m")
-        html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Export comptable</title><style>*{box-sizing:border-box}body{margin:0;background:#070707;color:#f7f7f7;font-family:Arial,sans-serif}.w{max-width:1050px;margin:0 auto;padding:34px 18px}.hero,.box,.card{background:#101010;border:1px solid #292929;border-radius:15px}.hero{padding:22px;border-color:#735314}.hero h1{margin:0 0 6px;color:#f0bd45}.hero p{margin:0;color:#aaa}.controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:18px 0}.controls label{display:block;color:#aaa;font-size:12px;font-weight:800;margin-bottom:5px}.controls input,.controls button,.controls a{min-height:44px;border-radius:9px;border:1px solid #3a3a3a;padding:9px 12px;font-size:14px}.controls input{background:#111;color:#fff}.controls button,.controls a{background:#d99a18;color:#111;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{padding:16px}.lab{font-size:11px;color:#9a9a9a;text-transform:uppercase;font-weight:900}.val{font-size:24px;font-weight:900;margin-top:7px}.gold{color:#f0bd45}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.box{padding:18px}.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #252525}.row:last-child{border:0}.muted{color:#999}.disabled{opacity:.45;pointer-events:none}.note{margin-top:14px;color:#999;font-size:12px}@media(max-width:760px){.grid,.cols{grid-template-columns:1fr}.controls{align-items:stretch}}</style></head><body><main class="w"><section class="hero"><h1>Export comptable mensuel</h1><p>Récapitulatif fiscal et encaissements BÉCHÉFAA, en lecture seule.</p></section><div class="controls"><div><label>Mois</label><input id="month" type="month" value="__CURRENT__"></div><button onclick="load()">Afficher</button><a id="pdf" href="#">Télécharger le PDF</a><a class="disabled" href="#">Envoyer par e-mail — bientôt</a></div><section class="grid"><div class="card"><div class="lab">Commandes</div><div class="val" id="orders">—</div></div><div class="card"><div class="lab">CA HT</div><div class="val" id="ht">—</div></div><div class="card"><div class="lab">TVA 10 %</div><div class="val" id="vat">—</div></div><div class="card"><div class="lab">CA TTC</div><div class="val gold" id="ttc">—</div></div><div class="card"><div class="lab">Remboursements</div><div class="val" id="refunds">—</div></div><div class="card"><div class="lab">Net encaissé</div><div class="val gold" id="net">—</div></div></section><section class="cols"><div class="box"><h2>Moyens de paiement</h2><div id="methods"></div></div><div class="box"><h2>Canaux de vente</h2><div id="sources"></div></div></section><div id="msg" class="note"></div></main><script>const $=x=>document.getElementById(x),euro=n=>Number(n||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'});async function load(){const m=$('month').value;$('pdf').href='/api/accounting-export/monthly-phase6.pdf?month='+encodeURIComponent(m);$('msg').textContent='Chargement…';try{const r=await fetch('/api/accounting-export/monthly-phase6?month='+encodeURIComponent(m),{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');$('orders').textContent=d.sales.orders;$('ht').textContent=euro(d.sales.ht);$('vat').textContent=euro(d.sales.vat);$('ttc').textContent=euro(d.sales.ttc);$('refunds').textContent=euro(d.cashflow.refunds);$('net').textContent=euro(d.cashflow.net);$('methods').innerHTML=d.methods.length?d.methods.map(x=>`<div class="row"><span>${x.method}</span><b>${euro(x.net)}</b></div>`).join(''):'<div class="muted">Aucun encaissement</div>';$('sources').innerHTML=d.sources.length?d.sources.map(x=>`<div class="row"><span>${x.source} (${x.count})</span><b>${euro(x.total)}</b></div>`).join(''):'<div class="muted">Aucune commande</div>';$('msg').textContent=d.start_date+' → '+d.end_date}catch(e){$('msg').textContent='Erreur : '+e.message}}load()</script></body></html>'''.replace('__CURRENT__', current)
+        html = r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Export comptable</title><style>*{box-sizing:border-box}body{margin:0;background:#070707;color:#f7f7f7;font-family:Arial,sans-serif}.w{max-width:1050px;margin:0 auto;padding:34px 18px}.hero,.box,.card{background:#101010;border:1px solid #292929;border-radius:15px}.hero{padding:22px;border-color:#735314}.hero h1{margin:0 0 6px;color:#f0bd45}.hero p{margin:0;color:#aaa}.controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:18px 0}.controls label,.mail label{display:block;color:#aaa;font-size:12px;font-weight:800;margin-bottom:5px}.controls input,.controls button,.controls a,.mail input,.mail textarea,.mail button{min-height:44px;border-radius:9px;border:1px solid #3a3a3a;padding:9px 12px;font-size:14px}.controls input,.mail input,.mail textarea{background:#111;color:#fff}.controls button,.controls a,.mail button{background:#d99a18;color:#111;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{padding:16px}.lab{font-size:11px;color:#9a9a9a;text-transform:uppercase;font-weight:900}.val{font-size:24px;font-weight:900;margin-top:7px}.gold{color:#f0bd45}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.box{padding:18px}.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #252525}.row:last-child{border:0}.muted{color:#999}.note{margin-top:14px;color:#999;font-size:12px}.mail{margin-top:14px}.mailgrid{display:grid;grid-template-columns:1fr;gap:10px}.mail textarea{width:100%;min-height:115px;resize:vertical}.mail button{width:max-content}.mailstatus{margin-top:10px;font-weight:800}@media(max-width:760px){.grid,.cols{grid-template-columns:1fr}.controls{align-items:stretch}.mail button{width:100%}}</style></head><body><main class="w"><section class="hero"><h1>Export comptable mensuel</h1><p>Récapitulatif fiscal et encaissements BÉCHÉFAA, en lecture seule.</p></section><div class="controls"><div><label>Mois</label><input id="month" type="month" value="__CURRENT__"></div><button onclick="load()">Afficher</button><a id="pdf" href="#">Télécharger le PDF</a></div><section class="grid"><div class="card"><div class="lab">Commandes</div><div class="val" id="orders">—</div></div><div class="card"><div class="lab">CA HT</div><div class="val" id="ht">—</div></div><div class="card"><div class="lab">TVA 10 %</div><div class="val" id="vat">—</div></div><div class="card"><div class="lab">CA TTC</div><div class="val gold" id="ttc">—</div></div><div class="card"><div class="lab">Remboursements</div><div class="val" id="refunds">—</div></div><div class="card"><div class="lab">Net encaissé</div><div class="val gold" id="net">—</div></div></section><section class="cols"><div class="box"><h2>Moyens de paiement</h2><div id="methods"></div></div><div class="box"><h2>Canaux de vente</h2><div id="sources"></div></div></section><section class="box mail"><h2>Envoyer au comptable</h2><div class="mailgrid"><div><label>Adresse e-mail du destinataire</label><input id="recipient" type="email" placeholder="comptable@cabinet.fr"></div><div><label>Texte d'introduction</label><textarea id="intro">Bonjour,
+
+Veuillez trouver en pièce jointe l'export comptable mensuel de BÉCHÉFAA.
+
+Bien cordialement,
+BÉCHÉFAA</textarea></div><button id="sendbtn" onclick="sendMail()">Envoyer le PDF par e-mail</button></div><div id="mailstatus" class="mailstatus"></div></section><div id="msg" class="note"></div></main><script>const $=x=>document.getElementById(x),euro=n=>Number(n||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'});async function load(){const m=$('month').value;$('pdf').href='/api/accounting-export/monthly-phase6.pdf?month='+encodeURIComponent(m);$('msg').textContent='Chargement…';try{const r=await fetch('/api/accounting-export/monthly-phase6?month='+encodeURIComponent(m),{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Erreur');$('orders').textContent=d.sales.orders;$('ht').textContent=euro(d.sales.ht);$('vat').textContent=euro(d.sales.vat);$('ttc').textContent=euro(d.sales.ttc);$('refunds').textContent=euro(d.cashflow.refunds);$('net').textContent=euro(d.cashflow.net);$('methods').innerHTML=d.methods.length?d.methods.map(x=>`<div class="row"><span>${x.method}</span><b>${euro(x.net)}</b></div>`).join(''):'<div class="muted">Aucun encaissement</div>';$('sources').innerHTML=d.sources.length?d.sources.map(x=>`<div class="row"><span>${x.source} (${x.count})</span><b>${euro(x.total)}</b></div>`).join(''):'<div class="muted">Aucune commande</div>';$('msg').textContent=d.start_date+' → '+d.end_date}catch(e){$('msg').textContent='Erreur : '+e.message}}async function sendMail(){const recipient=$('recipient').value.trim(),intro=$('intro').value,month=$('month').value;if(!recipient){$('mailstatus').textContent='Saisissez l’adresse e-mail du destinataire.';return}const b=$('sendbtn');b.disabled=true;$('mailstatus').textContent='Envoi en cours…';try{const r=await fetch('/api/accounting-export/monthly-phase6/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipient,intro,month})}),d=await r.json();if(!r.ok||!d.ok)throw Error((d.error||'Envoi impossible')+(d.detail?' — '+d.detail:''));$('mailstatus').textContent='E-mail envoyé à '+d.recipient+' depuis '+d.sender+'.'}catch(e){$('mailstatus').textContent='Erreur : '+e.message}finally{b.disabled=false}}load()</script></body></html>'''.replace('__CURRENT__', current)
         return Response(html, content_type="text/html; charset=utf-8")
