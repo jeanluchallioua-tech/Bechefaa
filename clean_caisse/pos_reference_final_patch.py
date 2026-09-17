@@ -4,6 +4,7 @@
 - Un seul bouton Envoyer en cuisine : celui de l'encart haut.
 - La barre des catégories affiche uniquement les catégories métier en grille 5 x 2.
 - Le bouton Tous les produits est masqué visuellement sans supprimer sa logique interne.
+- La grille 5 x 2 est forcée en style inline important pour résister aux couches CSS antérieures.
 - Le bouton Envoyer en cuisine reprend l'accent couleur du site BÉCHÉFAA.
 Aucune logique métier ni base de données modifiée.
 """
@@ -48,6 +49,32 @@ def register_pos_reference_final_patch(app):
      });
    }
 
+   function forceCategoryGrid(){
+     const cats=document.querySelector('.cats');
+     if(!cats)return;
+     cats.style.setProperty('display','grid','important');
+     cats.style.setProperty('grid-template-columns','repeat(5,minmax(0,1fr))','important');
+     cats.style.setProperty('grid-auto-rows','minmax(44px,auto)','important');
+     cats.style.setProperty('align-items','stretch','important');
+     cats.style.setProperty('gap','9px','important');
+     cats.style.setProperty('padding','11px 16px 12px','important');
+     cats.style.setProperty('overflow','visible','important');
+     cats.style.setProperty('white-space','normal','important');
+     cats.querySelectorAll('.cat').forEach(function(el){
+       el.style.setProperty('width','100%','important');
+       el.style.setProperty('min-width','0','important');
+       el.style.setProperty('max-width','none','important');
+       el.style.setProperty('white-space','nowrap','important');
+       el.style.setProperty('overflow','hidden','important');
+       el.style.setProperty('text-overflow','ellipsis','important');
+       el.style.setProperty('display','flex','important');
+       el.style.setProperty('align-items','center','important');
+       el.style.setProperty('justify-content','center','important');
+       el.style.setProperty('text-align','center','important');
+       el.style.setProperty('padding','11px 10px','important');
+     });
+   }
+
    function hideAllProductsCategory(){
      const cats=document.querySelector('.cats');
      if(!cats)return;
@@ -55,6 +82,7 @@ def register_pos_reference_final_patch(app):
        const t=norm(el.textContent);
        if(t==='tous les produits'||t==='tous nos produits'||t==='tous produits'){
          el.classList.add('pos-ref-all-hidden');
+         el.style.setProperty('display','none','important');
        }
      });
    }
@@ -80,11 +108,13 @@ def register_pos_reference_final_patch(app):
      });
    }
 
-   function apply(){fixServiceLabel();hideAllProductsCategory();hideDuplicateKitchen();styleTopKitchen()}
+   function apply(){fixServiceLabel();forceCategoryGrid();hideAllProductsCategory();hideDuplicateKitchen();styleTopKitchen()}
    apply();
-   const cats=document.querySelector('.cats');if(cats)new MutationObserver(()=>setTimeout(hideAllProductsCategory,0)).observe(cats,{childList:true,subtree:true});
+   const cats=document.querySelector('.cats');if(cats)new MutationObserver(()=>setTimeout(()=>{forceCategoryGrid();hideAllProductsCategory()},0)).observe(cats,{childList:true,subtree:true});
    const cart=document.querySelector('.cart');if(cart)new MutationObserver(()=>setTimeout(apply,0)).observe(cart,{childList:true,subtree:true});
    const toolbar=document.querySelector('.pos-v3-toolbar');if(toolbar)new MutationObserver(()=>setTimeout(fixServiceLabel,0)).observe(toolbar,{childList:true,subtree:true});
+   setTimeout(forceCategoryGrid,150);
+   setTimeout(forceCategoryGrid,500);
  })
 })();
 </script>
@@ -99,7 +129,7 @@ def register_pos_reference_final_patch(app):
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-grid-4"
+                response.headers["X-Bechefaa-POS-Final-Patch"] = "service-kitchen-categories-grid-force-5"
         except Exception:
             pass
         return response
