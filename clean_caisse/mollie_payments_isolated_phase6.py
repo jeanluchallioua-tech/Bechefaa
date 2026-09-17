@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from flask import jsonify, request
 
 from clean_caisse.fiscal_ticket_phase44 import allocate_fiscal_ticket_number
+from clean_caisse.payment_core_phase41 import _ensure_payment_schema
 from clean_caisse.payment_transactions_phase44 import (
     ensure_payment_transaction_schema,
     record_payment_transaction,
@@ -121,8 +122,7 @@ def _apply_paid_payment(conn, ensure_order_schema, payment):
     if not payment_id or not order_id:
         raise ValueError("Référence Mollie ou commande manquante")
 
-    ensure_order_schema(conn)
-    ensure_payment_transaction_schema(conn)
+    _ensure_payment_schema(conn, ensure_order_schema)
     row = conn.execute(
         "SELECT id,num,total FROM caisse_orders WHERE id=%s FOR UPDATE",
         (order_id,),
@@ -169,8 +169,6 @@ def _apply_paid_payment(conn, ensure_order_schema, payment):
     is_full = paid_total >= total
     payment_status = "PAYÉE" if is_full else "PARTIELLEMENT PAYÉE"
 
-    # Les colonnes d'encaissement sont déjà le socle Phase 4.1 ; aucune nouvelle
-    # structure n'est créée ici.
     conn.execute("""
         UPDATE caisse_orders
         SET payment=%s,
@@ -226,8 +224,7 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
 
         try:
             with db() as conn:
-                ensure_order_schema(conn)
-                ensure_payment_transaction_schema(conn)
+                _ensure_payment_schema(conn, ensure_order_schema)
                 conn.commit()
                 order = conn.execute(
                     "SELECT id,num,total,status FROM caisse_orders WHERE id=%s",
