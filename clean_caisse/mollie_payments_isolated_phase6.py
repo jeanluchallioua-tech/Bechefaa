@@ -260,6 +260,7 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             "restaurant_provider": "BNP_TPE",
             "api_key_configured": bool(_mollie_key()),
             "return_url_configured": bool(_configured_return_url()),
+            "test_env_present": bool(str(os.getenv("BECHEFAA_TEST_ENV") or "").strip()),
             "site_enabled": _site_enabled(),
             "site_ready": configured and _site_enabled(),
             "webhook_url": _public_base_url() + "/api/mollie/webhook-phase6",
