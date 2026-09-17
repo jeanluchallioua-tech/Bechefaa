@@ -11,6 +11,7 @@ from .admin_sales_channels_ui_phase6 import register_admin_sales_channels_ui_pha
 from .google_reviews_phase6 import register_google_reviews_phase6
 from .accounting_export_monthly_phase6 import register_accounting_export_monthly_phase6
 from .mollie_payments_isolated_phase6 import register_mollie_payments_isolated_phase6
+from .site_mollie_checkout_isolated_phase6 import register_site_mollie_checkout_isolated_phase6
 from .pos_category_outline_isolated_phase6 import register_pos_category_outline_isolated_phase6
 
 
@@ -34,6 +35,7 @@ def register_settings_admin_phase44(app):
     # Mollie Phase 6 : socle isolé, non branché au parcours SITE tant que les
     # identifiants Mollie et le flux de validation ne sont pas explicitement activés.
     register_mollie_payments_isolated_phase6(app, db, ensure_order_schema)
+    register_site_mollie_checkout_isolated_phase6(app)
 
     @app.get("/parametres")
     def settings_admin_phase44():
