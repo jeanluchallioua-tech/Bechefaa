@@ -241,6 +241,15 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id):
 
 
 def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
+    @app.after_request
+    def mollie_site_cors_phase6(response):
+        if request.path.startswith("/api/mollie/"):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/api/mollie/status-phase6")
     def mollie_status_phase6():
         configured = bool(_mollie_key()) and bool(_configured_return_url())
@@ -259,8 +268,10 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             "writes_on_status": False,
         })
 
-    @app.post("/api/mollie/payments/create-phase6")
+    @app.route("/api/mollie/payments/create-phase6", methods=["POST", "OPTIONS"])
     def mollie_create_payment_phase6():
+        if request.method == "OPTIONS":
+            return ("", 204)
         payload = request.get_json(silent=True) or {}
         order_id = str(payload.get("order_id") or "").strip()
         if not order_id:
@@ -343,8 +354,10 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
         except Exception as exc:
             return jsonify({"ok": False, "error": "Lecture Mollie impossible", "detail": str(exc)}), 502
 
-    @app.post("/api/mollie/payments/<payment_id>/finalize-phase6")
+    @app.route("/api/mollie/payments/<payment_id>/finalize-phase6", methods=["POST", "OPTIONS"])
     def mollie_payment_finalize_phase6(payment_id):
+        if request.method == "OPTIONS":
+            return ("", 204)
         if not _mollie_key():
             return jsonify({"ok": False, "error": "Mollie non configuré"}), 503
         try:
