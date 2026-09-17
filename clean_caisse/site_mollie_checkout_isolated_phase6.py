@@ -18,8 +18,20 @@ from clean_caisse.site_orders_bridge_isolated_phase6 import (
 
 
 def register_site_mollie_checkout_isolated_phase6(app):
-    @app.post("/api/public/orders/mollie-phase6")
+    @app.after_request
+    def site_mollie_checkout_cors_phase6(response):
+        if request.path == "/api/public/orders/mollie-phase6":
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route("/api/public/orders/mollie-phase6", methods=["POST", "OPTIONS"])
     def site_mollie_order_phase6():
+        if request.method == "OPTIONS":
+            return ("", 204)
+
         external = request.get_json(silent=True) or {}
         internal, error = map_site_order_payload(external)
         if error:
