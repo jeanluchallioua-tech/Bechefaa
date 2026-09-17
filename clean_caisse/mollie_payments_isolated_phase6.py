@@ -117,11 +117,7 @@ def _existing_paid_total(conn, order_id):
 
 
 def _apply_paid_payment(conn, ensure_order_schema, payment):
-    """Enregistre une confirmation Mollie une seule fois.
-
-    Le navigateur n'est jamais considéré comme preuve de paiement : cette
-    fonction est appelée uniquement après relecture du paiement depuis Mollie.
-    """
+    """Enregistre une confirmation Mollie une seule fois après relecture API."""
     payment_id = str(payment.get("id") or "").strip()
     order_id = _payment_order_id(payment)
     if not payment_id or not order_id:
@@ -217,6 +213,33 @@ def _send_paid_order_to_kitchen(app, order_id):
     }
 
 
+def _finalize_payment(app, db, ensure_order_schema, payment_id):
+    """Relit Mollie, comptabilise si payé, puis envoie la commande en cuisine."""
+    payment = _mollie_request("GET", "/payments/" + str(payment_id))
+    status = str(payment.get("status") or "").lower()
+    order_id = _payment_order_id(payment)
+    if not order_id:
+        raise ValueError("Paiement Mollie sans order_id BÉCHÉFAA")
+
+    result = None
+    kitchen = None
+    if status == "paid":
+        with db() as conn:
+            with conn.transaction():
+                result = _apply_paid_payment(conn, ensure_order_schema, payment)
+        kitchen = _send_paid_order_to_kitchen(app, order_id)
+
+    return {
+        "payment_id": str(payment.get("id") or payment_id),
+        "order_id": order_id,
+        "status": status,
+        "paid": status == "paid",
+        "recorded": bool(result),
+        "result": result,
+        "kitchen": kitchen,
+    }
+
+
 def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
     @app.get("/api/mollie/status-phase6")
     def mollie_status_phase6():
@@ -242,6 +265,8 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
         order_id = str(payload.get("order_id") or "").strip()
         if not order_id:
             return jsonify({"ok": False, "error": "order_id obligatoire"}), 400
+        if not _site_enabled():
+            return jsonify({"ok": False, "error": "Paiement Mollie SITE désactivé", "code": "MOLLIE_SITE_DISABLED"}), 403
         if not _mollie_key():
             return jsonify({"ok": False, "error": "Mollie non configuré", "code": "MOLLIE_API_KEY_MISSING"}), 503
         return_url = _configured_return_url()
@@ -318,6 +343,18 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
         except Exception as exc:
             return jsonify({"ok": False, "error": "Lecture Mollie impossible", "detail": str(exc)}), 502
 
+    @app.post("/api/mollie/payments/<payment_id>/finalize-phase6")
+    def mollie_payment_finalize_phase6(payment_id):
+        if not _mollie_key():
+            return jsonify({"ok": False, "error": "Mollie non configuré"}), 503
+        try:
+            result = _finalize_payment(app, db, ensure_order_schema, payment_id)
+            return jsonify({"ok": True, **result})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Finalisation Mollie impossible", "detail": str(exc)}), 502
+
     @app.post("/api/mollie/webhook-phase6")
     def mollie_webhook_phase6():
         payload = request.get_json(silent=True) if request.is_json else None
@@ -329,33 +366,8 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
 
         try:
             # Sécurité : le webhook ne fait foi qu'après relecture API côté serveur.
-            payment = _mollie_request("GET", "/payments/" + payment_id)
-            status = str(payment.get("status") or "").lower()
-            order_id = _payment_order_id(payment)
-            if not order_id:
-                return jsonify({"ok": False, "error": "Paiement Mollie sans order_id BÉCHÉFAA"}), 400
-
-            result = None
-            kitchen = None
-            if status == "paid":
-                with db() as conn:
-                    with conn.transaction():
-                        result = _apply_paid_payment(conn, ensure_order_schema, payment)
-
-                # La transaction financière est validée avant la cuisine. En cas
-                # de webhook répété, l'encaissement reste idempotent et l'envoi
-                # cuisine peut être retenté sans doubler la commande.
-                kitchen = _send_paid_order_to_kitchen(app, order_id)
-
-            return jsonify({
-                "ok": True,
-                "payment_id": payment_id,
-                "order_id": order_id,
-                "status": status,
-                "recorded": bool(result),
-                "result": result,
-                "kitchen": kitchen,
-            })
+            result = _finalize_payment(app, db, ensure_order_schema, payment_id)
+            return jsonify({"ok": True, **result})
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
