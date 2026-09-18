@@ -97,22 +97,21 @@ def register_order_notifications_phase33(app):
  }
  function updateButton(){
    const b=document.getElementById('phase33-audio');if(!b)return;
-   if(PAGE==='pos'||!soundSettings.enabled){b.classList.add('hidden');return}
+   if(!soundSettings.enabled){b.classList.add('hidden');return}
    if(isAudioReady()){
      b.classList.add('ready');
-     b.textContent='🔊 Son cuisine prêt';
+     b.textContent=PAGE==='pos'?'🔊 Son caisse prêt':'🔊 Son cuisine prêt';
      clearTimeout(b._hideTimer);
      b._hideTimer=setTimeout(()=>b.classList.add('hidden'),1400);
    }else{
      b.classList.remove('hidden','ready');
-     b.textContent='🔇 Son en attente — touchez l’écran';
+     b.textContent=PAGE==='pos'?'🔇 Activer le son caisse':'🔇 Son en attente — touchez l’écran';
    }
  }
  function installButton(){
-   if(PAGE==='pos')return;
    if(document.getElementById('phase33-audio'))return;
    const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
-   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert('Le navigateur bloque encore le son. Touchez une fois l’écran Cuisine puis réessayez.');};
+   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert(PAGE==='pos'?'Le navigateur bloque encore le son. Cliquez une fois dans la Caisse puis réessayez.':'Le navigateur bloque encore le son. Touchez une fois l’écran Cuisine puis réessayez.');};
    updateButton();
  }
  function unlockOnInteraction(){
