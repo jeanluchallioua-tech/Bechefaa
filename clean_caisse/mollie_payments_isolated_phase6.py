@@ -54,7 +54,7 @@ def _public_base_url():
     return request.url_root.rstrip("/")
 
 
-def _mollie_request(method, path, payload=None):
+def _mollie_request(method, path, payload=None, extra_headers=None):
     key = _mollie_key()
     if not key:
         raise RuntimeError("MOLLIE_API_KEY non configurée")
@@ -65,6 +65,8 @@ def _mollie_request(method, path, payload=None):
         "Accept": "application/json",
         "User-Agent": "BECHEFAA-Caisse/phase6",
     }
+    if extra_headers:
+        headers.update({str(k): str(v) for k, v in extra_headers.items() if v is not None})
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -196,6 +198,161 @@ def _apply_paid_payment(conn, ensure_order_schema, payment):
     }
 
 
+
+def _refund_status_local(status):
+    value = str(status or "").strip().lower()
+    if value == "refunded":
+        return "SUCCEEDED"
+    if value in {"queued", "pending", "processing"}:
+        return "PENDING_EXTERNAL"
+    if value == "canceled":
+        return "CANCELED"
+    if value == "failed":
+        return "FAILED"
+    return "PENDING_EXTERNAL"
+
+
+def _refresh_order_refund_status(conn, order_id):
+    paid, refunded, pending = (Decimal("0.00"), Decimal("0.00"), Decimal("0.00"))
+    ensure_payment_transaction_schema(conn)
+    row = conn.execute("""
+        SELECT
+            COALESCE(SUM(CASE WHEN transaction_type='PAYMENT' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS paid,
+            COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS refunded,
+            COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='PENDING_EXTERNAL' THEN amount ELSE 0 END),0) AS pending
+        FROM caisse_payment_transactions WHERE order_id=%s
+    """, (order_id,)).fetchone()
+    if row:
+        paid = _money(row["paid"])
+        refunded = _money(row["refunded"])
+        pending = _money(row["pending"])
+    if pending > 0:
+        payment_status = "REMBOURSEMENT EN ATTENTE"
+    elif refunded <= 0:
+        payment_status = "PAYÉE"
+    elif refunded >= paid and paid > 0:
+        payment_status = "REMBOURSÉE"
+    else:
+        payment_status = "PARTIELLEMENT REMBOURSÉE"
+    conn.execute(
+        "UPDATE caisse_orders SET payment_status=%s,updated_at=%s WHERE id=%s",
+        (payment_status, int(time.time() * 1000), order_id),
+    )
+    return payment_status
+
+
+def _sync_mollie_refund_row(conn, refund_tx, mollie_refund):
+    local_status = _refund_status_local(mollie_refund.get("status"))
+    refund_id = str(mollie_refund.get("id") or refund_tx.get("external_reference") or "").strip() or None
+    metadata = json.dumps({
+        "mollie_status": str(mollie_refund.get("status") or ""),
+        "payment_id": str(mollie_refund.get("paymentId") or ""),
+    }, ensure_ascii=False)
+    conn.execute("""
+        UPDATE caisse_payment_transactions
+        SET status=%s,external_reference=%s,metadata=%s::jsonb
+        WHERE id=%s AND transaction_type='REFUND' AND provider='MOLLIE'
+    """, (local_status, refund_id, metadata, refund_tx["id"]))
+    payment_status = _refresh_order_refund_status(conn, refund_tx["order_id"])
+    return local_status, payment_status
+
+
+def _process_mollie_refund(db, refund_tx_id):
+    with db() as conn:
+        ensure_payment_transaction_schema(conn)
+        conn.commit()
+        refund_tx = conn.execute("""
+            SELECT r.id,r.order_id,r.amount,r.status,r.external_reference,r.reason,
+                   p.external_reference AS payment_id,p.provider AS payment_provider
+            FROM caisse_payment_transactions r
+            JOIN caisse_payment_transactions p ON p.id=r.parent_transaction_id
+            WHERE r.id=%s AND r.transaction_type='REFUND'
+        """, (refund_tx_id,)).fetchone()
+        if not refund_tx:
+            raise ValueError("Remboursement introuvable")
+        if str(refund_tx["payment_provider"] or "").upper() != "MOLLIE":
+            raise ValueError("Ce remboursement n'est pas un paiement Mollie")
+        payment_id = str(refund_tx["payment_id"] or "").strip()
+        if not payment_id:
+            raise ValueError("Référence du paiement Mollie manquante")
+
+        if refund_tx["external_reference"]:
+            mollie_refund = _mollie_request(
+                "GET",
+                f"/payments/{payment_id}/refunds/{refund_tx['external_reference']}",
+            )
+        else:
+            payload = {
+                "amount": {"currency": "EUR", "value": f"{_money(refund_tx['amount']):.2f}"},
+                "description": (str(refund_tx["reason"] or "").strip() or "Remboursement BÉCHÉFAA")[:255],
+                "metadata": {
+                    "bechefaa_refund_tx_id": refund_tx["id"],
+                    "order_id": refund_tx["order_id"],
+                },
+            }
+            mollie_refund = _mollie_request(
+                "POST",
+                f"/payments/{payment_id}/refunds",
+                payload,
+                extra_headers={"Idempotency-Key": refund_tx["id"]},
+            )
+
+        with conn.transaction():
+            current = conn.execute("""
+                SELECT id,order_id,external_reference FROM caisse_payment_transactions
+                WHERE id=%s AND transaction_type='REFUND' AND provider='MOLLIE'
+                FOR UPDATE
+            """, (refund_tx_id,)).fetchone()
+            if not current:
+                raise ValueError("Remboursement Mollie introuvable")
+            local_status, payment_status = _sync_mollie_refund_row(conn, current, mollie_refund)
+
+    return {
+        "refund_tx_id": refund_tx_id,
+        "mollie_refund_id": str(mollie_refund.get("id") or ""),
+        "mollie_status": str(mollie_refund.get("status") or ""),
+        "status": local_status,
+        "payment_status": payment_status,
+        "completed": local_status == "SUCCEEDED",
+    }
+
+
+def _sync_mollie_refunds_for_payment(db, payment_id):
+    if not payment_id:
+        return []
+    remote = _mollie_request("GET", f"/payments/{payment_id}/refunds")
+    embedded = remote.get("_embedded") if isinstance(remote, dict) else {}
+    rows = embedded.get("refunds") if isinstance(embedded, dict) else []
+    if not isinstance(rows, list) or not rows:
+        return []
+    by_id = {str(r.get("id") or ""): r for r in rows if isinstance(r, dict) and r.get("id")}
+    if not by_id:
+        return []
+    updated = []
+    with db() as conn:
+        ensure_payment_transaction_schema(conn)
+        conn.commit()
+        local_rows = conn.execute("""
+            SELECT r.id,r.order_id,r.external_reference
+            FROM caisse_payment_transactions r
+            JOIN caisse_payment_transactions p ON p.id=r.parent_transaction_id
+            WHERE r.provider='MOLLIE' AND r.transaction_type='REFUND'
+              AND p.external_reference=%s
+        """, (payment_id,)).fetchall()
+        with conn.transaction():
+            for row in local_rows:
+                external = str(row["external_reference"] or "")
+                if external and external in by_id:
+                    local_status, payment_status = _sync_mollie_refund_row(conn, row, by_id[external])
+                    updated.append({
+                        "refund_tx_id": row["id"],
+                        "mollie_refund_id": external,
+                        "status": local_status,
+                        "payment_status": payment_status,
+                    })
+    return updated
+
+
 def _send_paid_order_to_kitchen(app, order_id):
     """Envoie une commande payée en cuisine via la route métier existante."""
     with app.test_request_context(
@@ -229,6 +386,12 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id):
                 result = _apply_paid_payment(conn, ensure_order_schema, payment)
         kitchen = _send_paid_order_to_kitchen(app, order_id)
 
+    refund_sync = []
+    try:
+        refund_sync = _sync_mollie_refunds_for_payment(db, str(payment.get("id") or payment_id))
+    except Exception:
+        refund_sync = []
+
     return {
         "payment_id": str(payment.get("id") or payment_id),
         "order_id": order_id,
@@ -237,6 +400,7 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id):
         "recorded": bool(result),
         "result": result,
         "kitchen": kitchen,
+        "refund_sync": refund_sync,
     }
 
 
@@ -368,6 +532,20 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "error": "Finalisation Mollie impossible", "detail": str(exc)}), 502
+
+    @app.route("/api/mollie/refunds/<refund_tx_id>/process-phase6", methods=["POST", "OPTIONS"])
+    def mollie_refund_process_phase6(refund_tx_id):
+        if request.method == "OPTIONS":
+            return ("", 204)
+        if not _mollie_key():
+            return jsonify({"ok": False, "error": "Mollie non configuré"}), 503
+        try:
+            result = _process_mollie_refund(db, str(refund_tx_id))
+            return jsonify({"ok": True, **result})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Remboursement Mollie impossible", "detail": str(exc)}), 502
 
     @app.post("/api/mollie/webhook-phase6")
     def mollie_webhook_phase6():
