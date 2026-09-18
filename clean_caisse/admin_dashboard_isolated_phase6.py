@@ -18,6 +18,11 @@ def register_admin_dashboard_isolated_phase6(app):
             return response
 
         path = request.path
+        # Ces deux écrans sont intégrés en iframe dans Options & suppléments.
+        # La navigation Administration / Caisse existe déjà sur la page parente.
+        if path in ("/administration/options-ajout-test", "/administration/options-regles-test"):
+            return response
+
         is_admin_module = (
             path.startswith("/administration/")
             or path.startswith("/parametres")
