@@ -46,8 +46,18 @@ def register_refund_action_ui_phase44(app):
  }
  function openModal(card,id,btn){
    btn.disabled=true;
-   fetch('/api/orders/'+encodeURIComponent(id)+'/payment-transactions-phase44',{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Transactions indisponibles');return d}).then(d=>{
-     const txs=d.transactions||[];const payments=txs.filter(t=>t.transaction_type==='PAYMENT'&&t.status==='SUCCEEDED').map(p=>({p,refundable:txRefundable(txs,p)})).filter(x=>x.refundable>0.001);
+   fetch('/api/orders/'+encodeURIComponent(id)+'/payment-transactions-phase44',{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Transactions indisponibles');return d}).then(async d=>{
+     const txs=d.transactions||[];
+     const pendingMollie=txs.find(t=>t.transaction_type==='REFUND'&&String(t.provider||'').toUpperCase()==='MOLLIE'&&t.status==='PENDING_EXTERNAL');
+     if(pendingMollie){
+       const r=await fetch('/api/mollie/refunds/'+encodeURIComponent(pendingMollie.id)+'/process-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+       const out=await r.json();if(!r.ok||!out.ok)throw new Error(out.error||'Synchronisation du remboursement Mollie impossible');
+       window.__p44HistoryMetaAt=0;window.__p44HistoryMetaPromise=null;
+       if(out.completed){alert('Remboursement Mollie confirmé.');if(typeof load==='function')await load();else location.reload();}
+       else{alert('Remboursement Mollie enregistré : statut '+String(out.mollie_status||'en cours')+'.');if(typeof load==='function')await load();else location.reload();}
+       btn.disabled=false;return;
+     }
+     const payments=txs.filter(t=>t.transaction_type==='PAYMENT'&&t.status==='SUCCEEDED').map(p=>({p,refundable:txRefundable(txs,p)})).filter(x=>x.refundable>0.001);
      if(!payments.length)throw new Error('Aucun montant remboursable');
      const choice=payments[0];
      const max=choice.refundable;
@@ -65,6 +75,12 @@ def register_refund_action_ui_phase44(app):
        try{
          const r=await fetch('/api/orders/'+encodeURIComponent(id)+'/refund-phase44',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_id:choice.p.id,amount:amount,reason:reason,created_by:'CAISSE'})});
          const out=await r.json();if(!r.ok||!out.ok)throw new Error(out.error||'Remboursement impossible');
+         if(String(out.provider||'').toUpperCase()==='MOLLIE'&&out.status==='PENDING_EXTERNAL'){
+           const mr=await fetch('/api/mollie/refunds/'+encodeURIComponent(out.refund_id)+'/process-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+           const md=await mr.json();if(!mr.ok||!md.ok)throw new Error(md.error||'Remboursement Mollie impossible');
+           if(md.completed)alert('Remboursement Mollie confirmé.');
+           else alert('Remboursement Mollie enregistré : statut '+String(md.mollie_status||'en cours')+'.');
+         }
          back.remove();window.__p44HistoryMetaAt=0;window.__p44HistoryMetaPromise=null;
          if(typeof load==='function')await load();else location.reload();
        }catch(e){alert(e.message||'Remboursement impossible');this.disabled=false}
