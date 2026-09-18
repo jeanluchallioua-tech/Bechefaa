@@ -16,7 +16,7 @@ def register_payment_history_ui_phase41(app):
         addon = r'''
 <style id="phase43-payment-ui">
 .p41-pay-btn{border:0;border-radius:8px;padding:10px 12px;font-weight:900;font-size:12px;color:#fff;background:#16a34a;cursor:pointer;margin-top:7px}.p41-pay-btn:disabled{opacity:.55;cursor:not-allowed}
-.p41-paid-badge,.p41-partial-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;margin-top:7px}.p41-paid-badge{color:#166534;background:#dcfce7;border:1px solid #86efac}.p41-partial-badge{color:#92400e;background:#fef3c7;border:1px solid #fcd34d;margin-right:6px}
+.p41-paid-badge,.p41-partial-badge,.p41-refund-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:7px 10px;font-weight:900;font-size:12px;margin-top:7px}.p41-paid-badge{color:#166534;background:#dcfce7;border:1px solid #86efac}.p41-partial-badge{color:#92400e;background:#fef3c7;border:1px solid #fcd34d;margin-right:6px}.p41-refund-badge{color:#7c2d12;background:#ffedd5;border:1px solid #fdba74}
 .p43-overlay{display:none;position:fixed;inset:0;z-index:20000;background:#0009;padding:18px;align-items:center;justify-content:center}.p43-overlay.open{display:flex}.p43-modal{width:min(560px,96vw);max-height:92vh;overflow:auto;background:#fff;border-radius:18px;padding:20px;box-shadow:0 24px 70px #0007}
 .p43-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.p43-head h2{margin:0;font-size:22px}.p43-head p{margin:4px 0 0;color:#667085;font-weight:700}.p43-close{border:0;background:#eef1f4;border-radius:9px;width:42px;height:42px;font-size:24px;font-weight:900;cursor:pointer}
 .p43-total{font-size:28px;font-weight:950;text-align:center;padding:14px;background:#f7f8fa;border-radius:12px;margin-bottom:14px}.p43-amount{margin-bottom:14px;padding:14px;border:1px solid #e4e7ec;border-radius:12px;background:#fafafa}.p43-amount label{display:block;font-weight:900;margin-bottom:7px}.p43-amount input{width:100%;box-sizing:border-box;min-height:52px;border:1px solid #cfd4dc;border-radius:9px;padding:10px;font-size:20px;font-weight:800}
@@ -52,7 +52,8 @@ def register_payment_history_ui_phase41(app):
    return null;
  }
  function showPaid(card,payment){card.querySelectorAll('.p41-pay-btn,.p41-partial-badge').forEach(x=>x.remove());let badge=card.querySelector('.p41-paid-badge');if(!badge){badge=document.createElement('span');badge.className='p41-paid-badge';card.appendChild(badge)}const method=payment.payment_method||payment.payment||'Paiement';badge.textContent='✓ PAYÉE · '+method+' · '+euro(payment.paid_amount||payment.order_total||payment.total)}
- function showPartial(card,payment){card.querySelectorAll('.p41-paid-badge').forEach(x=>x.remove());let badge=card.querySelector('.p41-partial-badge');if(!badge){badge=document.createElement('span');badge.className='p41-partial-badge';card.appendChild(badge)}badge.textContent='PARTIEL · réglé '+euro(payment.paid_amount)+' · reste '+euro(payment.remaining_amount)}
+ function showPartial(card,payment){card.querySelectorAll('.p41-paid-badge,.p41-refund-badge').forEach(x=>x.remove());let badge=card.querySelector('.p41-partial-badge');if(!badge){badge=document.createElement('span');badge.className='p41-partial-badge';card.appendChild(badge)}badge.textContent='PARTIEL · réglé '+euro(payment.paid_amount)+' · reste '+euro(payment.remaining_amount)}
+ function showRefund(card,payment,status){card.querySelectorAll('.p41-pay-btn,.p41-paid-badge,.p41-partial-badge').forEach(x=>x.remove());let badge=card.querySelector('.p41-refund-badge');if(!badge){badge=document.createElement('span');badge.className='p41-refund-badge';card.appendChild(badge)}const s=String(status||payment.payment_status||'').toUpperCase();badge.textContent=s==='REMBOURSÉE'?'↩ REMBOURSÉE':'↩ REMBOURSEMENT EN ATTENTE'}
  ready(function(){
    const overlay=document.getElementById('p43-overlay'),totalEl=document.getElementById('p43-total'),orderEl=document.getElementById('p43-order'),amountEl=document.getElementById('p43-amount'),cashBox=document.getElementById('p43-cash'),received=document.getElementById('p43-received'),changeEl=document.getElementById('p43-change'),errorEl=document.getElementById('p43-error'),confirmBtn=document.getElementById('p43-confirm');
    if(!overlay)return;
@@ -86,6 +87,9 @@ def register_payment_history_ui_phase41(app):
        const existing=[...card.querySelectorAll('.p41-pay-btn')];if(existing.length>1)existing.slice(1).forEach(x=>x.remove());
        const paidBadges=[...card.querySelectorAll('.p41-paid-badge')];if(paidBadges.length>1)paidBadges.slice(1).forEach(x=>x.remove());
        const partialBadges=[...card.querySelectorAll('.p41-partial-badge')];if(partialBadges.length>1)partialBadges.slice(1).forEach(x=>x.remove());
+       const refundBadges=[...card.querySelectorAll('.p41-refund-badge')];if(refundBadges.length>1)refundBadges.slice(1).forEach(x=>x.remove());
+       if(order.payment_status==='REMBOURSEMENT EN ATTENTE'||order.payment_status==='REMBOURSÉE'){showRefund(card,order,order.payment_status);continue}
+       if(order.payment_status==='PARTIELLEMENT REMBOURSÉE'){showRefund(card,order,order.payment_status);continue}
        if(order.payment_status==='PAYÉE'){showPaid(card,order);continue}
        if(order.payment_status==='PARTIELLEMENT PAYÉE'||order.topup_required)showPartial(card,order);else card.querySelectorAll('.p41-partial-badge').forEach(x=>x.remove());
        if(order.z_locked)continue;
