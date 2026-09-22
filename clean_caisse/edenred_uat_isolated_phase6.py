@@ -712,7 +712,7 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
                 if remaining_eur > 0:
                     try:
                         mollie_data = create_mollie_payment_for_order(
-                            db, ensure_order_schema, order_id
+                            db, ensure_order_schema, order_id, test_mode=True
                         )
                     except Exception as exc:
                         return jsonify({
