@@ -142,12 +142,36 @@ def _post_json(url, payload, headers, timeout=20):
 
 def _provider_error(stage, exc):
     status = getattr(exc, "code", None)
+    provider_code = None
+    provider_message = None
+    if isinstance(exc, HTTPError):
+        try:
+            raw = exc.read().decode("utf-8", errors="replace")
+            body = json.loads(raw) if raw else {}
+            if isinstance(body, dict):
+                provider_code = body.get("code") or body.get("error") or body.get("status")
+                provider_message = body.get("message") or body.get("error_description")
+                meta = body.get("meta")
+                if isinstance(meta, dict):
+                    provider_code = provider_code or meta.get("code") or meta.get("status")
+                    messages = meta.get("messages")
+                    if not provider_message and isinstance(messages, list) and messages:
+                        first = messages[0]
+                        if isinstance(first, dict):
+                            provider_message = first.get("message") or first.get("description") or first.get("code")
+                        elif isinstance(first, str):
+                            provider_message = first
+        except Exception:
+            provider_code = None
+            provider_message = None
     return jsonify({
         "ok": False,
         "provider": "EDENRED_EDPS",
         "environment": "UAT",
         "stage": stage,
         "http_status": status,
+        "provider_code": provider_code,
+        "provider_message": provider_message,
         "error": "Edenred UAT a refusé ou interrompu cette étape.",
         "secrets_exposed": False,
     }), 502
