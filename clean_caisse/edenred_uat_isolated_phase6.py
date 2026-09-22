@@ -7,7 +7,9 @@ solde. Aucun token ni secret n'est renvoyé au navigateur.
 import json
 import os
 import secrets
+import time
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -15,9 +17,24 @@ from urllib.request import Request, urlopen
 from flask import jsonify, redirect, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+from clean_caisse.fiscal_ticket_phase44 import allocate_fiscal_ticket_number
+from clean_caisse.payment_core_phase41 import _ensure_payment_schema
+from clean_caisse.payment_transactions_phase44 import (
+    ensure_payment_transaction_schema,
+    record_payment_transaction,
+)
+
 AUTH_BASE_DEFAULT = "https://sso.sbx.edenred.io"
 PAYMENT_BASE_DEFAULT = "https://directpayment.stg.eu.edenred.io/v2"
 STATE_SALT = "bechefaa-edenred-state-phase6-v1"
+CENT = Decimal("0.01")
+
+
+def _money(value):
+    try:
+        return Decimal(str(value or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError("Montant invalide")
 
 
 def _env(name, default=""):
@@ -59,13 +76,16 @@ def _serializer(c):
     return URLSafeTimedSerializer(c["auth_client_secret"], salt=STATE_SALT)
 
 
-def _authorize_url(c, action="balance"):
+def _authorize_url(c, action="balance", state_extra=None):
     nonce = secrets.token_urlsafe(24)
-    state = _serializer(c).dumps({
+    state_payload = {
         "nonce": nonce,
         "rnd": secrets.token_urlsafe(12),
         "action": action,
-    })
+    }
+    if isinstance(state_extra, dict):
+        state_payload.update({str(k): v for k, v in state_extra.items()})
+    state = _serializer(c).dumps(state_payload)
     params = {
         "response_type": "code",
         "client_id": c["auth_client_id"],
@@ -214,7 +234,95 @@ def _extract_balance(balance):
     return None, None
 
 
-def register_edenred_uat_isolated_phase6(app):
+def _send_order_to_kitchen(app, order_id):
+    with app.test_request_context(
+        f"/api/orders/{order_id}/send-kitchen",
+        method="POST",
+        json={},
+    ):
+        response = app.full_dispatch_request()
+    data = response.get_json(silent=True) or {}
+    return {
+        "ok": 200 <= response.status_code < 300,
+        "status_code": response.status_code,
+        "status": data.get("status"),
+        "error": data.get("error"),
+    }
+
+
+def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eur, external_reference):
+    _ensure_payment_schema(conn, ensure_order_schema)
+    ensure_payment_transaction_schema(conn)
+
+    row = conn.execute(
+        "SELECT id,num,total,payment_status FROM caisse_orders WHERE id=%s FOR UPDATE",
+        (order_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError("Commande BÉCHÉFAA introuvable")
+    if str(row.get("payment_status") or "") == "PAYÉE":
+        return {
+            "duplicate": True,
+            "order_id": order_id,
+            "num": row["num"],
+            "payment_status": "PAYÉE",
+        }
+
+    existing = conn.execute("""
+        SELECT id FROM caisse_payment_transactions
+        WHERE order_id=%s AND provider='EDENRED_EDPS'
+          AND transaction_type='PAYMENT' AND status='SUCCEEDED'
+        LIMIT 1
+    """, (order_id,)).fetchone()
+    if existing:
+        return {
+            "duplicate": True,
+            "order_id": order_id,
+            "num": row["num"],
+            "payment_status": "PAYÉE",
+            "transaction_id": existing["id"],
+        }
+
+    total = _money(row["total"])
+    amount = _money(amount_eur)
+    if amount != total:
+        raise ValueError("Le montant Edenred ne correspond pas au total de la commande")
+
+    now = int(time.time() * 1000)
+    tx_id = record_payment_transaction(
+        conn,
+        order_id,
+        "TITRE RESTAURANT",
+        amount,
+        provider="EDENRED_EDPS",
+        external_reference=external_reference,
+        created_by="EDENRED_UAT",
+    )
+    fiscal_ticket_number = allocate_fiscal_ticket_number(
+        conn, ensure_order_schema, order_id, now
+    )
+    conn.execute("""
+        UPDATE caisse_orders
+        SET payment=%s,
+            payment_status='PAYÉE',
+            payment_method=%s,
+            paid_amount=%s,
+            paid_at=%s,
+            updated_at=%s
+        WHERE id=%s
+    """, ("TITRE RESTAURANT", "TITRE RESTAURANT", amount, now, now, order_id))
+
+    return {
+        "duplicate": False,
+        "order_id": order_id,
+        "num": row["num"],
+        "payment_status": "PAYÉE",
+        "transaction_id": tx_id,
+        "fiscal_ticket_number": fiscal_ticket_number,
+    }
+
+
+def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None):
     @app.get("/api/edenred/status-phase6")
     def edenred_status_phase6():
         c = _config()
@@ -276,6 +384,36 @@ def register_edenred_uat_isolated_phase6(app):
         if not _configured(c):
             return jsonify({"ok": False, "error": "Configuration Edenred UAT incomplète", "code": "EDENRED_CONFIG_INCOMPLETE"}), 503
         return redirect(_authorize_url(c, "payment_uat_100"), code=302)
+
+    @app.get("/api/edenred/orders/<order_id>/start-uat-phase6")
+    def edenred_order_start_uat_phase6(order_id):
+        c = _config()
+        if not _enabled():
+            return jsonify({"ok": False, "error": "Edenred UAT désactivé", "code": "EDENRED_DISABLED"}), 403
+        if not _configured(c) or db is None or ensure_order_schema is None:
+            return jsonify({"ok": False, "error": "Edenred UAT indisponible", "code": "EDENRED_NOT_READY"}), 503
+
+        try:
+            with db() as conn:
+                _ensure_payment_schema(conn, ensure_order_schema)
+                conn.commit()
+                row = conn.execute(
+                    "SELECT id,num,total,payment_status,source FROM caisse_orders WHERE id=%s",
+                    (order_id,),
+                ).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "Commande introuvable"}), 404
+            if str(row.get("payment_status") or "") == "PAYÉE":
+                return jsonify({"ok": False, "error": "Commande déjà payée"}), 409
+            if str(row.get("source") or "").upper() not in {"EMPORTER", "LIVRAISON", "SITE"}:
+                return jsonify({"ok": False, "error": "Commande non éligible au paiement SITE Edenred"}), 409
+        except Exception:
+            return jsonify({"ok": False, "error": "Vérification de la commande impossible"}), 503
+
+        return redirect(
+            _authorize_url(c, "site_order_uat", {"order_id": str(order_id)}),
+            code=302,
+        )
 
     @app.post("/api/edenred/callback-phase6")
     def edenred_callback_phase6():
@@ -366,7 +504,7 @@ def register_edenred_uat_isolated_phase6(app):
         balance_shape = _safe_shape(balance)
         action = str(state_data.get("action") or "balance")
 
-        if action != "payment_uat_100":
+        if action not in {"payment_uat_100", "site_order_uat"}:
             return jsonify({
                 "ok": True,
                 "provider": "EDENRED_EDPS",
@@ -385,6 +523,171 @@ def register_edenred_uat_isolated_phase6(app):
                 "tokens_exposed": False,
                 "secrets_exposed": False,
                 "state_validated": bool(state_data),
+            })
+
+        if action == "site_order_uat":
+            if db is None or ensure_order_schema is None:
+                return jsonify({"ok": False, "error": "Paiement commande Edenred indisponible"}), 503
+
+            order_id = str(state_data.get("order_id") or "").strip()
+            if not order_id:
+                return jsonify({"ok": False, "error": "Commande Edenred absente du state"}), 400
+
+            try:
+                with db() as conn:
+                    _ensure_payment_schema(conn, ensure_order_schema)
+                    conn.commit()
+                    order = conn.execute(
+                        "SELECT id,num,total,payment_status FROM caisse_orders WHERE id=%s",
+                        (order_id,),
+                    ).fetchone()
+                if not order:
+                    return jsonify({"ok": False, "error": "Commande introuvable"}), 404
+                if str(order.get("payment_status") or "") == "PAYÉE":
+                    return jsonify({
+                        "ok": True,
+                        "provider": "EDENRED_EDPS",
+                        "environment": "UAT",
+                        "stage": "already_paid",
+                        "order_id": order_id,
+                        "order_num": order["num"],
+                        "payment_status": "PAYÉE",
+                        "transaction_created": False,
+                        "secrets_exposed": False,
+                    })
+
+                total_eur = _money(order["total"])
+                order_amount_cents = int((total_eur * 100).to_integral_value())
+                if not isinstance(amount, (int, float)) or amount < order_amount_cents:
+                    return jsonify({
+                        "ok": False,
+                        "provider": "EDENRED_EDPS",
+                        "environment": "UAT",
+                        "stage": "pre_transaction",
+                        "error": "Solde Edenred disponible insuffisant pour cette commande.",
+                        "available_amount_cents": amount,
+                        "order_amount_cents": order_amount_cents,
+                        "transaction_created": False,
+                        "secrets_exposed": False,
+                    }), 400
+
+                order_ref = "BCH-" + str(order["num"]) + "-" + str(order_id)[-8:].upper()
+                tstamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                payment_payload = {
+                    "order_ref": order_ref,
+                    "mid": c["mid"],
+                    "amount": order_amount_cents,
+                    "capture_mode": "auto",
+                    "extra_field": order_ref,
+                    "tstamp": tstamp,
+                }
+                _, transaction = _post_json(
+                    c["payment_base"] + "/transactions",
+                    payment_payload,
+                    {
+                        "Authorization": "Bearer " + access_token,
+                        "X-Client-Id": c["payment_client_id"],
+                        "X-Client-Secret": c["payment_client_secret"],
+                    },
+                )
+            except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+                if isinstance(exc, ValueError):
+                    return jsonify({"ok": False, "error": str(exc), "stage": "transaction"}), 400
+                return _provider_error("transaction", exc)
+            except Exception:
+                return jsonify({"ok": False, "error": "Paiement Edenred UAT impossible", "stage": "transaction"}), 502
+
+            tx_data = transaction.get("data") if isinstance(transaction, dict) else {}
+            tx_data = tx_data if isinstance(tx_data, dict) else {}
+            tx_meta = transaction.get("meta") if isinstance(transaction, dict) else {}
+            tx_meta = tx_meta if isinstance(tx_meta, dict) else {}
+            captured_amount = tx_data.get("captured_amount")
+            if captured_amount is None:
+                captured_amount = tx_data.get("capture_amount")
+            captured = (
+                str(tx_meta.get("status") or "").lower() == "succeeded"
+                and str(tx_data.get("status") or "").lower() == "captured"
+                and int(captured_amount or 0) == order_amount_cents
+            )
+            if not captured:
+                return jsonify({
+                    "ok": False,
+                    "provider": "EDENRED_EDPS",
+                    "environment": "UAT",
+                    "stage": "transaction",
+                    "transaction_status": tx_data.get("status"),
+                    "provider_status": tx_meta.get("status"),
+                    "captured_amount_cents": captured_amount,
+                    "order_amount_cents": order_amount_cents,
+                    "transaction_created": True,
+                    "payment_recorded": False,
+                    "secrets_exposed": False,
+                }), 502
+
+            external_reference = str(
+                tx_data.get("capture_id")
+                or tx_data.get("authorization_id")
+                or tx_data.get("order_ref")
+                or order_ref
+            )
+            try:
+                with db() as conn:
+                    with conn.transaction():
+                        recorded = _record_edenred_order_payment(
+                            conn,
+                            ensure_order_schema,
+                            order_id,
+                            total_eur,
+                            external_reference,
+                        )
+                kitchen = _send_order_to_kitchen(app, order_id)
+            except ValueError as exc:
+                return jsonify({
+                    "ok": False,
+                    "provider": "EDENRED_EDPS",
+                    "environment": "UAT",
+                    "stage": "record_payment",
+                    "error": str(exc),
+                    "transaction_created": True,
+                    "payment_recorded": False,
+                    "secrets_exposed": False,
+                }), 500
+            except Exception:
+                return jsonify({
+                    "ok": False,
+                    "provider": "EDENRED_EDPS",
+                    "environment": "UAT",
+                    "stage": "record_payment",
+                    "error": "Transaction Edenred capturée mais enregistrement local à vérifier.",
+                    "transaction_created": True,
+                    "payment_recorded": False,
+                    "secrets_exposed": False,
+                }), 500
+
+            return jsonify({
+                "ok": True,
+                "provider": "EDENRED_EDPS",
+                "environment": "UAT",
+                "stage": "completed",
+                "order_id": order_id,
+                "order_num": recorded.get("num"),
+                "order_amount_cents": order_amount_cents,
+                "available_amount_before_cents": amount,
+                "currency": currency or "EUR",
+                "transaction_created": True,
+                "transaction_status": tx_data.get("status"),
+                "provider_status": tx_meta.get("status"),
+                "authorization_id_present": bool(tx_data.get("authorization_id")),
+                "capture_id_present": bool(tx_data.get("capture_id")),
+                "captured_amount_cents": captured_amount,
+                "payment_recorded": True,
+                "payment_status": recorded.get("payment_status"),
+                "local_transaction_id": recorded.get("transaction_id"),
+                "fiscal_ticket_number": recorded.get("fiscal_ticket_number"),
+                "kitchen": kitchen,
+                "tokens_exposed": False,
+                "secrets_exposed": False,
+                "state_validated": True,
             })
 
         test_amount = 100
