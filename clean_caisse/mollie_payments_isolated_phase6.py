@@ -404,6 +404,68 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id):
     }
 
 
+def create_mollie_payment_for_order(db, ensure_order_schema, order_id):
+    """Crée un paiement Mollie pour le solde restant d'une commande.
+
+    Utilisable directement par le flux mixte Edenred sans dépendre d'un
+    dispatch HTTP interne Flask.
+    """
+    order_id = str(order_id or "").strip()
+    if not order_id:
+        raise ValueError("order_id obligatoire")
+    if not _site_enabled():
+        raise PermissionError("Paiement Mollie SITE désactivé")
+    if not _mollie_key():
+        raise RuntimeError("Mollie non configuré")
+    return_url = _configured_return_url()
+    if not return_url:
+        raise RuntimeError("URL de retour Mollie non configurée")
+
+    with db() as conn:
+        _ensure_payment_schema(conn, ensure_order_schema)
+        conn.commit()
+        order = conn.execute(
+            "SELECT id,num,total,status FROM caisse_orders WHERE id=%s",
+            (order_id,),
+        ).fetchone()
+        if not order:
+            raise LookupError("Commande introuvable")
+        paid = _existing_paid_total(conn, order_id)
+        total = _money(order["total"])
+
+    remaining = max(Decimal("0.00"), total - paid)
+    if remaining <= 0:
+        raise ValueError("Commande déjà payée")
+
+    mollie_payload = {
+        "amount": {"currency": "EUR", "value": f"{remaining:.2f}"},
+        "description": f"BÉCHÉFAA commande #{order['num']}",
+        "method": "creditcard",
+        "redirectUrl": return_url,
+        "webhookUrl": _public_base_url() + "/api/mollie/webhook-phase6",
+        "metadata": {
+            "order_id": order_id,
+            "order_num": str(order["num"]),
+            "channel": "SITE",
+            "integration": "BECHEFAA_PHASE6",
+        },
+    }
+    payment = _mollie_request("POST", "/payments", mollie_payload)
+    checkout = _checkout_url(payment)
+    if not payment.get("id") or not checkout:
+        raise RuntimeError("Mollie n'a pas retourné de lien de paiement")
+
+    return {
+        "ok": True,
+        "provider": "MOLLIE",
+        "order_id": order_id,
+        "payment_id": payment.get("id"),
+        "status": payment.get("status"),
+        "amount": float(remaining),
+        "checkout_url": checkout,
+    }
+
+
 def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
     @app.after_request
     def mollie_site_cors_phase6(response):
@@ -439,62 +501,15 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             return ("", 204)
         payload = request.get_json(silent=True) or {}
         order_id = str(payload.get("order_id") or "").strip()
-        if not order_id:
-            return jsonify({"ok": False, "error": "order_id obligatoire"}), 400
-        if not _site_enabled():
-            return jsonify({"ok": False, "error": "Paiement Mollie SITE désactivé", "code": "MOLLIE_SITE_DISABLED"}), 403
-        if not _mollie_key():
-            return jsonify({"ok": False, "error": "Mollie non configuré", "code": "MOLLIE_API_KEY_MISSING"}), 503
-        return_url = _configured_return_url()
-        if not return_url:
-            return jsonify({"ok": False, "error": "URL de retour Mollie non configurée", "code": "MOLLIE_RETURN_URL_MISSING"}), 503
-
         try:
-            with db() as conn:
-                _ensure_payment_schema(conn, ensure_order_schema)
-                conn.commit()
-                order = conn.execute(
-                    "SELECT id,num,total,status FROM caisse_orders WHERE id=%s",
-                    (order_id,),
-                ).fetchone()
-                if not order:
-                    return jsonify({"ok": False, "error": "Commande introuvable"}), 404
-                paid = _existing_paid_total(conn, order_id)
-                total = _money(order["total"])
-
-            remaining = max(Decimal("0.00"), total - paid)
-            if remaining <= 0:
-                return jsonify({"ok": False, "error": "Commande déjà payée"}), 409
-
-            mollie_payload = {
-                "amount": {"currency": "EUR", "value": f"{remaining:.2f}"},
-                "description": f"BÉCHÉFAA commande #{order['num']}",
-                "method": "creditcard",
-                "redirectUrl": return_url,
-                "webhookUrl": _public_base_url() + "/api/mollie/webhook-phase6",
-                "metadata": {
-                    "order_id": order_id,
-                    "order_num": str(order["num"]),
-                    "channel": "SITE",
-                    "integration": "BECHEFAA_PHASE6",
-                },
-            }
-            payment = _mollie_request("POST", "/payments", mollie_payload)
-            checkout = _checkout_url(payment)
-            if not payment.get("id") or not checkout:
-                raise RuntimeError("Mollie n'a pas retourné de lien de paiement")
-
-            return jsonify({
-                "ok": True,
-                "provider": "MOLLIE",
-                "order_id": order_id,
-                "payment_id": payment.get("id"),
-                "status": payment.get("status"),
-                "amount": float(remaining),
-                "checkout_url": checkout,
-            }), 201
+            result = create_mollie_payment_for_order(db, ensure_order_schema, order_id)
+            return jsonify(result), 201
+        except PermissionError:
+            return jsonify({"ok": False, "error": "Paiement Mollie SITE désactivé", "code": "MOLLIE_SITE_DISABLED"}), 403
+        except LookupError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return jsonify({"ok": False, "error": str(exc)}), 409 if "déjà payée" in str(exc) else 400
         except Exception as exc:
             return jsonify({"ok": False, "error": "Création du paiement Mollie impossible", "detail": str(exc)}), 502
 
