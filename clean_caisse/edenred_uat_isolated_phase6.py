@@ -275,7 +275,7 @@ def _send_order_to_kitchen(app, order_id):
     }
 
 
-def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eur, external_reference):
+def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eur, external_reference, created_by="EDENRED_UAT"):
     """Enregistre Edenred sans forcer le paiement total.
 
     Permet le paiement mixte : Edenred couvre tout ou partie, puis le solde
@@ -338,7 +338,7 @@ def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eu
         amount,
         provider="EDENRED_EDPS",
         external_reference=external_reference,
-        created_by="EDENRED_UAT",
+        created_by=created_by,
     )
 
     now = int(time.time() * 1000)
