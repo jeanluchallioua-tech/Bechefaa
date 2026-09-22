@@ -171,7 +171,7 @@ def register_security_pin_phase44(app, db, ensure_order_schema):
                     user = current_user(conn)
                     if not user:
                         return jsonify({"ok": False, "error": "Authentification PIN requise"}), 403
-                    rows = conn.execute("""SELECT id,customer_name,source,status,total,table_number,table_label,
+                    rows = conn.execute("""SELECT id,num,customer_name,source,status,total,table_number,table_label,
                                                   payment_status,paid_amount,z_closure_id,created_at
                                            FROM caisse_orders
                                            WHERE COALESCE(cancellation_hidden,FALSE)=FALSE
@@ -191,7 +191,7 @@ def register_security_pin_phase44(app, db, ensure_order_schema):
                 ps = str(r.get("payment_status") or "À ENCAISSER").upper()
                 unpaid = float(r.get("paid_amount") or 0) <= 0 and ps in {"À ENCAISSER", "A ENCAISSER", "NON PAYÉE", "NON PAYEE"} and r.get("z_closure_id") is None
                 orders.append({
-                    "id": r["id"], "label": label, "status": r["status"], "total": float(r["total"] or 0),
+                    "id": r["id"], "num": r["num"], "label": label, "status": r["status"], "total": float(r["total"] or 0),
                     "payment_status": r.get("payment_status"), "unpaid_cancellable": unpaid,
                 })
             return jsonify({"ok": True, "user": {"key": user["user_key"], "label": user["label"]}, "orders": orders})
@@ -209,7 +209,7 @@ async function status(){let r=await fetch('/api/security/status-phase44',{cache:
 async function bootstrap(){msg('Enregistrement…');let r=await fetch('/api/security/bootstrap-phase44',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({admin_pin:document.getElementById('admin-pin').value,caisse_pin:document.getElementById('caisse-pin').value})}),d=await r.json();msg(d.ok?'PIN enregistrés. Identifiez-vous.':(d.error||'Erreur'));if(d.ok)status()}
 async function login(){msg('Vérification…');let r=await fetch('/api/security/login-phase44',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:document.getElementById('profile').value,pin:document.getElementById('pin').value})}),d=await r.json();msg(d.ok?'Accès autorisé.':(d.error||'Erreur'));if(d.ok)status()}
 async function logout(){await fetch('/api/security/logout-phase44',{method:'POST'});msg('Session fermée.');document.getElementById('orders').innerHTML='';status()}
-async function loadOrders(){let r=await fetch('/api/security/orders-phase44',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok){msg(d.error||'Lecture impossible');return}document.getElementById('orders').innerHTML=d.orders.length?d.orders.map(o=>`<div class="order"><div class="row"><div><b>${esc(o.label)}</b><div class="muted">${esc(o.status)} · ${Number(o.total||0).toFixed(2).replace('.',',')} € · ${esc(o.payment_status||'')}</div><div class="id">ID technique : ${esc(o.id)}</div></div>${o.unpaid_cancellable?`<button class="danger" onclick="cancelOrder('${esc(o.id)}','${esc(o.label)}')">Annuler</button>`:''}</div></div>`).join(''):'<div class="muted">Aucune commande.</div>'}
+async function loadOrders(){let r=await fetch('/api/security/orders-phase44',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok){msg(d.error||'Lecture impossible');return}document.getElementById('orders').innerHTML=d.orders.length?d.orders.map(o=>`<div class="order"><div class="row"><div><b>Commande #${esc(o.num)} — ${esc(o.label)}</b><div class="muted">${esc(o.status)} · ${Number(o.total||0).toFixed(2).replace('.',',')} € · ${esc(o.payment_status||'')}</div><div class="id">ID technique : ${esc(o.id)}</div></div>${o.unpaid_cancellable?`<button class="danger" onclick="cancelOrder('${esc(o.id)}','${esc(o.label)}')">Annuler</button>`:''}</div></div>`).join(''):'<div class="muted">Aucune commande.</div>'}
 async function cancelOrder(id,label){if(!confirm('Annuler '+label+' ? Cette action concerne uniquement une commande non payée.'))return;let r=await fetch('/api/orders/'+encodeURIComponent(id)+'/cancel-phase44',{method:'POST'}),d=await r.json();if(!r.ok||!d.ok){alert(d.error||'Annulation impossible');return}await loadOrders()}
 status();
 </script></body></html>'''
