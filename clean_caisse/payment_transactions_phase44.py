@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from flask import jsonify, request
 
 CENT = Decimal("0.01")
-EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE", "MOLLIE"}
+EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE", "MOLLIE", "EDENRED_EDPS"}
 
 
 def _money(value):
