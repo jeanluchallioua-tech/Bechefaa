@@ -7,6 +7,7 @@ solde. Aucun token ni secret n'est renvoyé au navigateur.
 import json
 import os
 import secrets
+from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -58,11 +59,12 @@ def _serializer(c):
     return URLSafeTimedSerializer(c["auth_client_secret"], salt=STATE_SALT)
 
 
-def _authorize_url(c):
+def _authorize_url(c, action="balance"):
     nonce = secrets.token_urlsafe(24)
     state = _serializer(c).dumps({
         "nonce": nonce,
         "rnd": secrets.token_urlsafe(12),
+        "action": action,
     })
     params = {
         "response_type": "code",
@@ -101,6 +103,21 @@ def _get_json(url, headers, timeout=20):
     with urlopen(req, timeout=timeout) as r:
         return r.status, json.loads(r.read().decode("utf-8"))
 
+
+def _post_json(url, payload, headers, timeout=20):
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            **headers,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "BECHEFAA-EDENRED-UAT",
+        },
+        method="POST",
+    )
+    with urlopen(req, timeout=timeout) as r:
+        return r.status, json.loads(r.read().decode("utf-8"))
 
 def _provider_error(stage, exc):
     status = getattr(exc, "code", None)
@@ -248,7 +265,17 @@ def register_edenred_uat_isolated_phase6(app):
             return jsonify({"ok": False, "error": "Edenred SITE désactivé", "code": "EDENRED_DISABLED"}), 403
         if not _configured(c):
             return jsonify({"ok": False, "error": "Configuration Edenred UAT incomplète", "code": "EDENRED_CONFIG_INCOMPLETE"}), 503
-        return redirect(_authorize_url(c), code=302)
+        return redirect(_authorize_url(c, "balance"), code=302)
+
+    @app.get("/api/edenred/test-payment-phase6")
+    def edenred_test_payment_phase6():
+        """Démarre explicitement un paiement UAT isolé de 1,00 EUR."""
+        c = _config()
+        if not _enabled():
+            return jsonify({"ok": False, "error": "Edenred SITE désactivé", "code": "EDENRED_DISABLED"}), 403
+        if not _configured(c):
+            return jsonify({"ok": False, "error": "Configuration Edenred UAT incomplète", "code": "EDENRED_CONFIG_INCOMPLETE"}), 503
+        return redirect(_authorize_url(c, "payment_uat_100"), code=302)
 
     @app.post("/api/edenred/callback-phase6")
     def edenred_callback_phase6():
@@ -337,21 +364,96 @@ def register_edenred_uat_isolated_phase6(app):
 
         amount, currency = _extract_balance(balance)
         balance_shape = _safe_shape(balance)
+        action = str(state_data.get("action") or "balance")
+
+        if action != "payment_uat_100":
+            return jsonify({
+                "ok": True,
+                "provider": "EDENRED_EDPS",
+                "environment": "UAT",
+                "stage": "balance",
+                "authentication": "succeeded",
+                "token_exchange": "succeeded",
+                "userinfo": "succeeded",
+                "balance_read": "succeeded",
+                "username_present": True,
+                "available_amount_cents": amount,
+                "available_amount_eur": (amount / 100.0) if isinstance(amount, (int, float)) else None,
+                "currency": currency,
+                "balance_shape": balance_shape,
+                "transaction_created": False,
+                "tokens_exposed": False,
+                "secrets_exposed": False,
+                "state_validated": bool(state_data),
+            })
+
+        test_amount = 100
+        if not isinstance(amount, (int, float)) or amount < test_amount:
+            return jsonify({
+                "ok": False,
+                "provider": "EDENRED_EDPS",
+                "environment": "UAT",
+                "stage": "pre_transaction",
+                "error": "Solde Edenred UAT insuffisant pour le test de 1,00 EUR.",
+                "available_amount_cents": amount,
+                "test_amount_cents": test_amount,
+                "transaction_created": False,
+                "tokens_exposed": False,
+                "secrets_exposed": False,
+            }), 400
+
+        order_ref = "BCH-UAT-" + secrets.token_hex(6).upper()
+        tstamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        payment_payload = {
+            "order_ref": order_ref,
+            "mid": c["mid"],
+            "amount": test_amount,
+            "capture_mode": "auto",
+            "extra_field": order_ref,
+            "tstamp": tstamp,
+        }
+        try:
+            _, transaction = _post_json(
+                c["payment_base"] + "/transactions",
+                payment_payload,
+                {
+                    "Authorization": "Bearer " + access_token,
+                    "X-Client-Id": c["payment_client_id"],
+                    "X-Client-Secret": c["payment_client_secret"],
+                },
+            )
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            return _provider_error("transaction", exc)
+
+        tx_data = transaction.get("data") if isinstance(transaction, dict) else {}
+        tx_data = tx_data if isinstance(tx_data, dict) else {}
+        tx_meta = transaction.get("meta") if isinstance(transaction, dict) else {}
+        tx_meta = tx_meta if isinstance(tx_meta, dict) else {}
+        captured_amount = tx_data.get("captured_amount")
+        if captured_amount is None:
+            captured_amount = tx_data.get("capture_amount")
+
         return jsonify({
-            "ok": True,
+            "ok": str(tx_meta.get("status") or "").lower() == "succeeded" and str(tx_data.get("status") or "").lower() == "captured",
             "provider": "EDENRED_EDPS",
             "environment": "UAT",
-            "stage": "balance",
+            "stage": "transaction",
             "authentication": "succeeded",
             "token_exchange": "succeeded",
             "userinfo": "succeeded",
             "balance_read": "succeeded",
-            "username_present": True,
-            "available_amount_cents": amount,
-            "available_amount_eur": (amount / 100.0) if isinstance(amount, (int, float)) else None,
-            "currency": currency,
-            "balance_shape": balance_shape,
-            "transaction_created": False,
+            "available_amount_before_cents": amount,
+            "test_amount_cents": test_amount,
+            "test_amount_eur": 1.0,
+            "currency": currency or "EUR",
+            "transaction_created": True,
+            "transaction_status": tx_data.get("status"),
+            "order_ref": tx_data.get("order_ref") or order_ref,
+            "authorization_id_present": bool(tx_data.get("authorization_id")),
+            "capture_id_present": bool(tx_data.get("capture_id")),
+            "authorized_amount_cents": tx_data.get("authorized_amount"),
+            "captured_amount_cents": captured_amount,
+            "provider_status": tx_meta.get("status"),
             "tokens_exposed": False,
             "secrets_exposed": False,
             "state_validated": bool(state_data),
