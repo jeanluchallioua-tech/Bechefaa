@@ -115,6 +115,88 @@ def _provider_error(stage, exc):
     }), 502
 
 
+def _safe_shape(value, depth=0):
+    """Retourne uniquement la structure d'une réponse JSON, jamais les valeurs sensibles."""
+    if depth > 3:
+        return type(value).__name__
+    if isinstance(value, dict):
+        return {str(k): _safe_shape(v, depth + 1) for k, v in list(value.items())[:30]}
+    if isinstance(value, list):
+        sample = [_safe_shape(v, depth + 1) for v in value[:3]]
+        return {"type": "list", "length": len(value), "sample": sample}
+    if value is None:
+        return "null"
+    return type(value).__name__
+
+
+def _extract_balance(balance):
+    """Tolère plusieurs formes de réponse Edenred EDPS UAT."""
+    if not isinstance(balance, dict):
+        return None, None
+
+    candidates = []
+    candidates.append(balance)
+    data = balance.get("data")
+    if isinstance(data, dict):
+        candidates.append(data)
+    elif isinstance(data, list):
+        candidates.extend(x for x in data if isinstance(x, dict))
+
+    for key in ("balances", "wallets", "accounts", "products"):
+        value = balance.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+        elif isinstance(value, list):
+            candidates.extend(x for x in value if isinstance(x, dict))
+        if isinstance(data, dict):
+            value = data.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+            elif isinstance(value, list):
+                candidates.extend(x for x in value if isinstance(x, dict))
+
+    amount_keys = (
+        "available_amount", "availableAmount", "available_balance", "availableBalance",
+        "balance", "amount", "value", "available",
+    )
+    currency_keys = ("currency", "currency_code", "currencyCode")
+
+    for obj in candidates:
+        if not isinstance(obj, dict):
+            continue
+        amount = None
+        currency = None
+        for k in amount_keys:
+            v = obj.get(k)
+            if isinstance(v, (int, float)):
+                amount = v
+                break
+            if isinstance(v, dict):
+                for nk in ("amount", "value", "minor_units", "minorUnits"):
+                    nv = v.get(nk)
+                    if isinstance(nv, (int, float)):
+                        amount = nv
+                        break
+                if amount is not None:
+                    for ck in currency_keys:
+                        cv = v.get(ck)
+                        if isinstance(cv, str) and cv.strip():
+                            currency = cv.strip()
+                            break
+                    break
+        if amount is None:
+            continue
+        if not currency:
+            for ck in currency_keys:
+                cv = obj.get(ck)
+                if isinstance(cv, str) and cv.strip():
+                    currency = cv.strip()
+                    break
+        return amount, currency
+
+    return None, None
+
+
 def register_edenred_uat_isolated_phase6(app):
     @app.get("/api/edenred/status-phase6")
     def edenred_status_phase6():
@@ -253,10 +335,8 @@ def register_edenred_uat_isolated_phase6(app):
         except (HTTPError, URLError, TimeoutError, ValueError) as exc:
             return _provider_error("balance", exc)
 
-        data = balance.get("data") if isinstance(balance, dict) else {}
-        data = data if isinstance(data, dict) else {}
-        amount = data.get("available_amount")
-        currency = data.get("currency")
+        amount, currency = _extract_balance(balance)
+        balance_shape = _safe_shape(balance)
         return jsonify({
             "ok": True,
             "provider": "EDENRED_EDPS",
@@ -270,6 +350,7 @@ def register_edenred_uat_isolated_phase6(app):
             "available_amount_cents": amount,
             "available_amount_eur": (amount / 100.0) if isinstance(amount, (int, float)) else None,
             "currency": currency,
+            "balance_shape": balance_shape,
             "transaction_created": False,
             "tokens_exposed": False,
             "secrets_exposed": False,
