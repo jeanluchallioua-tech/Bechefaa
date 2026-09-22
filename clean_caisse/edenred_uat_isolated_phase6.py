@@ -23,6 +23,7 @@ from clean_caisse.payment_transactions_phase44 import (
     ensure_payment_transaction_schema,
     record_payment_transaction,
 )
+from clean_caisse.mollie_payments_isolated_phase6 import create_mollie_payment_for_order
 
 AUTH_BASE_DEFAULT = "https://sso.sbx.edenred.io"
 PAYMENT_BASE_DEFAULT = "https://directpayment.stg.eu.edenred.io/v2"
@@ -685,20 +686,18 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
                 next_payment = None
 
                 if remaining_eur > 0:
-                    with app.test_request_context(
-                        "/api/mollie/payments/create-phase6",
-                        method="POST",
-                        json={"order_id": order_id},
-                    ):
-                        mollie_response = app.full_dispatch_request()
-                    mollie_data = mollie_response.get_json(silent=True) or {}
-                    if mollie_response.status_code < 200 or mollie_response.status_code >= 300:
+                    try:
+                        mollie_data = create_mollie_payment_for_order(
+                            db, ensure_order_schema, order_id
+                        )
+                    except Exception as exc:
                         return jsonify({
                             "ok": False,
                             "provider": "EDENRED_EDPS",
                             "environment": "UAT",
                             "stage": "mixed_payment",
-                            "error": mollie_data.get("error") or "Création du complément CB impossible.",
+                            "error": "Création du complément CB impossible.",
+                            "detail": str(exc),
                             "edenred_payment_recorded": True,
                             "edenred_amount_cents": edenred_amount_cents,
                             "remaining_amount_eur": float(remaining_eur),
