@@ -251,6 +251,12 @@ def _send_order_to_kitchen(app, order_id):
 
 
 def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eur, external_reference):
+    """Enregistre Edenred sans forcer le paiement total.
+
+    Permet le paiement mixte : Edenred couvre tout ou partie, puis le solde
+    éventuel peut être payé par Mollie. Le ticket fiscal n'est alloué qu'une
+    fois le total intégralement encaissé.
+    """
     _ensure_payment_schema(conn, ensure_order_schema)
     ensure_payment_transaction_schema(conn)
 
@@ -260,35 +266,46 @@ def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eu
     ).fetchone()
     if not row:
         raise ValueError("Commande BÉCHÉFAA introuvable")
-    if str(row.get("payment_status") or "") == "PAYÉE":
-        return {
-            "duplicate": True,
-            "order_id": order_id,
-            "num": row["num"],
-            "payment_status": "PAYÉE",
-        }
-
-    existing = conn.execute("""
-        SELECT id FROM caisse_payment_transactions
-        WHERE order_id=%s AND provider='EDENRED_EDPS'
-          AND transaction_type='PAYMENT' AND status='SUCCEEDED'
-        LIMIT 1
-    """, (order_id,)).fetchone()
-    if existing:
-        return {
-            "duplicate": True,
-            "order_id": order_id,
-            "num": row["num"],
-            "payment_status": "PAYÉE",
-            "transaction_id": existing["id"],
-        }
 
     total = _money(row["total"])
-    amount = _money(amount_eur)
-    if amount != total:
-        raise ValueError("Le montant Edenred ne correspond pas au total de la commande")
+    paid_row = conn.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN transaction_type='PAYMENT' AND status='SUCCEEDED' THEN amount
+            WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN -amount
+            ELSE 0 END),0) AS net
+        FROM caisse_payment_transactions
+        WHERE order_id=%s
+    """, (order_id,)).fetchone()
+    before = _money(paid_row["net"] if paid_row else 0)
+    remaining_before = max(Decimal("0.00"), total - before)
 
-    now = int(time.time() * 1000)
+    existing = conn.execute("""
+        SELECT id,amount FROM caisse_payment_transactions
+        WHERE order_id=%s AND provider='EDENRED_EDPS'
+          AND transaction_type='PAYMENT' AND status='SUCCEEDED'
+          AND external_reference=%s
+        LIMIT 1
+    """, (order_id, external_reference)).fetchone()
+    if existing:
+        after = min(total, before)
+        remaining = max(Decimal("0.00"), total - after)
+        return {
+            "duplicate": True,
+            "order_id": order_id,
+            "num": row["num"],
+            "payment_status": "PAYÉE" if remaining <= 0 else "PARTIELLEMENT PAYÉE",
+            "transaction_id": existing["id"],
+            "paid_total": float(after),
+            "remaining_amount": float(remaining),
+            "fiscal_ticket_number": None,
+        }
+
+    amount = _money(amount_eur)
+    if amount <= 0:
+        raise ValueError("Montant Edenred invalide")
+    if amount > remaining_before:
+        raise ValueError("Le paiement Edenred dépasse le solde de la commande")
+
     tx_id = record_payment_transaction(
         conn,
         order_id,
@@ -298,26 +315,47 @@ def _record_edenred_order_payment(conn, ensure_order_schema, order_id, amount_eu
         external_reference=external_reference,
         created_by="EDENRED_UAT",
     )
-    fiscal_ticket_number = allocate_fiscal_ticket_number(
-        conn, ensure_order_schema, order_id, now
-    )
+
+    now = int(time.time() * 1000)
+    paid_total = (before + amount).quantize(CENT)
+    remaining = max(Decimal("0.00"), total - paid_total)
+    is_full = remaining <= 0
+    payment_status = "PAYÉE" if is_full else "PARTIELLEMENT PAYÉE"
+    payment_method = "TITRE RESTAURANT" if is_full and before <= 0 else "MIXTE"
+
     conn.execute("""
         UPDATE caisse_orders
         SET payment=%s,
-            payment_status='PAYÉE',
+            payment_status=%s,
             payment_method=%s,
             paid_amount=%s,
             paid_at=%s,
             updated_at=%s
         WHERE id=%s
-    """, ("TITRE RESTAURANT", "TITRE RESTAURANT", amount, now, now, order_id))
+    """, (
+        payment_method,
+        payment_status,
+        payment_method,
+        paid_total,
+        now if is_full else None,
+        now,
+        order_id,
+    ))
+
+    fiscal_ticket_number = None
+    if is_full:
+        fiscal_ticket_number = allocate_fiscal_ticket_number(
+            conn, ensure_order_schema, order_id, now
+        )
 
     return {
         "duplicate": False,
         "order_id": order_id,
         "num": row["num"],
-        "payment_status": "PAYÉE",
+        "payment_status": payment_status,
         "transaction_id": tx_id,
+        "paid_total": float(paid_total),
+        "remaining_amount": float(remaining),
         "fiscal_ticket_number": fiscal_ticket_number,
     }
 
@@ -558,25 +596,27 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
 
                 total_eur = _money(order["total"])
                 order_amount_cents = int((total_eur * 100).to_integral_value())
-                if not isinstance(amount, (int, float)) or amount < order_amount_cents:
+                if not isinstance(amount, (int, float)) or int(amount) <= 0:
                     return jsonify({
                         "ok": False,
                         "provider": "EDENRED_EDPS",
                         "environment": "UAT",
                         "stage": "pre_transaction",
-                        "error": "Solde Edenred disponible insuffisant pour cette commande.",
+                        "error": "Aucun solde Edenred disponible pour cette commande.",
                         "available_amount_cents": amount,
                         "order_amount_cents": order_amount_cents,
                         "transaction_created": False,
                         "secrets_exposed": False,
                     }), 400
 
+                edenred_amount_cents = min(int(amount), order_amount_cents)
+                edenred_amount_eur = _money(Decimal(edenred_amount_cents) / Decimal("100"))
                 order_ref = "BCH-" + str(order["num"]) + "-" + str(order_id)[-8:].upper()
                 tstamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 payment_payload = {
                     "order_ref": order_ref,
                     "mid": c["mid"],
-                    "amount": order_amount_cents,
+                    "amount": edenred_amount_cents,
                     "capture_mode": "auto",
                     "extra_field": order_ref,
                     "tstamp": tstamp,
@@ -607,7 +647,7 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
             captured = (
                 str(tx_meta.get("status") or "").lower() == "succeeded"
                 and str(tx_data.get("status") or "").lower() == "captured"
-                and int(captured_amount or 0) == order_amount_cents
+                and int(captured_amount or 0) == edenred_amount_cents
             )
             if not captured:
                 return jsonify({
@@ -637,10 +677,42 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
                             conn,
                             ensure_order_schema,
                             order_id,
-                            total_eur,
+                            edenred_amount_eur,
                             external_reference,
                         )
-                kitchen = _send_order_to_kitchen(app, order_id)
+                remaining_eur = _money(recorded.get("remaining_amount") or 0)
+                kitchen = None
+                next_payment = None
+
+                if remaining_eur > 0:
+                    with app.test_request_context(
+                        "/api/mollie/payments/create-phase6",
+                        method="POST",
+                        json={"order_id": order_id},
+                    ):
+                        mollie_response = app.full_dispatch_request()
+                    mollie_data = mollie_response.get_json(silent=True) or {}
+                    if mollie_response.status_code < 200 or mollie_response.status_code >= 300:
+                        return jsonify({
+                            "ok": False,
+                            "provider": "EDENRED_EDPS",
+                            "environment": "UAT",
+                            "stage": "mixed_payment",
+                            "error": mollie_data.get("error") or "Création du complément CB impossible.",
+                            "edenred_payment_recorded": True,
+                            "edenred_amount_cents": edenred_amount_cents,
+                            "remaining_amount_eur": float(remaining_eur),
+                            "payment_status": recorded.get("payment_status"),
+                            "secrets_exposed": False,
+                        }), 502
+                    next_payment = {
+                        "provider": "MOLLIE",
+                        "payment_id": mollie_data.get("payment_id"),
+                        "checkout_url": mollie_data.get("checkout_url"),
+                        "amount": mollie_data.get("amount"),
+                    }
+                else:
+                    kitchen = _send_order_to_kitchen(app, order_id)
             except ValueError as exc:
                 return jsonify({
                     "ok": False,
@@ -673,6 +745,8 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
                 "order_num": recorded.get("num"),
                 "order_amount_cents": order_amount_cents,
                 "available_amount_before_cents": amount,
+                "edenred_amount_cents": edenred_amount_cents,
+                "remaining_amount_eur": recorded.get("remaining_amount"),
                 "currency": currency or "EUR",
                 "transaction_created": True,
                 "transaction_status": tx_data.get("status"),
@@ -684,6 +758,8 @@ def register_edenred_uat_isolated_phase6(app, db=None, ensure_order_schema=None)
                 "payment_status": recorded.get("payment_status"),
                 "local_transaction_id": recorded.get("transaction_id"),
                 "fiscal_ticket_number": recorded.get("fiscal_ticket_number"),
+                "mixed_payment": next_payment is not None,
+                "next_payment": next_payment,
                 "kitchen": kitchen,
                 "tokens_exposed": False,
                 "secrets_exposed": False,
