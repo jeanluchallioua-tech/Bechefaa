@@ -172,6 +172,15 @@ def _provider_error(stage, exc):
 
 
 def register_edenred_prod_isolated_phase6(app, db=None, ensure_order_schema=None):
+    @app.after_request
+    def edenred_prod_cors_phase6(response):
+        if request.path == "/api/edenred-prod/status-phase6":
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/api/edenred-prod/status-phase6")
     def edenred_prod_status_phase6():
         c = _config()
