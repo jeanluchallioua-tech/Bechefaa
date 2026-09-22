@@ -38,6 +38,10 @@ def _mollie_key():
     return str(os.getenv("MOLLIE_API_KEY") or "").strip()
 
 
+def _mollie_test_key():
+    return str(os.getenv("MOLLIE_TEST_API_KEY") or "").strip()
+
+
 def _configured_return_url():
     return str(os.getenv("BECHEFAA_MOLLIE_RETURN_URL") or "").strip()
 
@@ -54,10 +58,10 @@ def _public_base_url():
     return request.url_root.rstrip("/")
 
 
-def _mollie_request(method, path, payload=None, extra_headers=None):
-    key = _mollie_key()
+def _mollie_request(method, path, payload=None, extra_headers=None, api_key=None):
+    key = str(api_key or _mollie_key()).strip()
     if not key:
-        raise RuntimeError("MOLLIE_API_KEY non configurée")
+        raise RuntimeError("Clé API Mollie non configurée")
 
     body = None
     headers = {
@@ -370,9 +374,10 @@ def _send_paid_order_to_kitchen(app, order_id):
     }
 
 
-def _finalize_payment(app, db, ensure_order_schema, payment_id):
+def _finalize_payment(app, db, ensure_order_schema, payment_id, *, test_mode=False):
     """Relit Mollie, comptabilise si payé, puis envoie la commande en cuisine."""
-    payment = _mollie_request("GET", "/payments/" + str(payment_id))
+    key = _mollie_test_key() if test_mode else _mollie_key()
+    payment = _mollie_request("GET", "/payments/" + str(payment_id), api_key=key)
     status = str(payment.get("status") or "").lower()
     order_id = _payment_order_id(payment)
     if not order_id:
@@ -404,19 +409,20 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id):
     }
 
 
-def create_mollie_payment_for_order(db, ensure_order_schema, order_id):
+def create_mollie_payment_for_order(db, ensure_order_schema, order_id, *, test_mode=False):
     """Crée un paiement Mollie pour le solde restant d'une commande.
 
-    Utilisable directement par le flux mixte Edenred sans dépendre d'un
-    dispatch HTTP interne Flask.
+    En test_mode, utilise exclusivement MOLLIE_TEST_API_KEY et un webhook
+    séparé. La clé LIVE reste inchangée pour les vrais clients.
     """
     order_id = str(order_id or "").strip()
     if not order_id:
         raise ValueError("order_id obligatoire")
     if not _site_enabled():
         raise PermissionError("Paiement Mollie SITE désactivé")
-    if not _mollie_key():
-        raise RuntimeError("Mollie non configuré")
+    key = _mollie_test_key() if test_mode else _mollie_key()
+    if not key:
+        raise RuntimeError("Mollie TEST non configuré" if test_mode else "Mollie non configuré")
     return_url = _configured_return_url()
     if not return_url:
         raise RuntimeError("URL de retour Mollie non configurée")
@@ -442,15 +448,16 @@ def create_mollie_payment_for_order(db, ensure_order_schema, order_id):
         "description": f"BÉCHÉFAA commande #{order['num']}",
         "method": "creditcard",
         "redirectUrl": return_url,
-        "webhookUrl": _public_base_url() + "/api/mollie/webhook-phase6",
+        "webhookUrl": _public_base_url() + ("/api/mollie/test-webhook-phase6" if test_mode else "/api/mollie/webhook-phase6"),
         "metadata": {
             "order_id": order_id,
             "order_num": str(order["num"]),
             "channel": "SITE",
-            "integration": "BECHEFAA_PHASE6",
+            "integration": "BECHEFAA_PHASE6_TEST" if test_mode else "BECHEFAA_PHASE6",
+            "mollie_mode": "TEST" if test_mode else "LIVE",
         },
     }
-    payment = _mollie_request("POST", "/payments", mollie_payload)
+    payment = _mollie_request("POST", "/payments", mollie_payload, api_key=key)
     checkout = _checkout_url(payment)
     if not payment.get("id") or not checkout:
         raise RuntimeError("Mollie n'a pas retourné de lien de paiement")
@@ -458,6 +465,7 @@ def create_mollie_payment_for_order(db, ensure_order_schema, order_id):
     return {
         "ok": True,
         "provider": "MOLLIE",
+        "mode": "TEST" if test_mode else "LIVE",
         "order_id": order_id,
         "payment_id": payment.get("id"),
         "status": payment.get("status"),
@@ -485,6 +493,7 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             "scope": "SITE_ONLY",
             "restaurant_provider": "BNP_TPE",
             "api_key_configured": bool(_mollie_key()),
+            "test_api_key_configured": bool(_mollie_test_key()),
             "return_url_configured": bool(_configured_return_url()),
             "test_env_present": bool(str(os.getenv("BECHEFAA_TEST_ENV") or "").strip()),
             "site_enabled": _site_enabled(),
@@ -561,6 +570,36 @@ def register_mollie_payments_isolated_phase6(app, db, ensure_order_schema):
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "error": "Remboursement Mollie impossible", "detail": str(exc)}), 502
+
+    @app.route("/api/mollie/test-payments/<payment_id>/finalize-phase6", methods=["POST", "OPTIONS"])
+    def mollie_test_payment_finalize_phase6(payment_id):
+        if request.method == "OPTIONS":
+            return ("", 204)
+        if not _mollie_test_key():
+            return jsonify({"ok": False, "error": "Mollie TEST non configuré"}), 503
+        try:
+            result = _finalize_payment(app, db, ensure_order_schema, payment_id, test_mode=True)
+            return jsonify({"ok": True, "mode": "TEST", **result})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Finalisation Mollie TEST impossible", "detail": str(exc)}), 502
+
+    @app.post("/api/mollie/test-webhook-phase6")
+    def mollie_test_webhook_phase6():
+        payload = request.get_json(silent=True) if request.is_json else None
+        payment_id = str(request.form.get("id") or ((payload or {}).get("id") if isinstance(payload, dict) else "") or "").strip()
+        if not payment_id:
+            return jsonify({"ok": False, "error": "Identifiant Mollie TEST manquant"}), 400
+        if not _mollie_test_key():
+            return jsonify({"ok": False, "error": "Mollie TEST non configuré"}), 503
+        try:
+            result = _finalize_payment(app, db, ensure_order_schema, payment_id, test_mode=True)
+            return jsonify({"ok": True, "mode": "TEST", **result})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "Traitement webhook Mollie TEST impossible", "detail": str(exc)}), 502
 
     @app.post("/api/mollie/webhook-phase6")
     def mollie_webhook_phase6():
