@@ -46,6 +46,7 @@ def ensure_order_schema(conn):
         address TEXT NOT NULL DEFAULT '',
         postal_code TEXT NOT NULL DEFAULT '',
         city TEXT NOT NULL DEFAULT '',
+        offline_sync_key TEXT NULL,
         source TEXT NOT NULL DEFAULT 'CAISSE',
         payment TEXT NOT NULL DEFAULT 'À ENCAISSER',
         status TEXT NOT NULL DEFAULT 'Enregistrée',
@@ -56,6 +57,8 @@ def ensure_order_schema(conn):
         updated_at BIGINT NOT NULL,
         modified_at BIGINT NULL
     )""")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS offline_sync_key TEXT NULL")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_orders_offline_sync_key ON caisse_orders(offline_sync_key) WHERE offline_sync_key IS NOT NULL")
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_order_items (
         id BIGSERIAL PRIMARY KEY,
         order_id TEXT NOT NULL REFERENCES caisse_orders(id) ON DELETE CASCADE,
@@ -235,6 +238,7 @@ def product_options(product_id):
 @app.post("/api/orders")
 def create_order():
     payload = request.get_json(silent=True) or {}
+    offline_sync_key = str(request.headers.get("X-BECHEFAA-OFFLINE-ID") or "").strip() or None
     raw_items = payload.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         return jsonify({"ok": False, "error": "Commande vide"}), 400
@@ -285,13 +289,29 @@ def create_order():
             with conn.transaction():
                 ensure_order_schema(conn)
                 conn.execute("LOCK TABLE caisse_orders IN EXCLUSIVE MODE")
+                if offline_sync_key:
+                    existing = conn.execute(
+                        "SELECT id,num,total,status,source FROM caisse_orders WHERE offline_sync_key=%s LIMIT 1",
+                        (offline_sync_key,),
+                    ).fetchone()
+                    if existing:
+                        return jsonify({
+                            "ok": True,
+                            "id": existing["id"],
+                            "num": existing["num"],
+                            "total": float(existing["total"]),
+                            "status": existing["status"],
+                            "ticket_type": ticket_type(existing["source"]),
+                            "duplicate": True,
+                            "offline_sync_key": offline_sync_key,
+                        }), 200
                 row = conn.execute("SELECT COALESCE(MAX(num), 0) + 1 AS next_num FROM caisse_orders").fetchone()
                 order_num = int(row["next_num"])
                 conn.execute(
                     """INSERT INTO caisse_orders
-                       (id, num, customer_name, source, payment, status, total, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (order_id, order_num, customer_name, source, "À ENCAISSER", "Enregistrée", total, now, now),
+                       (id, num, customer_name, offline_sync_key, source, payment, status, total, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (order_id, order_num, customer_name, offline_sync_key, source, "À ENCAISSER", "Enregistrée", total, now, now),
                 )
                 for line in normalized:
                     conn.execute(
