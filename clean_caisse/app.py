@@ -30,10 +30,12 @@ def ensure_order_schema(conn):
         address TEXT NOT NULL DEFAULT '',
         postal_code TEXT NOT NULL DEFAULT '',
         city TEXT NOT NULL DEFAULT '',
+        door_intercom TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
     )""")
+    conn.execute("ALTER TABLE caisse_clients ADD COLUMN IF NOT EXISTS door_intercom TEXT NOT NULL DEFAULT ''")
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_orders (
         id TEXT PRIMARY KEY,
         num BIGINT NOT NULL UNIQUE,
