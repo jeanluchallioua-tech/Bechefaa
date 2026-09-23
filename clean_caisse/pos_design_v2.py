@@ -63,6 +63,44 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 /* Masque le vieux selecteur service injecte dans la colonne droite : la barre haute devient la reference */
 #phase36-table-selector{display:none!important}
 
+/* Optimisation tablette Samsung 11 pouces en paysage (viewport CSS ~ 1024-1366px) */
+@media(min-width:981px) and (max-width:1366px){
+  .top{height:56px!important;min-height:56px!important;padding:0 12px 0 82px!important}
+  .top>b{font-size:17px!important}
+  .top .status{font-size:10px!important}
+  .layout{grid-template-columns:70px minmax(0,1fr) 320px!important;height:calc(100vh - 56px)!important}
+  .pos-v3-rail{min-width:70px!important;padding:8px 6px!important;gap:5px!important}
+  .pos-v3-brand{width:46px!important;height:46px!important;border-radius:13px!important;font-size:18px!important;margin-bottom:3px!important}
+  .pos-v3-nav{min-height:52px!important;font-size:9px!important;border-radius:11px!important;padding:4px 2px!important}
+  .pos-v3-nav span{font-size:18px!important}
+  .pos-v3-toolbar{padding:8px 10px!important;grid-template-columns:auto minmax(150px,1fr)!important;gap:8px!important}
+  .pos-v3-clock{display:none!important}
+  .pos-v3-service .ticket-choice button{min-height:40px!important;padding:0 11px!important;font-size:11px!important}
+  .pos-v3-search{height:40px!important;font-size:13px!important;padding:0 11px!important}
+  .title{padding:10px 12px 6px!important}
+  .title h2{font-size:18px!important}
+  .cats{padding:3px 12px 7px!important;gap:5px!important}
+  .cat{padding:8px 11px!important;font-size:11px!important}
+  .grid{padding:0 12px 14px!important;grid-template-columns:repeat(auto-fill,minmax(145px,1fr))!important;gap:8px!important}
+  .product{min-height:176px!important;padding:7px!important;border-radius:11px!important}
+  .product-photo{height:98px!important;margin-bottom:6px!important;border-radius:8px!important}
+  .name{font-size:13px!important}
+  .meta{font-size:8px!important;margin-top:2px!important}
+  .badge{font-size:8px!important;margin-top:4px!important}
+  .price{font-size:17px!important;padding-top:5px!important}
+  .cart:before{padding:10px 12px 5px!important}
+  .pos-recent-orders-btn{margin:0 10px 6px!important;width:calc(100% - 20px)!important;min-height:38px!important}
+  .touch-client-summary{margin:0 10px 6px!important;min-height:44px!important;padding:8px 9px!important}
+  #options{margin:0 10px 8px!important;padding:8px!important}
+  .order-box{padding:4px 12px 8px!important}
+  .order-box>h2{font-size:16px!important;margin-bottom:5px!important}
+  .order-line{padding:6px 0!important}
+  .order-line-head{font-size:12px!important}
+  .order-total{font-size:21px!important;padding-top:8px!important}
+  .action.save,.action.kitchen{min-height:46px!important;font-size:12px!important}
+  .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!important}
+}
+
 @media(max-width:1250px){.layout{grid-template-columns:78px minmax(0,1fr) 350px!important}.pos-v3-rail{min-width:78px}.grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr auto}}
 @media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
 </style>
