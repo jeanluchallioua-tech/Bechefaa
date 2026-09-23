@@ -146,8 +146,18 @@ def _apply_server_catalog_prices(internal):
 
 
 def _dispatch_internal(app, path, payload):
-    """Passe volontairement par Flask pour conserver tous les wrappers actifs."""
-    with app.test_request_context(path, method="POST", json=payload):
+    """Passe volontairement par Flask pour conserver tous les wrappers actifs.
+
+    Le marqueur WSGI ci-dessous est interne au processus : il permet aux ponts
+    publics déjà validés de réutiliser /api/orders sans être bloqués par le PIN
+    personnel de la caisse. Il n'est jamais exposé comme en-tête HTTP public.
+    """
+    with app.test_request_context(
+        path,
+        method="POST",
+        json=payload,
+        environ_overrides={"bechefaa.internal_dispatch": "1"},
+    ):
         return app.full_dispatch_request()
 
 
