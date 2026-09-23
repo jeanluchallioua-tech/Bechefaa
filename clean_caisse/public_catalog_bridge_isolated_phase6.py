@@ -99,6 +99,8 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
 
         light_products = []
         for product in payload.get("products") or []:
+            if isinstance(product, dict) and product.get("site_visible", True) is False:
+                continue
             if not isinstance(product, dict):
                 light_products.append(product)
                 continue
