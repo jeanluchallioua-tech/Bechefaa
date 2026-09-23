@@ -6,8 +6,10 @@ import uuid
 from decimal import Decimal, InvalidOperation
 
 from flask import Flask, jsonify, Response, request, send_from_directory
-from PIL import Image
+from PIL import Image, ImageFile
 import io
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 import psycopg
 from psycopg.rows import dict_row
 
