@@ -21,22 +21,51 @@ def caisse_icon_png():
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
+@app.get("/caisse-icon-512.svg")
+def caisse_icon_512_svg():
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="86" fill="#ffffff"/>
+<image href="data:image/png;base64,{CAISSE_ICON_B64}" x="0" y="0" width="512" height="512" preserveAspectRatio="xMidYMid meet"/>
+</svg>'''
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
 @app.get("/caisse-manifest.webmanifest")
 def caisse_manifest():
     manifest = {
+        "id": "/pos",
         "name": "BÉCHÉFAA Caisse",
         "short_name": "Caisse",
         "description": "Accès direct à la caisse BÉCHÉFAA",
         "start_url": "/pos",
         "scope": "/",
         "display": "standalone",
+        "orientation": "landscape",
         "background_color": "#0b0b0b",
         "theme_color": "#0b0b0b",
         "icons": [
-            {"src": "/caisse-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any"}
+            {"src": "/caisse-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/caisse-icon-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any"}
         ]
     }
-    return Response(json.dumps(manifest, ensure_ascii=False), content_type="application/manifest+json; charset=utf-8")
+    response = Response(json.dumps(manifest, ensure_ascii=False), content_type="application/manifest+json; charset=utf-8")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+@app.get("/caisse-sw.js")
+def caisse_service_worker():
+    js = r'''const CACHE="bechefaa-caisse-pwa-v2";
+self.addEventListener("install",event=>{self.skipWaiting();});
+self.addEventListener("activate",event=>{event.waitUntil(self.clients.claim());});
+self.addEventListener("fetch",event=>{
+  if(event.request.method!=="GET") return;
+  event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));
+});'''
+    response = Response(js, content_type="application/javascript; charset=utf-8")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
 
 
 def db():
@@ -511,6 +540,9 @@ function sendKitchen(orderId,orderNum){if(!orderId)return;let btn=document.query
 function render(){let items=DATA.items.filter(p=>!current||p.category===current);document.getElementById('title').textContent=current||'Tous les produits';document.getElementById('count').textContent=items.length+' produit(s)';document.getElementById('grid').innerHTML=items.map(p=>`<div class="product" data-id="${esc(p.id)}" data-name="${esc(p.name)}">${p.photo?`<img class="product-photo" src="${esc(p.photo)}" alt="${esc(p.name)}">`:''}<div class="name">${esc(p.name)}</div><div class="meta">${esc(p.category)}</div>${p.optionGroups?`<span class="badge">${p.optionGroups} groupe(s) d’options</span>`:''}<div class="price">${Number(p.price||0).toFixed(2).replace('.',',')} €</div></div>`).join('');document.querySelectorAll('.cat').forEach(b=>b.classList.toggle('active',b.dataset.cat===(current||'')))}
 document.querySelector('.ticket-choice').onclick=e=>{let b=e.target.closest('[data-ticket]');if(!b)return;TICKET_TYPE=b.dataset.ticket;document.querySelectorAll('[data-ticket]').forEach(x=>x.classList.toggle('active',x===b));renderOrder()};
 fetch('/api/catalog/summary').then(r=>r.json()).then(d=>{DATA=d;document.getElementById('status').textContent=d.products+' produits • PostgreSQL';let cats=['',...d.categoryNames];document.getElementById('cats').innerHTML=cats.map(c=>`<button class="cat" data-cat="${esc(c)}">${esc(c||'Tous les produits')}</button>`).join('');document.getElementById('cats').onclick=e=>{let b=e.target.closest('.cat');if(!b)return;current=b.dataset.cat||null;render()};document.getElementById('grid').onclick=e=>{let p=e.target.closest('.product');if(!p)return;showOptions(p.dataset.id,p.dataset.name)};document.querySelector('.cart').onclick=e=>{let b=e.target.closest('[data-action]');if(!b)return;let action=b.dataset.action;if(action==='add-current')addCurrent();else if(action==='remove-line'){ORDER.splice(Number(b.dataset.index),1);renderOrder()}else if(action==='save-order')saveOrder();else if(action==='send-kitchen')sendKitchen(b.dataset.orderId,b.dataset.orderNum);let opt=e.target.closest('.opt-value');if(opt)toggleOption(Number(opt.dataset.gi),Number(opt.dataset.vi))};document.getElementById('options').onclick=e=>{let b=e.target.closest('.opt-value');if(!b)return;toggleOption(Number(b.dataset.gi),Number(b.dataset.vi))};render();renderOrder()}).catch(()=>{document.getElementById('status').textContent='Erreur catalogue';document.getElementById('grid').innerHTML='<p>Impossible de charger le catalogue.</p>'});
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js',{scope:'/'}).catch(()=>{}));
+}
 </script></body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
