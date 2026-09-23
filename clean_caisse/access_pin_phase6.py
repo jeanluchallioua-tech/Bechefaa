@@ -70,9 +70,9 @@ def _login_html(error="", locked=False):
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="BÉCHÉFAA Caisse">
-<link rel="manifest" href="/static/pwa/manifest.webmanifest?v=9">
-<link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png?v=9">
-<link rel="apple-touch-icon" sizes="512x512" href="/static/pwa/icon-512.png?v=9">
+<link rel="manifest" href="/static/pwa/manifest.webmanifest?v=10">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png?v=10">
+<link rel="apple-touch-icon" sizes="512x512" href="/static/pwa/icon-512.png?v=10">
 <style>
 *{{box-sizing:border-box}}
 html,body{{margin:0;min-height:100%;font-family:Arial,sans-serif;background:#090909;color:#fff}}
@@ -87,11 +87,13 @@ button{{width:100%;margin-top:14px;padding:15px;border:0;border-radius:12px;back
 button:disabled{{opacity:.45;cursor:not-allowed}}
 .error{{background:#3b1111;border:1px solid #7e2929;color:#ffd6d6;padding:10px;border-radius:10px;margin-bottom:14px}}
 small{{display:block;margin-top:18px;color:#777}}
+.install-pwa{{display:none;width:100%;margin-top:12px;padding:13px;border:1px solid #d7b35a;border-radius:12px;background:#151515;color:#d7b35a;font-weight:900;font-size:15px;cursor:pointer}}
+.install-pwa.show{{display:block}}
 </style>
 </head>
 <body>
 <main class="card">
-  <div class="logo"><img src="/static/pwa/icon-192.png?v=9" alt="BÉCHÉFAA Caisse" style="width:100%;height:100%;object-fit:contain;border-radius:20px"></div>
+  <div class="logo"><img src="/static/pwa/icon-192.png?v=10" alt="BÉCHÉFAA Caisse" style="width:100%;height:100%;object-fit:contain;border-radius:20px"></div>
   <h1>BÉCHÉFAA <span class="gold">CAISSE</span></h1>
   <p>Saisissez votre code d'accès.</p>
   {message}
@@ -99,6 +101,7 @@ small{{display:block;margin-top:18px;color:#777}}
     <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="12" autofocus aria-label="Code d'accès">
     <button type="submit"{disabled}>{button_text}</button>
   </form>
+  <button type="button" id="install-pwa" class="install-pwa">INSTALLER BÉCHÉFAA CAISSE</button>
   <small>Accès réservé au personnel BÉCHÉFAA</small>
 </main>
 <script>
@@ -107,6 +110,26 @@ if ("serviceWorker" in navigator) {{
     navigator.serviceWorker.register("/caisse-sw.js", {{scope:"/"}}).catch(() => {{}});
   }});
 }}
+let bechefaaInstallPrompt=null;
+const installButton=document.getElementById("install-pwa");
+window.addEventListener("beforeinstallprompt", (event) => {{
+  event.preventDefault();
+  bechefaaInstallPrompt=event;
+  if(!window.matchMedia("(display-mode: standalone)").matches){{
+    installButton.classList.add("show");
+  }}
+}});
+installButton.addEventListener("click", async () => {{
+  if(!bechefaaInstallPrompt)return;
+  installButton.classList.remove("show");
+  bechefaaInstallPrompt.prompt();
+  try{{await bechefaaInstallPrompt.userChoice;}}catch(e){{}}
+  bechefaaInstallPrompt=null;
+}});
+window.addEventListener("appinstalled", () => {{
+  installButton.classList.remove("show");
+  bechefaaInstallPrompt=null;
+}});
 </script>
 </body>
 </html>"""
