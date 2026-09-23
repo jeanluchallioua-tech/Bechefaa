@@ -139,7 +139,22 @@ def register_customer_phase1(app, db, ensure_order_schema):
                     return jsonify({"ok":True,"client":{"id":client_id,"display_name":display_name,**customer}})
                 q=str(request.args.get("q") or "").strip()
                 if q:
-                    like="%"+q+"%";rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at FROM caisse_clients WHERE display_name ILIKE %s OR phone ILIKE %s OR email ILIKE %s ORDER BY updated_at DESC LIMIT 50""",(like,like,like)).fetchall()
-                else:rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at FROM caisse_clients ORDER BY updated_at DESC LIMIT 100""").fetchall()
+                    like="%"+q+"%";rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at
+                        FROM caisse_clients
+                        WHERE display_name ILIKE %s OR phone ILIKE %s OR email ILIKE %s
+                        ORDER BY
+                            LOWER(COALESCE(NULLIF(last_name,''), NULLIF(display_name,''), '')),
+                            LOWER(COALESCE(first_name,'')),
+                            LOWER(COALESCE(display_name,'')),
+                            created_at ASC
+                        LIMIT 5000""",(like,like,like)).fetchall()
+                else:rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at
+                    FROM caisse_clients
+                    ORDER BY
+                        LOWER(COALESCE(NULLIF(last_name,''), NULLIF(display_name,''), '')),
+                        LOWER(COALESCE(first_name,'')),
+                        LOWER(COALESCE(display_name,'')),
+                        created_at ASC
+                    LIMIT 5000""").fetchall()
             return jsonify({"ok":True,"clients":[dict(r) for r in rows],"count":len(rows)})
         except Exception as exc:return jsonify({"ok":False,"error":"Clients indisponibles","detail":str(exc)}),500
