@@ -23,7 +23,7 @@ def caisse_icon_png():
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
-@app.get("/caisse-icon-512.png")
+@app.get("/caisse-icon-512.svg")
 def caisse_icon_512_png():
     source = Image.open(io.BytesIO(base64.b64decode(CAISSE_ICON_B64))).convert("RGBA")
     source = source.resize((512, 512), Image.Resampling.LANCZOS)
@@ -48,7 +48,7 @@ def caisse_manifest():
         "theme_color": "#0b0b0b",
         "icons": [
             {"src": "/caisse-icon.png?v=6", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": "/caisse-icon-512.png?v=6", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+            {"src": "/caisse-icon-512.svg?v=6", "sizes": "512x512", "type": "image/png", "purpose": "any"}
         ]
     }
     response = Response(json.dumps(manifest, ensure_ascii=False), content_type="application/manifest+json; charset=utf-8")
