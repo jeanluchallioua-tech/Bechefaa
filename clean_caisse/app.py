@@ -34,11 +34,11 @@ def caisse_icon_512_svg():
 @app.get("/caisse-manifest.webmanifest")
 def caisse_manifest():
     manifest = {
-        "id": "/pos",
+        "id": "/",
         "name": "BÉCHÉFAA Caisse",
         "short_name": "Caisse",
         "description": "Accès direct à la caisse BÉCHÉFAA",
-        "start_url": "/pos",
+        "start_url": "/",
         "scope": "/",
         "display": "standalone",
         "orientation": "landscape",
