@@ -30,6 +30,7 @@ _PUBLIC_EXACT = {
     "/caisse-manifest.webmanifest",
     "/caisse-icon.png",
     "/caisse-icon-512.svg",
+    "/caisse-icon-512.png",
     "/caisse-sw.js",
 }
 
@@ -69,8 +70,8 @@ def _login_html(error="", locked=False):
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="BÉCHÉFAA Caisse">
 <link rel="manifest" href="/caisse-manifest.webmanifest">
-<link rel="icon" type="image/png" href="/caisse-icon.png?v=5">
-<link rel="apple-touch-icon" href="/caisse-icon.png">
+<link rel="icon" href="/favicon.ico?v=7" sizes="any">
+<link rel="apple-touch-icon" href="/caisse-icon-512.png?v=7">
 <style>
 *{{box-sizing:border-box}}
 html,body{{margin:0;min-height:100%;font-family:Arial,sans-serif;background:#090909;color:#fff}}
@@ -89,7 +90,7 @@ small{{display:block;margin-top:18px;color:#777}}
 </head>
 <body>
 <main class="card">
-  <div class="logo"><img src="/caisse-icon.png?v=5" alt="BÉCHÉFAA Caisse" style="width:100%;height:100%;object-fit:contain;border-radius:20px"></div>
+  <div class="logo"><img src="/caisse-icon.png?v=7" alt="BÉCHÉFAA Caisse" style="width:100%;height:100%;object-fit:contain;border-radius:20px"></div>
   <h1>BÉCHÉFAA <span class="gold">CAISSE</span></h1>
   <p>Saisissez votre code d'accès.</p>
   {message}
