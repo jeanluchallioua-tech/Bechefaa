@@ -27,6 +27,10 @@ _PUBLIC_EXACT = {
     "/robots.txt",
     "/auth/pin",
     "/auth/logout",
+    "/caisse-manifest.webmanifest",
+    "/caisse-icon.png",
+    "/caisse-icon-512.svg",
+    "/caisse-sw.js",
 }
 
 _FAILS = defaultdict(deque)
@@ -59,7 +63,14 @@ def _login_html(error="", locked=False):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow,noarchive">
-<title>BÉCHÉFAA • Accès caisse</title>
+<title>BÉCHÉFAA Caisse</title>
+<meta name="theme-color" content="#090909">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BÉCHÉFAA Caisse">
+<link rel="manifest" href="/caisse-manifest.webmanifest">
+<link rel="icon" type="image/png" href="/caisse-icon.png">
+<link rel="apple-touch-icon" href="/caisse-icon.png">
 <style>
 *{{box-sizing:border-box}}
 html,body{{margin:0;min-height:100%;font-family:Arial,sans-serif;background:#090909;color:#fff}}
@@ -78,7 +89,7 @@ small{{display:block;margin-top:18px;color:#777}}
 </head>
 <body>
 <main class="card">
-  <div class="logo">B</div>
+  <div class="logo"><img src="/caisse-icon.png" alt="BÉCHÉFAA Caisse" style="width:100%;height:100%;object-fit:contain;border-radius:20px"></div>
   <h1>BÉCHÉFAA <span class="gold">CAISSE</span></h1>
   <p>Saisissez votre code d'accès.</p>
   {message}
