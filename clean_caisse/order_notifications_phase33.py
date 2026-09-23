@@ -5,8 +5,8 @@ Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/tic
 - Sur /pos, seules les commandes provenant du SITE déclenchent l'alerte Caisse.
 - Les commandes saisies directement en Caisse restent silencieuses sur /pos,
   mais déclenchent normalement la notification Cuisine après envoi.
-- Le son Caisse et Cuisine est activé par défaut et se déverrouille à la première
-  interaction utilisateur ; le bouton Cuisine reste disponible en secours navigateur.
+- Le son Caisse et Cuisine est activé par défaut et se déverrouille automatiquement
+  à la première interaction normale avec l'écran, sans bouton supplémentaire.
 - La Cuisine ne mémorise que les commandes réellement au statut À préparer afin
   d'éviter de perdre le son si le polling voit l'ordre entre création et envoi cuisine.
 - Le volume et l'activation Caisse/Cuisine sont pilotés depuis Administration.
@@ -27,9 +27,6 @@ def register_order_notifications_phase33(app):
         page = "pos" if request.path == "/pos" else "kitchen"
         addon = r'''
 <style>
-.phase33-audio{position:fixed;right:14px;top:14px;z-index:9999;border:0;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer;background:#dc2626;color:#fff;box-shadow:0 3px 14px rgba(0,0,0,.2)}
-.phase33-audio.hidden{display:none}
-.phase33-audio.ready{background:#16a34a}
 #phase6-site-order-notice{display:none;align-items:center;white-space:nowrap;font-size:15px;font-weight:900;color:#ffd21f;text-transform:uppercase;letter-spacing:.4px;text-shadow:0 0 7px rgba(255,210,31,.75);pointer-events:none;margin-left:4px}
 #phase6-site-order-notice.show{display:inline-flex;animation:phase6SiteTextPulse .8s ease-in-out 4}
 @keyframes phase6SiteTextPulse{0%,100%{color:#ffd21f;transform:scale(1)}50%{color:#ff5a36;transform:scale(1.04)}}
@@ -96,24 +93,11 @@ def register_order_notifications_phase33(app):
    }catch(e){}
  }
  function updateButton(){
-   const b=document.getElementById('phase33-audio');if(!b)return;
-   if(!soundSettings.enabled){b.classList.add('hidden');return}
-   if(isAudioReady()){
-     b.classList.add('ready');
-     b.textContent=PAGE==='pos'?'🔊 Son caisse prêt':'🔊 Son cuisine prêt';
-     clearTimeout(b._hideTimer);
-     b._hideTimer=setTimeout(()=>b.classList.add('hidden'),1400);
-   }else{
-     b.classList.remove('hidden','ready');
-     b.textContent=PAGE==='pos'?'🔇 Activer le son caisse':'🔇 Son en attente — touchez l’écran';
-   }
+   // Aucun bouton à cliquer : le son est toujours demandé par défaut.
+   // Chrome/Android autorise l'audio dès la première interaction normale
+   // (toucher, clic ou clavier) avec la Caisse ou la Cuisine.
  }
- function installButton(){
-   if(document.getElementById('phase33-audio'))return;
-   const b=document.createElement('button');b.id='phase33-audio';b.className='phase33-audio';document.body.appendChild(b);
-   b.onclick=async function(e){e.preventDefault();e.stopPropagation();if(!(await unlock(true))&&soundSettings.enabled)alert(PAGE==='pos'?'Le navigateur bloque encore le son. Cliquez une fois dans la Caisse puis réessayez.':'Le navigateur bloque encore le son. Touchez une fois l’écran Cuisine puis réessayez.');};
-   updateButton();
- }
+ function installButton(){}
  function unlockOnInteraction(){
    if(!soundSettings.enabled||isAudioReady()||unlocking)return;
    const ctx=getCtx();
@@ -130,6 +114,16 @@ def register_order_notifications_phase33(app):
  ['pointerdown','mousedown','touchstart','click','keydown'].forEach(function(evt){
    document.addEventListener(evt,unlockOnInteraction,{capture:true,passive:evt!=='keydown'});
  });
+ function retryUnlockIfAllowed(){
+   try{
+     if(soundSettings.enabled&&!isAudioReady()&&navigator.userActivation&&navigator.userActivation.hasBeenActive){
+       unlock(false);
+     }
+   }catch(e){}
+ }
+ window.addEventListener('pageshow',retryUnlockIfAllowed);
+ window.addEventListener('focus',retryUnlockIfAllowed);
+ document.addEventListener('visibilitychange',function(){if(!document.hidden)retryUnlockIfAllowed();});
 
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
