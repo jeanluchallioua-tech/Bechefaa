@@ -65,14 +65,14 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 
 /* Optimisation tablette Samsung 11 pouces en paysage (viewport CSS ~ 1024-1366px) */
 @media(min-width:981px) and (max-width:1366px){
-  .top{height:56px!important;min-height:56px!important;padding:0 12px 0 82px!important}
+  .top{height:56px!important;min-height:56px!important;padding:0 12px 0 98px!important}
   .top>b{font-size:17px!important}
   .top .status{font-size:10px!important}
-  .layout{grid-template-columns:70px minmax(0,1fr) 320px!important;height:calc(100vh - 56px)!important}
-  .pos-v3-rail{min-width:70px!important;padding:8px 6px!important;gap:5px!important}
-  .pos-v3-brand{width:46px!important;height:46px!important;border-radius:13px!important;font-size:18px!important;margin-bottom:3px!important}
-  .pos-v3-nav{min-height:52px!important;font-size:9px!important;border-radius:11px!important;padding:4px 2px!important}
-  .pos-v3-nav span{font-size:18px!important}
+  .layout{grid-template-columns:86px minmax(0,1fr) 320px!important;height:calc(100vh - 56px)!important}
+  .pos-v3-rail{min-width:86px!important;padding:10px 7px!important;gap:8px!important}
+  .pos-v3-brand{width:54px!important;height:54px!important;border-radius:15px!important;font-size:20px!important;margin-bottom:5px!important}
+  .pos-v3-nav{min-height:66px!important;font-size:11px!important;border-radius:13px!important;padding:7px 4px!important}
+  .pos-v3-nav span{font-size:24px!important}
   .pos-v3-toolbar{padding:8px 10px!important;grid-template-columns:auto minmax(150px,1fr)!important;gap:8px!important}
   .pos-v3-clock{display:none!important}
   .pos-v3-service .ticket-choice button{min-height:40px!important;padding:0 11px!important;font-size:11px!important}
