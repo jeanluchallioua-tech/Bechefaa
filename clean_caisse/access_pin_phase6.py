@@ -99,6 +99,13 @@ small{{display:block;margin-top:18px;color:#777}}
   </form>
   <small>Accès réservé au personnel BÉCHÉFAA</small>
 </main>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/caisse-sw.js", {scope:"/"}).catch(() => {});
+  });
+}
+</script>
 </body>
 </html>"""
 
