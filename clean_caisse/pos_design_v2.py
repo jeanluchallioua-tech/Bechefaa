@@ -68,19 +68,19 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
   .top{height:56px!important;min-height:56px!important;padding:0 12px 0 98px!important}
   .top>b{font-size:17px!important}
   .top .status{font-size:10px!important}
-  .layout{grid-template-columns:86px minmax(0,1fr) 320px!important;height:calc(100vh - 56px)!important}
-  .pos-v3-rail{min-width:86px!important;padding:10px 7px!important;gap:8px!important}
+  .layout{grid-template-columns:100px minmax(0,1fr) 320px!important;height:calc(100vh - 56px)!important}
+  .pos-v3-rail{min-width:100px!important;padding:10px 8px!important;gap:9px!important}
   .pos-v3-brand{width:54px!important;height:54px!important;border-radius:15px!important;font-size:20px!important;margin-bottom:5px!important}
-  .pos-v3-nav{min-height:66px!important;font-size:11px!important;border-radius:13px!important;padding:7px 4px!important}
-  .pos-v3-nav span{font-size:24px!important}
+  .pos-v3-nav{min-height:72px!important;font-size:14px!important;border-radius:13px!important;padding:8px 4px!important}
+  .pos-v3-nav span{font-size:27px!important}
   .pos-v3-toolbar{padding:8px 10px!important;grid-template-columns:auto minmax(150px,1fr)!important;gap:8px!important}
   .pos-v3-clock{display:none!important}
-  .pos-v3-service .ticket-choice button{min-height:40px!important;padding:0 11px!important;font-size:11px!important}
+  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:14px!important}
   .pos-v3-search{height:40px!important;font-size:13px!important;padding:0 11px!important}
   .title{padding:10px 12px 6px!important}
   .title h2{font-size:18px!important}
   .cats{padding:3px 12px 7px!important;gap:5px!important}
-  .cat{padding:8px 11px!important;font-size:11px!important}
+  .cat{padding:11px 15px!important;font-size:15px!important}
   .grid{padding:0 12px 14px!important;grid-template-columns:repeat(auto-fill,minmax(145px,1fr))!important;gap:8px!important}
   .product{min-height:176px!important;padding:7px!important;border-radius:11px!important}
   .product-photo{height:98px!important;margin-bottom:6px!important;border-radius:8px!important}
@@ -101,7 +101,7 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
   .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!important}
 }
 
-@media(max-width:1250px){.layout{grid-template-columns:78px minmax(0,1fr) 350px!important}.pos-v3-rail{min-width:78px}.grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr auto}}
+@media(max-width:1250px) and (min-width:981px){.layout{grid-template-columns:100px minmax(0,1fr) 320px!important}.pos-v3-rail{min-width:100px!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr!important}}
 @media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
 </style>
 <script id="pos-design-v2-script">
