@@ -188,6 +188,11 @@ def register_access_pin_phase6(app):
         if request.method == "OPTIONS":
             return None
 
+        # Appel serveur interne depuis les ponts SITE validés. Ce marqueur est
+        # posé uniquement dans le contexte Flask interne, jamais par le navigateur.
+        if request.environ.get("bechefaa.internal_dispatch") == "1":
+            return None
+
         if path in _PUBLIC_EXACT or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
             return None
 
