@@ -71,16 +71,16 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
   .layout{grid-template-columns:92px minmax(0,1fr) 285px!important;height:calc(100vh - 56px)!important}
   .pos-v3-rail{min-width:92px!important;padding:10px 7px!important;gap:8px!important}
   .pos-v3-brand{width:54px!important;height:54px!important;border-radius:15px!important;font-size:20px!important;margin-bottom:5px!important}
-  .pos-v3-nav{min-height:72px!important;font-size:14px!important;border-radius:13px!important;padding:8px 4px!important}
+  .pos-v3-nav{min-height:72px!important;font-size:15px!important;border-radius:13px!important;padding:8px 4px!important}
   .pos-v3-nav span{font-size:27px!important}
   .pos-v3-toolbar{padding:8px 10px!important;grid-template-columns:auto minmax(150px,1fr)!important;gap:8px!important}
   .pos-v3-clock{display:none!important}
-  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:14px!important}
+  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:15px!important}
   .pos-v3-search{height:40px!important;font-size:13px!important;padding:0 11px!important}
   .title{padding:10px 12px 6px!important}
   .title h2{font-size:18px!important}
   .cats{padding:3px 12px 7px!important;gap:5px!important}
-  .cat{padding:11px 15px!important;font-size:15px!important}
+  .cat{padding:11px 15px!important;font-size:17px!important;line-height:1.15!important}
   .grid{padding:0 10px 14px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:8px!important}
   .product{min-height:170px!important;padding:7px!important;border-radius:11px!important}
   .product-photo{height:92px!important;margin-bottom:6px!important;border-radius:8px!important}
