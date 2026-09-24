@@ -156,9 +156,9 @@ html.bechefaa-tablet .product{
   overflow:hidden!important
 }
 html.bechefaa-tablet .product-photo{
-  height:88px!important;
-  width:82%!important;
-  max-width:82%!important;
+  height:110px!important;
+  width:160px!important;
+  max-width:160px!important;
   object-fit:cover!important;
   margin:0 auto 6px!important;
   border-radius:8px!important;
