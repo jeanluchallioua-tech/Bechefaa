@@ -191,7 +191,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();
-   const url='http://'+c.host+'/cgi-bin/epos/service.cgi?devid='+encodeURIComponent(c.device_id||'local_printer')+'&timeout=10000';
+   const url='https://'+c.host+':8043/cgi-bin/epos/service.cgi?devid='+encodeURIComponent(c.device_id||'local_printer')+'&timeout=10000';
    const pr=await nativeFetch(url,{
      method:'POST',
      mode:'cors',
@@ -225,7 +225,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
      try{
        const d=await res.clone().json();
        if(res.ok && d && d.ok!==false && d.id){
-         setTimeout(()=>printKitchen(d.id).catch(e=>status('err','Epson HTTP : '+(e.message||'impression impossible'))),50);
+         setTimeout(()=>printKitchen(d.id).catch(e=>status('err','Epson : '+(e.message||'impression impossible'))),50);
        }
      }catch(e){}
    }
@@ -238,7 +238,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    navigator.serviceWorker.addEventListener('message',e=>{
      const d=e.data||{};
      const ids=Array.isArray(d.print_order_ids)?d.print_order_ids:[];
-     ids.forEach(id=>printKitchen(id).catch(err=>status('err','Epson HTTP : '+(err.message||'impression impossible'))));
+     ids.forEach(id=>printKitchen(id).catch(err=>status('err','Epson : '+(err.message||'impression impossible'))));
    });
  }
 
