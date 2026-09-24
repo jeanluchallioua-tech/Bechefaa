@@ -178,8 +178,8 @@ html.bechefaa-tablet .name{
   -webkit-line-clamp:2!important;
   overflow:hidden!important
 }
-html.bechefaa-tablet .meta{font-size:8px!important;margin-top:2px!important}
-html.bechefaa-tablet .badge{font-size:8px!important;margin-top:4px!important}
+html.bechefaa-tablet .meta{display:none!important}
+html.bechefaa-tablet .badge{display:none!important}
 html.bechefaa-tablet .price{font-size:18px!important;padding-top:5px!important}
 html.bechefaa-tablet .cart:before{padding:10px 11px 5px!important}
 html.bechefaa-tablet .pos-recent-orders-btn{
