@@ -103,7 +103,7 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 
 @media(max-width:1250px) and (min-width:981px){.layout{grid-template-columns:92px minmax(0,1fr) 285px!important}.pos-v3-rail{min-width:92px!important}.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr!important}}
 @media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
-@media(min-width:650px) and (max-width:900px) and (orientation:landscape){
+@media(min-width:650px) and (max-width:900px){
   body{overflow:hidden!important}
   .top{height:52px!important;min-height:52px!important;padding:0 8px 0 80px!important}
   .top>b{font-size:16px!important}
@@ -154,6 +154,26 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
  ready(function(){
    const layout=document.querySelector('.layout'),main=document.querySelector('.main'),cats=document.getElementById('cats'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!layout||!main||!cats||!cart||!ticket)return;
+
+   function forceTabletLayout(){
+     const w=window.innerWidth;
+     if(w<650||w>900)return;
+     layout.style.setProperty('grid-template-columns','76px minmax(0,1fr) 230px','important');
+     layout.style.setProperty('height','calc(100vh - 52px)','important');
+     cart.style.setProperty('grid-column','3','important');
+     cart.style.setProperty('grid-row','1','important');
+     cart.style.setProperty('display','block','important');
+     cart.style.setProperty('height','calc(100vh - 52px)','important');
+     const grid=document.getElementById('grid');
+     if(grid)grid.style.setProperty('grid-template-columns','repeat(4,minmax(0,1fr))','important');
+     document.querySelectorAll('.cat').forEach(el=>{
+       el.style.setProperty('font-size','15px','important');
+       el.style.setProperty('padding','9px 11px','important');
+     });
+     document.querySelectorAll('.pos-v3-nav').forEach(el=>el.style.setProperty('font-size','12px','important'));
+   }
+   forceTabletLayout();
+   window.addEventListener('resize',forceTabletLayout);
 
    // Rail gauche
    if(!document.querySelector('.pos-v3-rail')){
@@ -213,7 +233,9 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Design"] = "v3-mockup"
+                response.headers["X-Bechefaa-POS-Design"] = "v4-tablet-692"
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                response.headers["Pragma"] = "no-cache"
         except Exception:
             pass
         return response
