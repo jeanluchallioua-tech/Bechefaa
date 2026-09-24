@@ -61,6 +61,58 @@ html.bechefaa-tablet .cat{
 body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:block!important}
 .cart #options{display:none!important}
 
+/* Tablette Samsung : options et groupes d'options plus lisibles. */
+html.bechefaa-tablet .pos-final-options-panel{
+  width:min(900px,94vw)!important;
+}
+html.bechefaa-tablet .pos-final-options-head{
+  padding:18px 20px!important;
+}
+html.bechefaa-tablet .pos-final-options-head h2{
+  font-size:26px!important;
+}
+html.bechefaa-tablet .pos-final-options-body{
+  padding:18px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .selection-summary{
+  font-size:17px!important;
+  line-height:1.35!important;
+  padding:14px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .selection-summary b{
+  font-size:19px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .selection-price{
+  font-size:22px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .opt-group{
+  padding-top:16px!important;
+  margin-top:16px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .opt-head{
+  margin-bottom:10px!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .opt-head b{
+  font-size:20px!important;
+  line-height:1.2!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .rule{
+  font-size:15px!important;
+  line-height:1.25!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay .opt-value{
+  min-height:54px!important;
+  font-size:18px!important;
+  line-height:1.25!important;
+  padding:12px 14px!important;
+  margin:7px 0!important;
+  align-items:center!important;
+}
+html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
+  min-height:62px!important;
+  font-size:19px!important;
+}
+
 /* Heure / utilisateur dans la barre supérieure globale. */
 .top .pos-v3-clock{display:flex!important;position:static!important;grid-column:auto!important;grid-row:auto!important;margin:0!important;align-items:center!important;gap:9px!important;color:#aeb4ba!important}
 .top .pos-v3-time{font-size:16px!important;color:#fff!important}.top .pos-v3-user{width:34px!important;height:34px!important;flex:0 0 34px!important}
