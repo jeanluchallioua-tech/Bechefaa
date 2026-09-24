@@ -148,6 +148,35 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 }
 
 #pos-debug-viewport{position:fixed;right:8px;bottom:8px;z-index:99999;background:#111;color:#fff;border:2px solid #e0ad2f;border-radius:8px;padding:8px 10px;font:700 13px/1.2 Arial,sans-serif;box-shadow:0 3px 12px #0005;pointer-events:none}
+
+/* Samsung 11" - zoom écran réduit : viewport ~1442x901, tactile uniquement */
+@media (pointer:coarse) and (min-width:1200px) and (max-width:1600px) and (max-height:1000px){
+  body{overflow:hidden!important}
+  .top{height:58px!important;min-height:58px!important;padding:0 14px 0 102px!important}
+  .layout{display:grid!important;grid-template-columns:96px minmax(0,1fr) 300px!important;height:calc(100vh - 58px)!important;min-height:0!important}
+  .pos-v3-rail{grid-column:1!important;grid-row:1!important;min-width:96px!important;padding:10px 8px!important;gap:8px!important}
+  .pos-v3-brand{width:54px!important;height:54px!important}
+  .pos-v3-nav{min-height:68px!important;font-size:15px!important;padding:7px 4px!important}
+  .pos-v3-nav span{font-size:26px!important}
+  .main{grid-column:2!important;grid-row:1!important;min-width:0!important;overflow-y:auto!important;overflow-x:hidden!important}
+  .cart{grid-column:3!important;grid-row:1!important;display:block!important;height:calc(100vh - 58px)!important;border-left:1px solid var(--pos-line)!important;border-top:0!important;overflow:auto!important}
+  .pos-v3-toolbar{padding:9px 11px!important;grid-template-columns:auto minmax(220px,1fr) auto!important;gap:9px!important}
+  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:15px!important}
+  .pos-v3-search{height:42px!important;font-size:14px!important}
+  .cats{padding:4px 12px 9px!important;gap:7px!important}
+  .cat{padding:11px 15px!important;font-size:17px!important;line-height:1.1!important}
+  .grid{padding:0 12px 18px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;min-width:0!important;width:100%!important}
+  .product{min-height:190px!important;padding:8px!important;border-radius:12px!important;min-width:0!important;overflow:hidden!important}
+  .product-photo{height:112px!important;width:100%!important;object-fit:cover!important;margin-bottom:7px!important}
+  .name{font-size:14px!important;line-height:1.15!important;overflow-wrap:anywhere!important}
+  .meta{font-size:8px!important}
+  .price{font-size:18px!important}
+  .pos-recent-orders-btn{font-size:13px!important;min-height:42px!important}
+  .touch-client-summary{min-height:48px!important}
+  .order-box>h2{font-size:17px!important}
+  .order-line-head{font-size:13px!important}
+  .order-total{font-size:22px!important}
+}
 </style>
 <script id="pos-design-v2-script">
 (function(){
@@ -161,16 +190,20 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
    if(!layout||!main||!cats||!cart||!ticket)return;
 
    function applyTabletLayout(){
-     const w=window.innerWidth;
-     if(w<650||w>900)return;
-     layout.style.setProperty('grid-template-columns','88px minmax(0,1fr) 220px','important');
-     layout.style.setProperty('height','calc(100vh - 52px)','important');
+     const w=window.innerWidth,h=window.innerHeight;
+     const coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+     const compactTablet=w>=650&&w<=900;
+     const hiResTablet=coarse&&w>=1200&&w<=1600&&h<=1000;
+     if(!compactTablet&&!hiResTablet)return;
+     const hi=hiResTablet;
+     layout.style.setProperty('grid-template-columns',hi?'96px minmax(0,1fr) 300px':'88px minmax(0,1fr) 220px','important');
+     layout.style.setProperty('height',hi?'calc(100vh - 58px)':'calc(100vh - 52px)','important');
      main.style.setProperty('overflow-x','hidden','important');
      main.scrollLeft=0;
      cart.style.setProperty('grid-column','3','important');
      cart.style.setProperty('grid-row','1','important');
      cart.style.setProperty('display','block','important');
-     cart.style.setProperty('height','calc(100vh - 52px)','important');
+     cart.style.setProperty('height',hi?'calc(100vh - 58px)':'calc(100vh - 52px)','important');
      const grid=document.getElementById('grid');
      if(grid){
        grid.style.setProperty('grid-template-columns','repeat(4,minmax(0,1fr))','important');
