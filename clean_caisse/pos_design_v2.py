@@ -83,13 +83,14 @@ html.bechefaa-tablet .top>b{font-size:18px!important}
 html.bechefaa-tablet .top .status{font-size:11px!important}
 html.bechefaa-tablet .layout{
   display:grid!important;
-  grid-template-columns:104px minmax(0,1fr) 285px!important;
+  grid-template-columns:180px minmax(0,1fr) 285px!important;
   height:calc(100vh - 58px)!important;
   min-height:0!important
 }
 html.bechefaa-tablet .pos-v3-rail{
   grid-column:1!important;grid-row:1!important;
-  min-width:104px!important;
+  min-width:180px!important;
+  width:180px!important;
   padding:10px 8px!important;gap:8px!important
 }
 html.bechefaa-tablet .pos-v3-brand{
