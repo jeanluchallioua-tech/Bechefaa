@@ -87,8 +87,8 @@ html.bechefaa-tablet .product{
   padding:5px!important;
 }
 html.bechefaa-tablet .product-photo{
-  width:190px!important;
-  max-width:190px!important;
+  width:196px!important;
+  max-width:196px!important;
   height:145px!important;
   object-fit:cover!important;
   margin:0 auto 7px!important;
