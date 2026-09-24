@@ -143,9 +143,9 @@ html.bechefaa-tablet .cat{
   line-height:1.1!important
 }
 html.bechefaa-tablet .grid{
-  padding:0 12px 18px!important;
+  padding:0 6px 18px!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:9px!important;
+  gap:4px!important;
   min-width:0!important;width:100%!important
 }
 html.bechefaa-tablet .product{
@@ -180,7 +180,7 @@ html.bechefaa-tablet .name{
 }
 html.bechefaa-tablet .meta{display:none!important}
 html.bechefaa-tablet .badge{display:none!important}
-html.bechefaa-tablet .price{font-size:18px!important;padding-top:5px!important}
+html.bechefaa-tablet .price{font-size:18px!important;padding-top:5px!important;text-align:center!important;width:100%!important}
 html.bechefaa-tablet .cart:before{padding:10px 11px 5px!important}
 html.bechefaa-tablet .pos-recent-orders-btn{
   margin:0 10px 7px!important;
