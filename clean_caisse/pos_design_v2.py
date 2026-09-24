@@ -103,16 +103,55 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 
 @media(max-width:1250px) and (min-width:981px){.layout{grid-template-columns:92px minmax(0,1fr) 285px!important}.pos-v3-rail{min-width:92px!important}.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr!important}}
 @media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
-#pos-debug-viewport{position:fixed;right:8px;bottom:8px;z-index:99999;background:#111;color:#fff;border:2px solid #e0ad2f;border-radius:8px;padding:8px 10px;font:700 13px/1.2 Arial,sans-serif;box-shadow:0 3px 12px #0005;pointer-events:none}
+@media(min-width:650px) and (max-width:900px) and (orientation:landscape){
+  body{overflow:hidden!important}
+  .top{height:52px!important;min-height:52px!important;padding:0 8px 0 80px!important}
+  .top>b{font-size:16px!important}
+  .top .status{font-size:9px!important}
+  .layout{display:grid!important;grid-template-columns:76px minmax(0,1fr) 230px!important;height:calc(100vh - 52px)!important;min-height:0!important}
+  .pos-v3-rail{grid-column:1!important;grid-row:1!important;min-width:76px!important;padding:6px 5px!important;gap:5px!important}
+  .pos-v3-brand{width:44px!important;height:44px!important;border-radius:12px!important;font-size:18px!important;margin-bottom:2px!important}
+  .pos-v3-nav{min-height:56px!important;font-size:12px!important;border-radius:11px!important;padding:5px 2px!important}
+  .pos-v3-nav span{font-size:21px!important}
+  .main{grid-column:2!important;grid-row:1!important;overflow:auto!important}
+  .cart{grid-column:3!important;grid-row:1!important;display:block!important;height:calc(100vh - 52px)!important;border-left:1px solid var(--pos-line)!important;border-top:0!important;overflow:auto!important}
+  .pos-v3-toolbar{padding:6px 7px!important;grid-template-columns:auto minmax(110px,1fr)!important;gap:6px!important}
+  .pos-v3-clock{display:none!important}
+  .pos-v3-service .ticket-choice button{min-height:36px!important;padding:0 8px!important;font-size:12px!important}
+  .pos-v3-search{height:36px!important;font-size:12px!important;padding:0 8px!important}
+  .title{padding:7px 8px 4px!important}
+  .title h2{font-size:16px!important}
+  .cats{padding:2px 8px 6px!important;gap:5px!important}
+  .cat{padding:9px 11px!important;font-size:15px!important;line-height:1.1!important}
+  .grid{padding:0 8px 10px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important}
+  .product{min-height:132px!important;padding:5px!important;border-radius:9px!important}
+  .product-photo{height:66px!important;margin-bottom:4px!important;border-radius:6px!important}
+  .name{font-size:11px!important;line-height:1.12!important}
+  .meta{font-size:7px!important;margin-top:1px!important}
+  .badge{font-size:7px!important;margin-top:2px!important;padding:2px 5px!important}
+  .price{font-size:14px!important;padding-top:3px!important}
+  .cart:before{padding:7px 8px 3px!important;font-size:9px!important}
+  .pos-recent-orders-btn{margin:0 7px 5px!important;width:calc(100% - 14px)!important;min-height:34px!important;font-size:11px!important}
+  .touch-client-summary{margin:0 7px 5px!important;min-height:40px!important;padding:6px 7px!important}
+  .touch-client-summary b{font-size:12px!important}.touch-client-summary span{font-size:10px!important}.touch-client-summary .tc-edit{font-size:11px!important;padding:7px 8px!important}
+  #options{margin:0 7px 6px!important;padding:6px!important}
+  .selection-summary{padding:7px!important;font-size:11px!important}
+  .opt-value{font-size:11px!important;padding:7px!important}
+  .order-box{padding:3px 8px 6px!important}
+  .order-box>h2{font-size:15px!important;margin-bottom:4px!important}
+  .order-line{padding:5px 0!important}
+  .order-line-head{font-size:11px!important}
+  .order-opts{font-size:9px!important}
+  .order-total{font-size:18px!important;padding-top:6px!important;margin-top:5px!important}
+  .action.save,.action.kitchen{min-height:40px!important;font-size:11px!important}
+  .pos-v2-upsell{margin:0 7px 6px!important;padding:6px!important}
+}
+
 </style>
 <script id="pos-design-v2-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
-   let dbg=document.getElementById('pos-debug-viewport');
-   if(!dbg){dbg=document.createElement('div');dbg.id='pos-debug-viewport';document.body.appendChild(dbg)}
-   function updateViewportDebug(){dbg.textContent='CSS '+window.innerWidth+' × '+window.innerHeight+' | DPR '+(window.devicePixelRatio||1)}
-   updateViewportDebug();window.addEventListener('resize',updateViewportDebug);
    const layout=document.querySelector('.layout'),main=document.querySelector('.main'),cats=document.getElementById('cats'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!layout||!main||!cats||!cart||!ticket)return;
 
