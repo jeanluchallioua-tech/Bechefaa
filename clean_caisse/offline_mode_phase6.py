@@ -57,6 +57,7 @@ async function cachedGet(req){
 async function syncOrders(){
   const rows=(await allOrders()).sort((a,b)=>(a.created_at||0)-(b.created_at||0));
   let synced=0;
+  const printOrderIds=[];
   for(const row of rows){
     try{
       const r=await fetch('/api/orders',{
@@ -70,6 +71,7 @@ async function syncOrders(){
         try{
           const kr=await fetch('/api/orders/'+encodeURIComponent(d.id)+'/send-kitchen',{method:'POST'});
           if(!kr.ok)continue;
+          printOrderIds.push(d.id);
         }catch(e){continue}
       }
       await delOrder(row.offline_id);synced++;
@@ -77,8 +79,8 @@ async function syncOrders(){
   }
   const remain=(await allOrders()).length;
   const cs=await self.clients.matchAll({includeUncontrolled:true,type:'window'});
-  cs.forEach(c=>c.postMessage({type:'offline-sync-result',synced,pending:remain}));
-  return {synced,pending:remain};
+  cs.forEach(c=>c.postMessage({type:'offline-sync-result',synced,pending:remain,print_order_ids:printOrderIds}));
+  return {synced,pending:remain,print_order_ids:printOrderIds};
 }
 
 self.addEventListener('message',event=>{
