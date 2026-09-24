@@ -144,15 +144,16 @@ html.bechefaa-tablet .cat{
 }
 html.bechefaa-tablet .grid{
   padding:0 6px 18px!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  grid-template-columns:repeat(4,190px)!important;
   gap:4px!important;
+  justify-content:start!important;
   min-width:0!important;width:100%!important
 }
 html.bechefaa-tablet .product{
   min-height:160px!important;
-  width:88%!important;
-  max-width:88%!important;
-  justify-self:center!important;
+  width:190px!important;
+  max-width:190px!important;
+  justify-self:start!important;
   padding:7px!important;
   border-radius:11px!important;
   min-width:0!important;
