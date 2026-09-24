@@ -147,11 +147,16 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
   .pos-v2-upsell{margin:0 7px 6px!important;padding:6px!important}
 }
 
+#pos-debug-viewport{position:fixed;right:8px;bottom:8px;z-index:99999;background:#111;color:#fff;border:2px solid #e0ad2f;border-radius:8px;padding:8px 10px;font:700 13px/1.2 Arial,sans-serif;box-shadow:0 3px 12px #0005;pointer-events:none}
 </style>
 <script id="pos-design-v2-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
+   let dbg=document.getElementById('pos-debug-viewport');
+   if(!dbg){dbg=document.createElement('div');dbg.id='pos-debug-viewport';document.body.appendChild(dbg)}
+   function updateViewportDebug(){dbg.textContent='CSS '+window.innerWidth+' × '+window.innerHeight+' | DPR '+(window.devicePixelRatio||1)}
+   updateViewportDebug();window.addEventListener('resize',updateViewportDebug);
    const layout=document.querySelector('.layout'),main=document.querySelector('.main'),cats=document.getElementById('cats'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!layout||!main||!cats||!cart||!ticket)return;
 
