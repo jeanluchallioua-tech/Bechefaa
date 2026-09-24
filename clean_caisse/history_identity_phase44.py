@@ -91,7 +91,7 @@ def register_history_identity_phase44(app):
 .history-clean-close{width:42px;height:42px;border:0;border-radius:9px;background:#eef1f4;font-size:24px;font-weight:900;cursor:pointer}
 .history-clean-lines{display:grid;gap:0}.history-clean-line{padding:11px 0;border-bottom:1px solid #eee}.history-clean-line-top{display:flex;justify-content:space-between;gap:12px;font-weight:800}.history-clean-opt{font-size:12px;color:#667085;margin-top:4px}.history-clean-total{display:flex;justify-content:space-between;font-size:20px;font-weight:900;padding:14px 0 4px}
 .history-clean-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid #e5e7eb}
-.history-clean-actions button{min-height:44px;border:0;border-radius:9px;padding:10px 14px;font-weight:900;cursor:pointer}
+.history-clean-actions button,.history-clean-actions a{min-height:44px;border:0;border-radius:9px;padding:10px 14px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.history-clean-print-client{background:#2563eb;color:#fff}.history-clean-print-kitchen{background:#d97706;color:#fff}
 .history-clean-modify{background:#111827;color:#fff}.history-clean-actions .p41-pay-btn,.history-clean-actions .p44-refund-action-btn{display:inline-block!important;margin:0!important;min-height:44px}
 .history-clean-empty{padding:18px 0;color:#667085;text-align:center}
 @media(max-width:700px){#list .order{align-items:flex-start!important}.history-clean-actions{flex-direction:column}.history-clean-actions button{width:100%}}
@@ -145,6 +145,8 @@ def register_history_identity_phase44(app):
       lines.innerHTML=arr.length?arr.map(i=>'<div class="history-clean-line"><div class="history-clean-line-top"><span>'+esc(i.qty+'× '+i.name)+'</span><span>'+euro(Number(i.unit_price||0)*Number(i.qty||0))+'</span></div>'+(i.options_text?'<div class="history-clean-opt">'+esc(i.options_text)+'</div>':'')+'</div>').join(''):'<div class="history-clean-empty">Aucun article</div>';
       total.textContent=euro(o.total);
       const mod=document.createElement('button');mod.type='button';mod.className='history-clean-modify';mod.textContent='Modifier';mod.onclick=function(){close();if(typeof editOrder==='function')editOrder(id)};actions.appendChild(mod);
+      const clientTicket=document.createElement('a');clientTicket.className='history-clean-print-client';clientTicket.target='_blank';clientTicket.rel='noopener';clientTicket.href='/impression/client/'+encodeURIComponent(id);clientTicket.textContent='Ticket client';actions.appendChild(clientTicket);
+      const kitchenTicket=document.createElement('a');kitchenTicket.className='history-clean-print-kitchen';kitchenTicket.target='_blank';kitchenTicket.rel='noopener';kitchenTicket.href='/impression/cuisine/'+encodeURIComponent(id);kitchenTicket.textContent='Ticket cuisine';actions.appendChild(kitchenTicket);
       const card=[...document.querySelectorAll('#list .order')].find(c=>String(oid(c))===String(id));
       if(card){
         [...card.querySelectorAll(':scope > .p41-pay-btn,:scope > .p44-refund-action-btn')].forEach(node=>{moved.push({node,card});actions.appendChild(node)});
