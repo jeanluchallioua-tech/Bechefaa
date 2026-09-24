@@ -103,11 +103,16 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 
 @media(max-width:1250px) and (min-width:981px){.layout{grid-template-columns:92px minmax(0,1fr) 285px!important}.pos-v3-rail{min-width:92px!important}.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr!important}}
 @media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
+#pos-debug-viewport{position:fixed;right:8px;bottom:8px;z-index:99999;background:#111;color:#fff;border:2px solid #e0ad2f;border-radius:8px;padding:8px 10px;font:700 13px/1.2 Arial,sans-serif;box-shadow:0 3px 12px #0005;pointer-events:none}
 </style>
 <script id="pos-design-v2-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
+   let dbg=document.getElementById('pos-debug-viewport');
+   if(!dbg){dbg=document.createElement('div');dbg.id='pos-debug-viewport';document.body.appendChild(dbg)}
+   function updateViewportDebug(){dbg.textContent='CSS '+window.innerWidth+' × '+window.innerHeight+' | DPR '+(window.devicePixelRatio||1)}
+   updateViewportDebug();window.addEventListener('resize',updateViewportDebug);
    const layout=document.querySelector('.layout'),main=document.querySelector('.main'),cats=document.getElementById('cats'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!layout||!main||!cats||!cart||!ticket)return;
 
