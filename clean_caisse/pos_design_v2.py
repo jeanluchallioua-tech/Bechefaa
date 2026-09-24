@@ -157,10 +157,12 @@ html.bechefaa-tablet .product{
 }
 html.bechefaa-tablet .product-photo{
   height:88px!important;
-  width:100%!important;
+  width:82%!important;
+  max-width:82%!important;
   object-fit:cover!important;
-  margin-bottom:6px!important;
-  border-radius:8px!important
+  margin:0 auto 6px!important;
+  border-radius:8px!important;
+  display:block!important
 }
 html.bechefaa-tablet .name{
   font-size:14px!important;
