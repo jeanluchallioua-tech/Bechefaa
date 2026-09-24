@@ -8,7 +8,7 @@
 from flask import Response
 
 SW_JS = r"""
-const CACHE='bechefaa-pos-offline-v1';
+const CACHE='bechefaa-pos-offline-v2';
 const DB='bechefaa-offline-v1';
 const STORE='orders';
 
@@ -35,7 +35,11 @@ self.addEventListener('install',event=>{
     await self.skipWaiting();
   })());
 });
-self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{
+  const keys=await caches.keys();
+  await Promise.all(keys.filter(k=>k.startsWith('bechefaa-pos-offline-')&&k!==CACHE).map(k=>caches.delete(k)));
+  await self.clients.claim();
+})()));
 
 async function cachedGet(req){
   const c=await caches.open(CACHE);
@@ -153,13 +157,13 @@ UI = r"""
    if(kind==='ok')hideTimer=setTimeout(()=>{bar.className='';bar.textContent=''},4500);
  }
  function update(){
-   if(!navigator.onLine) render('off','HORS CONNEXION • '+pending+' commande(s) en attente • Mollie / Edenred indisponibles');
-   else if(pending>0) render('sync','Connexion rétablie • synchronisation de '+pending+' commande(s)…');
+   if(!navigator.onLine) render('off','HORS CONNEXION • '+pending+' commande(s) en attente • paiements en ligne indisponibles');
+   else if(pending>0) render('sync','Synchronisation en attente • '+pending+' commande(s) locale(s)');
  }
  function count(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-count'})}
  function sync(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-sync'})}
  if('serviceWorker' in navigator){
-   navigator.serviceWorker.register('/offline-sw.js',{scope:'/'}).then(async reg=>{
+   navigator.serviceWorker.register('/caisse-sw.js',{scope:'/'}).then(async reg=>{
      await navigator.serviceWorker.ready;
      count();
      if(navigator.onLine)sync();
@@ -176,6 +180,7 @@ UI = r"""
    if(d.type==='offline-sync-result'){
      pending=Number(d.pending||0);
      if(pending===0&&Number(d.synced||0)>0)render('ok','Synchronisation terminée • '+d.synced+' commande(s) envoyée(s)');
+     else if(pending>0&&!navigator.onLine)render('off','HORS CONNEXION • '+pending+' commande(s) en attente • paiements en ligne indisponibles');
      else update();
    }
  });
