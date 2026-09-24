@@ -25,13 +25,14 @@ def register_pos_options_modal_final(app):
 /* Tablette Samsung : catégories compactes sur 2 lignes, boutons plus hauts. */
 html.bechefaa-tablet .cats{
   display:grid!important;
-  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  grid-template-columns:repeat(5,160px)!important;
   grid-auto-rows:56px!important;
-  gap:6px 6px!important;
+  gap:6px 8px!important;
   padding:8px 10px 10px!important;
   overflow:hidden!important;
   white-space:normal!important;
   align-items:stretch!important;
+  justify-content:center!important;
 }
 html.bechefaa-tablet .cat{
   width:100%!important;
