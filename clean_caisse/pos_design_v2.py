@@ -119,40 +119,32 @@ html.bechefaa-tablet .cart{
 }
 html.bechefaa-tablet .pos-v3-toolbar{
   padding:9px 11px!important;
-  grid-template-columns:520px minmax(220px,1fr)!important;
+  grid-template-columns:760px minmax(180px,1fr)!important;
   gap:12px!important
 }
 html.bechefaa-tablet .pos-v3-service{
-  width:520px!important;
+  width:760px!important;
   justify-content:center!important
 }
 html.bechefaa-tablet .pos-v3-service .ticket-choice{
   width:100%!important;
   display:flex!important;
   justify-content:center!important;
-  gap:12px!important
+  gap:14px!important
 }
 html.bechefaa-tablet .pos-v3-service .ticket-choice button{
   flex:1 1 0!important;
   min-width:0!important;
-  min-height:68px!important;
-  padding:8px 12px!important;
-  font-size:17px!important;
+  min-height:64px!important;
+  padding:0 18px!important;
+  font-size:18px!important;
   display:flex!important;
-  flex-direction:column!important;
+  flex-direction:row!important;
   align-items:center!important;
   justify-content:center!important;
-  gap:4px!important;
+  gap:8px!important;
   text-align:center!important
 }
-html.bechefaa-tablet .pos-v3-service .ticket-choice button::before{
-  display:block!important;
-  font-size:28px!important;
-  line-height:1!important
-}
-html.bechefaa-tablet .pos-v3-service .ticket-choice button[data-ticket="Salle"]::before{content:"🍽"!important}
-html.bechefaa-tablet .pos-v3-service .ticket-choice button[data-ticket="Emporter"]::before{content:"🥡"!important}
-html.bechefaa-tablet .pos-v3-service .ticket-choice button[data-ticket="Livraison"]::before{content:"🛵"!important}
 html.bechefaa-tablet .pos-v3-search{
   height:42px!important;font-size:14px!important;padding:0 12px!important
 }
