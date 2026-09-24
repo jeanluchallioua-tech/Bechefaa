@@ -20,9 +20,9 @@ def register_pos_reference_finish(app):
 <style id="pos-reference-finish-style">
 .layout{overflow:hidden!important}
 .pos-v3-rail{position:sticky!important;top:0!important;height:calc(100vh - 52px)!important;align-self:start!important}
-.pos-v3-brand{height:162px!important;padding:8px 0!important;overflow:visible!important}
-.pos-v3-brand .pos-ref-logo{display:block!important;width:96px!important;height:96px!important;max-width:96px!important;object-fit:contain!important;margin:0 auto!important;border-radius:0!important}
-.pos-v3-brand .pos-ref-brandname{font-size:20px!important;letter-spacing:3px!important;text-align:center!important;width:100%!important;overflow:visible!important}
+.pos-v3-brand{height:162px!important;padding:4px 0 28px!important;overflow:visible!important}
+.pos-v3-brand .pos-ref-logo{display:block!important;width:78px!important;height:78px!important;max-width:78px!important;object-fit:contain!important;margin:0 auto!important;border-radius:0!important}
+.pos-v3-brand .pos-ref-brandname{font-size:18px!important;letter-spacing:3px!important;text-align:center!important;width:100%!important;overflow:visible!important}
 
 /* Barre catégories : plus détendue, mais sans ascenseur horizontal. */
 .cats{display:flex!important;flex-wrap:wrap!important;overflow-x:hidden!important;overflow-y:visible!important;white-space:normal!important;gap:9px!important;padding:11px 16px 12px!important}
