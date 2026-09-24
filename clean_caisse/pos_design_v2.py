@@ -63,160 +63,156 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 /* Masque le vieux selecteur service injecte dans la colonne droite : la barre haute devient la reference */
 #phase36-table-selector{display:none!important}
 
-/* Optimisation tablette Samsung 11 pouces en paysage (viewport CSS ~ 1024-1366px) */
-@media(min-width:981px) and (max-width:1366px){
-  .top{height:56px!important;min-height:56px!important;padding:0 12px 0 98px!important}
-  .top>b{font-size:17px!important}
-  .top .status{font-size:10px!important}
-  .layout{grid-template-columns:92px minmax(0,1fr) 285px!important;height:calc(100vh - 56px)!important}
-  .pos-v3-rail{min-width:92px!important;padding:10px 7px!important;gap:8px!important}
-  .pos-v3-brand{width:54px!important;height:54px!important;border-radius:15px!important;font-size:20px!important;margin-bottom:5px!important}
-  .pos-v3-nav{min-height:72px!important;font-size:15px!important;border-radius:13px!important;padding:8px 4px!important}
-  .pos-v3-nav span{font-size:27px!important}
-  .pos-v3-toolbar{padding:8px 10px!important;grid-template-columns:auto minmax(150px,1fr)!important;gap:8px!important}
+/* Mobile : comportement historique conservé */
+@media(max-width:980px){
+  body{overflow:auto!important}
+  .layout{grid-template-columns:72px 1fr!important;height:auto!important}
+  .cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}
+  .pos-v3-toolbar{grid-template-columns:1fr!important}
   .pos-v3-clock{display:none!important}
-  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:15px!important}
-  .pos-v3-search{height:40px!important;font-size:13px!important;padding:0 11px!important}
-  .title{padding:10px 12px 6px!important}
-  .title h2{font-size:18px!important}
-  .cats{padding:3px 12px 7px!important;gap:5px!important}
-  .cat{padding:11px 15px!important;font-size:17px!important;line-height:1.15!important}
-  .grid{padding:0 10px 14px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:8px!important}
-  .product{min-height:170px!important;padding:7px!important;border-radius:11px!important}
-  .product-photo{height:92px!important;margin-bottom:6px!important;border-radius:8px!important}
-  .name{font-size:13px!important}
-  .meta{font-size:8px!important;margin-top:2px!important}
-  .badge{font-size:8px!important;margin-top:4px!important}
-  .price{font-size:17px!important;padding-top:5px!important}
-  .cart:before{padding:10px 12px 5px!important}
-  .pos-recent-orders-btn{margin:0 10px 6px!important;width:calc(100% - 20px)!important;min-height:38px!important}
-  .touch-client-summary{margin:0 10px 6px!important;min-height:44px!important;padding:8px 9px!important}
-  #options{margin:0 10px 8px!important;padding:8px!important}
-  .order-box{padding:4px 12px 8px!important}
-  .order-box>h2{font-size:16px!important;margin-bottom:5px!important}
-  .order-line{padding:6px 0!important}
-  .order-line-head{font-size:12px!important}
-  .order-total{font-size:21px!important;padding-top:8px!important}
-  .action.save,.action.kitchen{min-height:46px!important;font-size:12px!important}
-  .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!important}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}
 }
 
-@media(max-width:1250px) and (min-width:981px){.layout{grid-template-columns:92px minmax(0,1fr) 285px!important}.pos-v3-rail{min-width:92px!important}.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}.pos-v3-toolbar{grid-template-columns:auto 1fr!important}}
-@media(max-width:980px){body{overflow:auto!important}.layout{grid-template-columns:72px 1fr!important;height:auto!important}.cart{grid-column:2!important;grid-row:2!important;display:block!important;border-left:0!important;border-top:1px solid var(--pos-line)!important}.pos-v3-toolbar{grid-template-columns:1fr!important}.pos-v3-clock{display:none!important}.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))!important}}
-@media(min-width:650px) and (max-width:900px){
-  body{overflow:hidden!important}
-  .top{height:52px!important;min-height:52px!important;padding:0 8px 0 80px!important}
-  .top>b{font-size:16px!important}
-  .top .status{font-size:9px!important}
-  .layout{display:grid!important;grid-template-columns:88px minmax(0,1fr) 220px!important;height:calc(100vh - 52px)!important;min-height:0!important}
-  .pos-v3-rail{grid-column:1!important;grid-row:1!important;min-width:88px!important;padding:6px 5px!important;gap:5px!important}
-  .pos-v3-brand{width:44px!important;height:44px!important;border-radius:12px!important;font-size:18px!important;margin-bottom:2px!important}
-  .pos-v3-nav{min-height:58px!important;font-size:13px!important;border-radius:11px!important;padding:5px 2px!important}
-  .pos-v3-nav span{font-size:22px!important}
-  .main{grid-column:2!important;grid-row:1!important;overflow-y:auto!important;overflow-x:hidden!important;min-width:0!important}
-  .cart{grid-column:3!important;grid-row:1!important;display:block!important;height:calc(100vh - 52px)!important;border-left:1px solid var(--pos-line)!important;border-top:0!important;overflow:auto!important}
-  .pos-v3-toolbar{padding:6px 7px!important;grid-template-columns:auto minmax(110px,1fr)!important;gap:6px!important}
-  .pos-v3-clock{display:none!important}
-  .pos-v3-service .ticket-choice button{min-height:38px!important;padding:0 10px!important;font-size:14px!important}
-  .pos-v3-search{height:36px!important;font-size:12px!important;padding:0 8px!important}
-  .title{padding:7px 8px 4px!important}
-  .title h2{font-size:16px!important}
-  .cats{padding:2px 8px 6px!important;gap:5px!important}
-  .cat{padding:10px 12px!important;font-size:17px!important;line-height:1.1!important}
-  .grid{padding:0 6px 10px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:5px!important;min-width:0!important;width:100%!important}
-  .product{min-height:116px!important;padding:4px!important;border-radius:9px!important;min-width:0!important;overflow:hidden!important}
-  .product-photo{height:52px!important;margin-bottom:4px!important;border-radius:6px!important;width:100%!important;object-fit:cover!important}
-  .name{font-size:11px!important;line-height:1.12!important;overflow-wrap:anywhere!important}
-  .meta{font-size:7px!important;margin-top:1px!important}
-  .badge{font-size:7px!important;margin-top:2px!important;padding:2px 5px!important}
-  .price{font-size:14px!important;padding-top:3px!important}
-  .cart:before{padding:7px 8px 3px!important;font-size:9px!important}
-  .pos-recent-orders-btn{margin:0 7px 5px!important;width:calc(100% - 14px)!important;min-height:34px!important;font-size:11px!important}
-  .touch-client-summary{margin:0 7px 5px!important;min-height:40px!important;padding:6px 7px!important}
-  .touch-client-summary b{font-size:12px!important}.touch-client-summary span{font-size:10px!important}.touch-client-summary .tc-edit{font-size:11px!important;padding:7px 8px!important}
-  #options{margin:0 7px 6px!important;padding:6px!important}
-  .selection-summary{padding:7px!important;font-size:11px!important}
-  .opt-value{font-size:11px!important;padding:7px!important}
-  .order-box{padding:3px 8px 6px!important}
-  .order-box>h2{font-size:15px!important;margin-bottom:4px!important}
-  .order-line{padding:5px 0!important}
-  .order-line-head{font-size:11px!important}
-  .order-opts{font-size:9px!important}
-  .order-total{font-size:18px!important;padding-top:6px!important;margin-top:5px!important}
-  .action.save,.action.kitchen{min-height:40px!important;font-size:11px!important}
-  .pos-v2-upsell{margin:0 7px 6px!important;padding:6px!important}
+/* Profil unique Samsung tablette 11" — activé par JavaScript uniquement sur écran tactile large */
+html.bechefaa-tablet body{overflow:hidden!important}
+html.bechefaa-tablet .top{
+  height:58px!important;min-height:58px!important;
+  padding:0 14px 0 110px!important
 }
-
-#pos-debug-viewport{position:fixed;right:8px;bottom:8px;z-index:99999;background:#111;color:#fff;border:2px solid #e0ad2f;border-radius:8px;padding:8px 10px;font:700 13px/1.2 Arial,sans-serif;box-shadow:0 3px 12px #0005;pointer-events:none}
-
-/* Samsung 11" - zoom écran réduit : viewport ~1442x901, tactile uniquement */
-@media (pointer:coarse) and (min-width:1200px) and (max-width:1600px) and (max-height:1000px){
-  body{overflow:hidden!important}
-  .top{height:58px!important;min-height:58px!important;padding:0 14px 0 102px!important}
-  .layout{display:grid!important;grid-template-columns:96px minmax(0,1fr) 300px!important;height:calc(100vh - 58px)!important;min-height:0!important}
-  .pos-v3-rail{grid-column:1!important;grid-row:1!important;min-width:96px!important;padding:10px 8px!important;gap:8px!important}
-  .pos-v3-brand{width:54px!important;height:54px!important}
-  .pos-v3-nav{min-height:68px!important;font-size:15px!important;padding:7px 4px!important}
-  .pos-v3-nav span{font-size:26px!important}
-  .main{grid-column:2!important;grid-row:1!important;min-width:0!important;overflow-y:auto!important;overflow-x:hidden!important}
-  .cart{grid-column:3!important;grid-row:1!important;display:block!important;height:calc(100vh - 58px)!important;border-left:1px solid var(--pos-line)!important;border-top:0!important;overflow:auto!important}
-  .pos-v3-toolbar{padding:9px 11px!important;grid-template-columns:auto minmax(220px,1fr) auto!important;gap:9px!important}
-  .pos-v3-service .ticket-choice button{min-height:44px!important;padding:0 14px!important;font-size:15px!important}
-  .pos-v3-search{height:42px!important;font-size:14px!important}
-  .cats{padding:4px 12px 9px!important;gap:7px!important}
-  .cat{padding:11px 15px!important;font-size:17px!important;line-height:1.1!important}
-  .grid{padding:0 12px 18px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;min-width:0!important;width:100%!important}
-  .product{min-height:190px!important;padding:8px!important;border-radius:12px!important;min-width:0!important;overflow:hidden!important}
-  .product-photo{height:112px!important;width:100%!important;object-fit:cover!important;margin-bottom:7px!important}
-  .name{font-size:14px!important;line-height:1.15!important;overflow-wrap:anywhere!important}
-  .meta{font-size:8px!important}
-  .price{font-size:18px!important}
-  .pos-recent-orders-btn{font-size:13px!important;min-height:42px!important}
-  .touch-client-summary{min-height:48px!important}
-  .order-box>h2{font-size:17px!important}
-  .order-line-head{font-size:13px!important}
-  .order-total{font-size:22px!important}
+html.bechefaa-tablet .top>b{font-size:18px!important}
+html.bechefaa-tablet .top .status{font-size:11px!important}
+html.bechefaa-tablet .layout{
+  display:grid!important;
+  grid-template-columns:104px minmax(0,1fr) 285px!important;
+  height:calc(100vh - 58px)!important;
+  min-height:0!important
 }
+html.bechefaa-tablet .pos-v3-rail{
+  grid-column:1!important;grid-row:1!important;
+  min-width:104px!important;
+  padding:10px 8px!important;gap:8px!important
+}
+html.bechefaa-tablet .pos-v3-brand{
+  width:56px!important;height:56px!important;
+  border-radius:15px!important;font-size:21px!important;margin-bottom:4px!important
+}
+html.bechefaa-tablet .pos-v3-nav{
+  min-height:70px!important;
+  font-size:16px!important;
+  border-radius:13px!important;
+  padding:8px 5px!important;
+  line-height:1.15!important
+}
+html.bechefaa-tablet .pos-v3-nav span{font-size:27px!important}
+html.bechefaa-tablet .main{
+  grid-column:2!important;grid-row:1!important;
+  min-width:0!important;
+  overflow-y:auto!important;overflow-x:hidden!important
+}
+html.bechefaa-tablet .cart{
+  grid-column:3!important;grid-row:1!important;
+  display:block!important;
+  height:calc(100vh - 58px)!important;
+  border-left:1px solid var(--pos-line)!important;
+  border-top:0!important;
+  overflow:auto!important
+}
+html.bechefaa-tablet .pos-v3-toolbar{
+  padding:9px 11px!important;
+  grid-template-columns:auto minmax(220px,1fr) auto!important;
+  gap:9px!important
+}
+html.bechefaa-tablet .pos-v3-service .ticket-choice button{
+  min-height:46px!important;
+  padding:0 15px!important;
+  font-size:16px!important
+}
+html.bechefaa-tablet .pos-v3-search{
+  height:42px!important;font-size:14px!important;padding:0 12px!important
+}
+html.bechefaa-tablet .pos-v3-clock{display:none!important}
+html.bechefaa-tablet .title{padding:10px 12px 6px!important}
+html.bechefaa-tablet .title h2{font-size:19px!important}
+html.bechefaa-tablet .cats{
+  padding:4px 12px 9px!important;
+  gap:7px!important
+}
+html.bechefaa-tablet .cat{
+  padding:12px 16px!important;
+  font-size:18px!important;
+  line-height:1.1!important
+}
+html.bechefaa-tablet .grid{
+  padding:0 12px 18px!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:9px!important;
+  min-width:0!important;width:100%!important
+}
+html.bechefaa-tablet .product{
+  min-height:160px!important;
+  padding:7px!important;
+  border-radius:11px!important;
+  min-width:0!important;
+  overflow:hidden!important
+}
+html.bechefaa-tablet .product-photo{
+  height:88px!important;
+  width:100%!important;
+  object-fit:cover!important;
+  margin-bottom:6px!important;
+  border-radius:8px!important
+}
+html.bechefaa-tablet .name{
+  font-size:14px!important;
+  line-height:1.15!important;
+  overflow-wrap:anywhere!important
+}
+html.bechefaa-tablet .meta{font-size:8px!important;margin-top:2px!important}
+html.bechefaa-tablet .badge{font-size:8px!important;margin-top:4px!important}
+html.bechefaa-tablet .price{font-size:18px!important;padding-top:5px!important}
+html.bechefaa-tablet .cart:before{padding:10px 11px 5px!important}
+html.bechefaa-tablet .pos-recent-orders-btn{
+  margin:0 10px 7px!important;
+  width:calc(100% - 20px)!important;
+  min-height:42px!important;
+  font-size:13px!important
+}
+html.bechefaa-tablet .touch-client-summary{
+  margin:0 10px 7px!important;
+  min-height:46px!important;
+  padding:8px 9px!important
+}
+html.bechefaa-tablet #options{margin:0 10px 8px!important;padding:8px!important}
+html.bechefaa-tablet .order-box{padding:4px 11px 9px!important}
+html.bechefaa-tablet .order-box>h2{font-size:17px!important;margin-bottom:6px!important}
+html.bechefaa-tablet .order-line{padding:7px 0!important}
+html.bechefaa-tablet .order-line-head{font-size:13px!important}
+html.bechefaa-tablet .order-total{font-size:22px!important;padding-top:8px!important}
+html.bechefaa-tablet .action.save,
+html.bechefaa-tablet .action.kitchen{
+  min-height:46px!important;
+  font-size:13px!important
+}
+html.bechefaa-tablet .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!important}
+
 </style>
 <script id="pos-design-v2-script">
 (function(){
  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
  ready(function(){
-   let dbg=document.getElementById('pos-debug-viewport');
-   if(!dbg){dbg=document.createElement('div');dbg.id='pos-debug-viewport';document.body.appendChild(dbg)}
-   function updateViewportDebug(){dbg.textContent='CSS '+window.innerWidth+' × '+window.innerHeight+' | DPR '+(window.devicePixelRatio||1)}
-   updateViewportDebug();window.addEventListener('resize',updateViewportDebug);
    const layout=document.querySelector('.layout'),main=document.querySelector('.main'),cats=document.getElementById('cats'),cart=document.querySelector('.cart'),ticket=document.querySelector('.ticket-choice');
    if(!layout||!main||!cats||!cart||!ticket)return;
 
-   function applyTabletLayout(){
+   function applyTabletProfile(){
      const w=window.innerWidth,h=window.innerHeight;
-     const coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
-     const compactTablet=w>=650&&w<=900;
-     const hiResTablet=coarse&&w>=1200&&w<=1600&&h<=1000;
-     if(!compactTablet&&!hiResTablet)return;
-     const hi=hiResTablet;
-     layout.style.setProperty('grid-template-columns',hi?'96px minmax(0,1fr) 300px':'88px minmax(0,1fr) 220px','important');
-     layout.style.setProperty('height',hi?'calc(100vh - 58px)':'calc(100vh - 52px)','important');
-     main.style.setProperty('overflow-x','hidden','important');
-     main.scrollLeft=0;
-     cart.style.setProperty('grid-column','3','important');
-     cart.style.setProperty('grid-row','1','important');
-     cart.style.setProperty('display','block','important');
-     cart.style.setProperty('height',hi?'calc(100vh - 58px)':'calc(100vh - 52px)','important');
-     const grid=document.getElementById('grid');
-     if(grid){
-       grid.style.setProperty('grid-template-columns','repeat(4,minmax(0,1fr))','important');
-       grid.style.setProperty('min-width','0','important');
-       grid.style.setProperty('width','100%','important');
-     }
+     const touch=(navigator.maxTouchPoints||0)>0;
+     const tablet=touch&&w>=1000&&w<=1700&&h<=1100;
+     document.documentElement.classList.toggle('bechefaa-tablet',tablet);
    }
-   applyTabletLayout();
-   window.addEventListener('resize',applyTabletLayout);
-   window.addEventListener('pageshow',function(event){
-     if(event.persisted){ location.reload(); return; }
-     applyTabletLayout();
-   });
+   applyTabletProfile();
+   window.addEventListener('resize',applyTabletProfile);
+   window.addEventListener('pageshow',applyTabletProfile);
+   document.addEventListener('visibilitychange',function(){if(!document.hidden)applyTabletProfile();});
 
    // Rail gauche
    if(!document.querySelector('.pos-v3-rail')){
@@ -276,7 +272,7 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Design"] = "v5-tablet-692-consolidated"
+                response.headers["X-Bechefaa-POS-Design"] = "v6-tablet-single-profile"
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
                 response.headers["Pragma"] = "no-cache"
         except Exception:
