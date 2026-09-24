@@ -143,10 +143,10 @@ html.bechefaa-tablet .cat{
   line-height:1.1!important
 }
 html.bechefaa-tablet .grid{
-  padding:0 6px 18px!important;
+  padding:0 10px 18px!important;
   grid-template-columns:repeat(4,190px)!important;
   gap:4px!important;
-  justify-content:start!important;
+  justify-content:center!important;
   min-width:0!important;width:100%!important
 }
 html.bechefaa-tablet .product{
@@ -220,6 +220,11 @@ html.bechefaa-tablet .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!impo
      const touch=(navigator.maxTouchPoints||0)>0;
      const tablet=touch&&w>=1000&&w<=1700&&h<=1100;
      document.documentElement.classList.toggle('bechefaa-tablet',tablet);
+     if(tablet){
+       main.scrollLeft=0;
+       const grid=document.getElementById('grid');
+       if(grid)grid.scrollLeft=0;
+     }
    }
    applyTabletProfile();
    window.addEventListener('resize',applyTabletProfile);
