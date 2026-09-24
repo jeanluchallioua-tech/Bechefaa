@@ -118,14 +118,15 @@ html.bechefaa-tablet .cart{
   overflow:auto!important
 }
 html.bechefaa-tablet .pos-v3-toolbar{
-  padding:10px 12px!important;
+  padding:10px 36px!important;
   grid-template-columns:1fr!important;
   gap:10px!important;
-  justify-items:center!important
+  justify-items:center!important;
+  overflow:hidden!important
 }
 html.bechefaa-tablet .pos-v3-service{
-  width:calc(100% - 36px)!important;
-  max-width:none!important;
+  width:840px!important;
+  max-width:calc(100% - 80px)!important;
   margin:0 auto!important;
   justify-content:center!important
 }
@@ -133,10 +134,8 @@ html.bechefaa-tablet .pos-v3-service .ticket-choice{
   width:100%!important;
   display:flex!important;
   justify-content:center!important;
-  gap:16px!important
+  gap:18px!important
 }
-html.bechefaa-tablet .pos-v3-original-new-order{display:none!important}
-html.bechefaa-tablet .pos-v3-new-order{white-space:nowrap!important}
 html.bechefaa-tablet .pos-v3-service .ticket-choice button{
   flex:1 1 0!important;
   min-width:0!important;
@@ -275,28 +274,6 @@ html.bechefaa-tablet .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!impo
      main.insertBefore(toolbar,main.firstChild);
      toolbar.querySelector('.pos-v3-service').appendChild(ticket);
    }
-
-   function ensureTabletNewOrder(){
-     if(!document.documentElement.classList.contains('bechefaa-tablet'))return;
-     if(ticket.querySelector('.pos-v3-new-order'))return;
-     const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
-     const original=[...document.querySelectorAll('button,a')].find(el=>{
-       if(ticket.contains(el))return false;
-       return norm(el.textContent).includes('nouvelle commande');
-     });
-     if(!original)return;
-     original.classList.add('pos-v3-original-new-order');
-     const b=document.createElement('button');
-     b.type='button';
-     b.className='pos-v3-new-order';
-     b.innerHTML=original.innerHTML||'+ Nouvelle commande';
-     b.addEventListener('click',function(e){e.preventDefault();original.click()});
-     ticket.appendChild(b);
-   }
-   ensureTabletNewOrder();
-   setTimeout(ensureTabletNewOrder,150);
-   setTimeout(ensureTabletNewOrder,700);
-   new MutationObserver(ensureTabletNewOrder).observe(document.body,{childList:true,subtree:true});
 
    // Categories sous le titre, au centre
    const title=main.querySelector('.title');
