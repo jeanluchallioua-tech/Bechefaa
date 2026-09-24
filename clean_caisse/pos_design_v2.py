@@ -183,7 +183,7 @@ html.bechefaa-tablet .product{
   width:190px!important;
   max-width:190px!important;
   justify-self:start!important;
-  padding:7px!important;
+  padding:4px!important;
   border-radius:11px!important;
   min-width:0!important;
   overflow:hidden!important
