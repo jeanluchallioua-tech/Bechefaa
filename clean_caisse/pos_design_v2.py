@@ -145,7 +145,7 @@ html.bechefaa-tablet .cat{
 html.bechefaa-tablet .grid{
   padding:0 10px 18px!important;
   grid-template-columns:repeat(4,190px)!important;
-  gap:7px!important;
+  gap:14px!important;
   justify-content:center!important;
   min-width:0!important;width:100%!important
 }
