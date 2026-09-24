@@ -73,22 +73,22 @@ html.bechefaa-tablet .pos-v3-service .ticket-choice button{
 }
 
 html.bechefaa-tablet .grid{
-  grid-template-columns:repeat(4,200px)!important;
-  column-gap:36px!important;
+  grid-template-columns:repeat(4,224px)!important;
+  column-gap:18px!important;
   row-gap:18px!important;
   justify-content:center!important;
-  padding-left:12px!important;
-  padding-right:12px!important;
+  padding-left:10px!important;
+  padding-right:10px!important;
 }
 html.bechefaa-tablet .product{
-  width:200px!important;
-  max-width:200px!important;
+  width:224px!important;
+  max-width:224px!important;
   min-height:190px!important;
-  padding:5px!important;
+  padding:2px!important;
 }
 html.bechefaa-tablet .product-photo{
-  width:196px!important;
-  max-width:196px!important;
+  width:220px!important;
+  max-width:220px!important;
   height:145px!important;
   object-fit:cover!important;
   margin:0 auto 7px!important;
