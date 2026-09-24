@@ -190,8 +190,8 @@ html.bechefaa-tablet .product{
 }
 html.bechefaa-tablet .product-photo{
   height:110px!important;
-  width:160px!important;
-  max-width:160px!important;
+  width:170px!important;
+  max-width:170px!important;
   object-fit:cover!important;
   margin:0 auto 6px!important;
   border-radius:8px!important;
