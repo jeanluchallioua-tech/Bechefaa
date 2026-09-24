@@ -168,8 +168,9 @@ html.bechefaa-tablet .product-photo{
   display:block!important
 }
 html.bechefaa-tablet .name{
-  font-size:15px!important;
+  font-size:16px!important;
   line-height:1.16!important;
+  text-align:center!important;
   white-space:normal!important;
   overflow-wrap:anywhere!important;
   display:-webkit-box!important;
