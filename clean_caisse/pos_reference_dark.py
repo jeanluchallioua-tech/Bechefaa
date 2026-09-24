@@ -41,6 +41,9 @@ html.bechefaa-tablet .pos-v3-rail{
 html.bechefaa-tablet .pos-v3-rail a.pos-v3-nav.active[href="/pos"]{
   display:none!important;
 }
+html.bechefaa-tablet .pos-v3-rail .pos-ref-recent{
+  margin-top:28px!important;
+}
 html.bechefaa-tablet .pos-v3-toolbar{
   padding:12px 28px 10px!important;
   display:flex!important;
