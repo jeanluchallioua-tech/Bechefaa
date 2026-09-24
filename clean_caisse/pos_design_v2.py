@@ -118,32 +118,41 @@ html.bechefaa-tablet .cart{
   overflow:auto!important
 }
 html.bechefaa-tablet .pos-v3-toolbar{
-  padding:9px 11px!important;
-  grid-template-columns:760px minmax(180px,1fr)!important;
-  gap:12px!important
+  padding:10px 12px!important;
+  grid-template-columns:1fr!important;
+  gap:10px!important;
+  justify-items:center!important
 }
 html.bechefaa-tablet .pos-v3-service{
-  width:760px!important;
+  width:900px!important;
+  max-width:92%!important;
+  margin:0 auto!important;
   justify-content:center!important
 }
 html.bechefaa-tablet .pos-v3-service .ticket-choice{
   width:100%!important;
   display:flex!important;
   justify-content:center!important;
-  gap:14px!important
+  gap:16px!important
 }
 html.bechefaa-tablet .pos-v3-service .ticket-choice button{
   flex:1 1 0!important;
   min-width:0!important;
-  min-height:64px!important;
-  padding:0 18px!important;
+  min-height:68px!important;
+  padding:0 22px!important;
   font-size:18px!important;
   display:flex!important;
   flex-direction:row!important;
   align-items:center!important;
   justify-content:center!important;
-  gap:8px!important;
-  text-align:center!important
+  gap:10px!important;
+  text-align:center!important;
+  white-space:nowrap!important
+}
+html.bechefaa-tablet .pos-v3-search{
+  width:420px!important;
+  max-width:70%!important;
+  justify-self:center!important
 }
 html.bechefaa-tablet .pos-v3-search{
   height:42px!important;font-size:14px!important;padding:0 12px!important
