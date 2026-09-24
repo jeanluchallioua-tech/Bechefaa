@@ -112,13 +112,10 @@ def caisse_manifest():
 
 @app.get("/caisse-sw.js")
 def caisse_service_worker():
-    js = r'''const CACHE="bechefaa-caisse-pwa-v4";
-self.addEventListener("install",event=>{self.skipWaiting();});
-self.addEventListener("activate",event=>{event.waitUntil(self.clients.claim());});
-self.addEventListener("fetch",event=>{
-  if(event.request.method!=="GET") return;
-  event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));
-});'''
+    # Worker PWA unique : la logique complète hors connexion est centralisée dans
+    # /offline-sw.js. Garder une seule URL de worker évite deux workers concurrents
+    # sur le même scope "/".
+    js = r'''importScripts('/offline-sw.js');'''
     response = Response(js, content_type="application/javascript; charset=utf-8")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Service-Worker-Allowed"] = "/"
