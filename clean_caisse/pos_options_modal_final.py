@@ -22,6 +22,31 @@ def register_pos_options_modal_final(app):
 .cat{flex:0 1 auto!important;min-width:0!important;padding:10px 12px!important;font-size:11.5px!important;line-height:1.1!important;white-space:nowrap!important}
 @media(max-width:1500px){.cats{gap:4px!important;padding-left:10px!important;padding-right:10px!important}.cat{padding:9px 9px!important;font-size:10.5px!important}}
 
+/* Tablette Samsung : catégories compactes sur 2 lignes, boutons plus hauts. */
+html.bechefaa-tablet .cats{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  grid-auto-rows:56px!important;
+  gap:6px 6px!important;
+  padding:8px 10px 10px!important;
+  overflow:hidden!important;
+  white-space:normal!important;
+  align-items:stretch!important;
+}
+html.bechefaa-tablet .cat{
+  width:100%!important;
+  min-width:0!important;
+  height:56px!important;
+  padding:6px 8px!important;
+  font-size:17px!important;
+  line-height:1.08!important;
+  white-space:normal!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  text-align:center!important;
+}
+
 /* Options produit en fenêtre modale. */
 .pos-final-options-overlay{display:none;position:fixed;inset:0;z-index:32000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:22px}
 .pos-final-options-overlay.open{display:flex}
