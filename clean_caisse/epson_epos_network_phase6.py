@@ -191,19 +191,28 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();
-   const url='https://'+c.host+':8043/cgi-bin/epos/service.cgi?devid='+encodeURIComponent(c.device_id||'local_printer')+'&timeout=10000';
-   const pr=await nativeFetch(url,{
-     method:'POST',
-     mode:'cors',
-     cache:'no-store',
-     headers:{'Content-Type':'text/xml; charset=utf-8'},
-     body:xml
-   });
-   const body=await pr.text();
-   if(!pr.ok)throw new Error('Imprimante HTTP '+pr.status);
-   if(/success\s*=\s*["']false["']/i.test(body))throw new Error('Epson a refusé le ticket');
+   const ports=[8143,443];
+   let pr=null,body='',usedPort=null,lastErr=null;
+   for(const port of ports){
+     const url='https://'+c.host+(port===443?'':':'+port)+'/cgi-bin/epos/service.cgi?devid='+encodeURIComponent(c.device_id||'local_printer')+'&timeout=10000';
+     try{
+       const candidate=await nativeFetch(url,{
+         method:'POST',
+         mode:'cors',
+         cache:'no-store',
+         headers:{'Content-Type':'text/xml; charset=utf-8'},
+         body:xml
+       });
+       const candidateBody=await candidate.text();
+       if(!candidate.ok)throw new Error('HTTP '+candidate.status+' sur port '+port);
+       if(/Welcome to Socket\\.IO/i.test(candidateBody))throw new Error('Port '+port+' réservé à Socket.IO');
+       if(/success\\s*=\\s*["']false["']/i.test(candidateBody))throw new Error('Epson a refusé le ticket sur port '+port);
+       pr=candidate;body=candidateBody;usedPort=port;break;
+     }catch(e){lastErr=e}
+   }
+   if(!pr)throw new Error('ePOS HTTPS inaccessible (8143/443)'+(lastErr?': '+(lastErr.message||lastErr):''));
    printed.add(orderId);
-   status('ok','Epson : ticket cuisine imprimé');
+   status('ok','Epson : ticket cuisine imprimé • port '+usedPort);
    setTimeout(()=>status('ok','Epson TM-m30II prête'),3500);
    return true;
  }
