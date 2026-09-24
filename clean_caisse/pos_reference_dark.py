@@ -29,6 +29,48 @@ html,body{background:var(--bg)!important;color:var(--txt)!important}.top{height:
 .pos-recent-panel{background:#0f1316!important;color:#fff!important}.pos-recent-head{border-bottom-color:#2b3137!important}.pos-recent-head h2{color:#fff!important}.pos-recent-close{background:#20262c!important;color:#fff!important}.pos-recent-list{background:#0f1316!important}.pos-recent-row{background:#11161a!important;border-color:#2d3339!important;color:#fff!important}.pos-recent-title{color:#fff!important}.pos-recent-meta{color:#a7adb4!important}.pos-recent-empty{color:#a7adb4!important}.pos-recent-actions a{color:#fff!important}
 .pos-ref-upsell-overlay,.pos-ref-pay-overlay{display:none;position:fixed;inset:0;z-index:25000;background:#000b;align-items:center;justify-content:center;padding:18px}.pos-ref-upsell-overlay.open,.pos-ref-pay-overlay.open{display:flex}.pos-ref-modal{width:min(560px,96vw);max-height:90vh;overflow:auto;background:#101418;border:1px solid #343b42;border-radius:16px;padding:18px;color:#fff;box-shadow:0 24px 70px #0008}.pos-ref-modal h2{margin:0 0 14px}.pos-ref-upsell-list{display:grid;gap:9px}.pos-ref-upsell-item{display:flex;align-items:center;gap:10px;border:1px solid #30363d;background:#0b0e11;border-radius:10px;padding:9px;cursor:pointer;color:#fff}.pos-ref-upsell-item img{width:54px;height:54px;border-radius:8px;object-fit:cover}.pos-ref-upsell-item b{flex:1;text-align:left}.pos-ref-upsell-price{color:var(--gold2);font-weight:900}.pos-ref-no,.pos-ref-cancel{width:100%;margin-top:12px;min-height:46px;border-radius:9px;border:1px solid #414850;background:#151a1f;color:#fff;font-weight:900;cursor:pointer}.pos-ref-pay-total{font-size:28px;color:var(--gold2);font-weight:900;text-align:center;margin:10px 0 14px}.pos-ref-pay-methods{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pos-ref-pay-method{min-height:58px;border:1px solid #363d44;background:#151a1f;color:#fff;border-radius:9px;font-weight:900;cursor:pointer}.pos-ref-pay-method.active{background:var(--gold);color:#111;border-color:var(--gold)}.pos-ref-field{margin-top:12px}.pos-ref-field label{display:block;margin-bottom:6px;font-weight:900}.pos-ref-field input{width:100%;height:48px;background:#0b0e11;color:#fff;border:1px solid #363d44;border-radius:8px;padding:0 12px;font-size:18px}.pos-ref-pay-confirm{width:100%;min-height:52px;margin-top:14px;border:0;border-radius:9px;background:var(--gold);color:#111;font-weight:900;font-size:15px;cursor:pointer}.pos-ref-pay-error{color:#ef8a7f;font-weight:800;margin-top:10px}.pos-ref-hidden{display:none!important}
 @media(max-width:1250px){.layout{grid-template-columns:165px minmax(0,1fr) 370px!important}.pos-v3-rail{min-width:165px!important;width:165px!important}.grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))!important}.pos-ref-tablebar{grid-template-columns:repeat(5,1fr)}}
+
+/* Tablette Samsung : source visuelle réelle du rail et des modes de service. */
+html.bechefaa-tablet .layout{
+  grid-template-columns:180px minmax(0,1fr) 285px!important;
+}
+html.bechefaa-tablet .pos-v3-rail{
+  min-width:180px!important;
+  width:180px!important;
+}
+html.bechefaa-tablet .pos-v3-rail a.pos-v3-nav.active[href="/pos"]{
+  display:none!important;
+}
+html.bechefaa-tablet .pos-v3-toolbar{
+  padding:12px 28px 10px!important;
+  display:flex!important;
+  justify-content:center!important;
+  align-items:center!important;
+}
+html.bechefaa-tablet .pos-v3-service{
+  width:min(920px,100%)!important;
+  max-width:920px!important;
+  margin:0 auto!important;
+  display:block!important;
+}
+html.bechefaa-tablet .pos-v3-service .ticket-choice{
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:18px!important;
+  margin:0!important;
+}
+html.bechefaa-tablet .pos-v3-service .ticket-choice button{
+  width:100%!important;
+  min-width:0!important;
+  height:68px!important;
+  padding:0 24px!important;
+  font-size:18px!important;
+  white-space:nowrap!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
 </style>
 <script id="pos-reference-dark-script">
 (function(){
