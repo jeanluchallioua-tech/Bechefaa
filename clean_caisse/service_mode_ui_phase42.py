@@ -77,6 +77,7 @@ def register_service_mode_ui_phase42(app):
      /* Le module tactile historique pouvait cliquer automatiquement sur Salle au chargement.
         On ignore les clics synthétiques et on force un état neutre après initialisation. */
      [120,300,600].forEach(ms=>setTimeout(clearChoice,ms));
+     document.addEventListener('bechefaa:new-order',clearChoice);
 
      ticket.addEventListener('click',function(e){
        const b=e.target.closest('[data-ticket]');
