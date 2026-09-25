@@ -8,7 +8,7 @@
 from flask import Response
 
 SW_JS = r"""
-const CACHE='bechefaa-pos-offline-v2';
+const CACHE='bechefaa-pos-offline-v3';
 const DB='bechefaa-offline-v1';
 const STORE='orders';
 
@@ -25,7 +25,13 @@ async function allOrders(){const db=await dbOpen();return new Promise((res,rej)=
 async function delOrder(id){const db=await dbOpen();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(id);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}})}
 function totalOf(body){return (body.items||[]).reduce((s,x)=>s+Number(x.unit_price||0)*Number(x.qty||1),0)}
-function ticketType(body){return String(body.ticket_type||'').toLowerCase()==='livraison'?'Livraison':'Comptoir'}
+function ticketType(body){
+  const mode=String(body.service_mode||body.ticket_type||'').toLowerCase();
+  if(mode==='salle'||mode==='sur place'||mode==='sur_place')return 'Salle';
+  if(mode==='livraison'||mode==='delivery')return 'Livraison';
+  if(mode==='emporter'||mode==='takeaway'||mode==='comptoir')return 'Emporter';
+  return 'Emporter';
+}
 function offlineId(){return 'offline-'+Date.now()+'-'+Math.random().toString(36).slice(2,10)}
 
 self.addEventListener('install',event=>{
