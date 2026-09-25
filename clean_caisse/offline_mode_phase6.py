@@ -8,7 +8,7 @@
 from flask import Response
 
 SW_JS = r"""
-const CACHE='bechefaa-pos-offline-v3';
+const CACHE='bechefaa-pos-offline-v4';
 const DB='bechefaa-offline-v1';
 const STORE='orders';
 
@@ -101,8 +101,23 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(url.origin!==location.origin)return;
 
+  if(event.request.method==='GET' && url.pathname==='/pos'){
+    event.respondWith((async()=>{
+      const c=await caches.open(CACHE);
+      try{
+        const net=await fetch(event.request.clone(),{cache:'no-store'});
+        if(net.ok)await c.put(event.request,net.clone());
+        return net;
+      }catch(e){
+        const hit=await c.match(event.request);
+        if(hit)return hit;
+        throw e;
+      }
+    })());
+    return;
+  }
+
   if(event.request.method==='GET' && (
-      url.pathname==='/pos' ||
       url.pathname==='/api/catalog/summary' ||
       url.pathname.startsWith('/api/catalog/product/')
   )){
