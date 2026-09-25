@@ -186,7 +186,7 @@ UI = r"""
  function count(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-count'})}
  function sync(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-sync'})}
  if('serviceWorker' in navigator){
-   navigator.serviceWorker.register('/caisse-sw.js',{scope:'/'}).then(async reg=>{
+   navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).then(async reg=>{
      await navigator.serviceWorker.ready;
      count();
      if(navigator.onLine)sync();
