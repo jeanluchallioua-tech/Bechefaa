@@ -11,6 +11,14 @@ from flask import jsonify
 
 
 def register_pos_touch_layout(app, db):
+    def clean_ticket_type(source):
+        value = str(source or "").upper()
+        if value in {"LIVRAISON", "DELIVERY"}:
+            return "Livraison"
+        if value in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
+            return "Salle"
+        return "Emporter"
+
     @app.get("/api/pos/recent-orders")
     def pos_recent_orders():
         try:
