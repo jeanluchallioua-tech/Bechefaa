@@ -420,7 +420,7 @@ def create_order():
             return jsonify({"ok": False, "error": "Sur place : choisissez une table de 1 à 9."}), 400
         table_label = f"Table {table_number}"
 
-    customer_name = "Client livraison" if source == "LIVRAISON" else ("Client comptoir" if source == "EMPORTER" else table_label)
+    customer_name = "Client livraison" if source == "LIVRAISON" else "Client comptoir"
     try:
         with db() as conn:
             with conn.transaction():
