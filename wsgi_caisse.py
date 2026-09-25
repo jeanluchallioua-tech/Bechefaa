@@ -55,7 +55,6 @@ from clean_caisse.cash_x_phase34 import register_cash_x_phase34
 from clean_caisse.cash_z_phase35 import register_cash_z_phase35
 from clean_caisse.phase35_ui_stability import register_phase35_ui_stability
 from clean_caisse.table_core_phase36 import register_table_core_phase36
-from clean_caisse.table_pos_phase36 import register_table_pos_phase36
 from clean_caisse.table_print_phase36 import register_table_print_phase36
 from clean_caisse.table_history_phase36 import register_table_history_phase36
 from clean_caisse.z_lock_phase37 import register_z_lock_phase37
@@ -176,7 +175,6 @@ register_cash_x_phase34(app, db, ensure_order_schema)
 register_cash_z_phase35(app, db, ensure_order_schema)
 register_phase35_ui_stability(app)
 register_table_core_phase36(app, db)
-register_table_pos_phase36(app, db)
 register_table_print_phase36(app, db)
 register_table_history_phase36(app)
 register_z_lock_phase37(app, db, ensure_order_schema)
