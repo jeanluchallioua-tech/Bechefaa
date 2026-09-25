@@ -105,6 +105,17 @@ def register_service_mode_ui_phase42(app):
            return Promise.reject(new Error('Choisissez Salle, Emporter ou Livraison'));
          }
          if(chosenMode==='salle' && !selectedTable){
+           const activeVisible=document.querySelector('[data-ref-table].active');
+           const activePhase42=document.querySelector('[data-phase42-table].active');
+           const activeLegacy=document.querySelector('[data-p36-table][style*="background"]');
+           const raw=(activeVisible&&activeVisible.dataset.refTable)
+             ||(activePhase42&&activePhase42.dataset.phase42Table)
+             ||(activeLegacy&&activeLegacy.dataset.p36Table)
+             ||'';
+           const n=Number(raw);
+           if(Number.isInteger(n)&&n>=1&&n<=9)selectedTable=n;
+         }
+         if(chosenMode==='salle' && !selectedTable){
            const msg=document.getElementById('order-message');
            if(msg)msg.innerHTML='<div class="error"><b>Choisissez une table de 1 à 9.</b></div>';
            return Promise.reject(new Error('Choisissez une table de 1 à 9'));
