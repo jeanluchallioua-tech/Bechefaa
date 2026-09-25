@@ -74,6 +74,11 @@ def _identity_lines(identity):
     address = str(identity.get("address") or "").strip()
     postal = str(identity.get("postal_code") or "").strip()
     city = str(identity.get("city") or "").strip()
+    for suffix in (", France", " France"):
+        if address.lower().endswith(suffix.lower()):
+            address = address[:-len(suffix)].rstrip(" ,")
+    if city.lower() == "france":
+        city = ""
     if address:
         lines.append(address)
     locality = " ".join(x for x in (postal, city) if x)
@@ -82,13 +87,7 @@ def _identity_lines(identity):
     phone = str(identity.get("phone") or "").strip()
     if phone:
         lines.append("Tel. " + phone)
-    siret = str(identity.get("siret") or "").strip()
-    if siret:
-        lines.append("SIRET " + siret)
-    vat = str(identity.get("vat_number") or "").strip()
-    if vat:
-        lines.append("TVA " + vat)
-    return lines
+    return [line for line in lines if str(line).strip().lower() != "france"]
 
 
 def _kitchen_xml(order):
@@ -108,11 +107,7 @@ def _kitchen_xml(order):
         parts.append('<text width="2" height="1" emphasized="true"/>')
         parts.append(_line("TABLE " + str(order.get("table_number"))))
         parts.append('<text width="1" height="1"/>')
-    parts.extend([
-        '<text width="2" height="2" emphasized="true"/>',
-        _line("COMMANDE N " + str(order.get("num") or "")),
-        '<text width="1" height="1"/>',
-    ])
+    parts.append('<text width="1" height="1"/>')
     customer = str(order.get("customer_name") or "").strip()
     if customer and customer.lower() not in {"client comptoir", "client livraison"}:
         parts.append(_line(customer))
@@ -163,7 +158,6 @@ def _client_xml(order, identity=None):
     ])
     if order.get("table_number"):
         parts.append(_line("Table " + str(order.get("table_number"))))
-    parts.append(_line("Ticket N " + str(order.get("num") or "")))
 
     customer = str(order.get("customer_name") or "").strip()
     if customer and customer.lower() not in {"client comptoir", "client livraison"}:
