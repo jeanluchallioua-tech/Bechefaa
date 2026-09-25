@@ -186,11 +186,32 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function printKitchen(orderId){
    if(!orderId||printed.has(orderId))return true;
-   status('work','Epson : impression…');
-   const c=await getConfig();
+   status('work','Epson : préparation du ticket…');
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();
+
+   // Android / Samsung Internet : méthode officielle Epson TM Print Assistant.
+   // L'application reçoit l'ePOS-Print XML via le schéma URL et relaie
+   // l'impression vers la TM-m30II déjà sélectionnée dans TM Print Assistant.
+   if(/Android/i.test(navigator.userAgent||'')){
+     if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
+     const success=window.location.href;
+     const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
+       +'success='+encodeURIComponent(success)
+       +'&ver=1'
+       +'&data-type=eposprintxml'
+       +'&data='+encodeURIComponent(xml)
+       +'&timeout=30000'
+       +'&error-dialog=yes';
+     printed.add(orderId);
+     status('work','Epson : ouverture de TM Print Assistant…');
+     window.location.href=assistantUrl;
+     return true;
+   }
+
+   // Secours hors Android : communication ePOS réseau directe.
+   const c=await getConfig();
    const ports=[8143,443];
    let pr=null,body='',usedPort=null,lastErr=null;
    for(const port of ports){
@@ -216,7 +237,6 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    setTimeout(()=>status('ok','Epson TM-m30II prête'),3500);
    return true;
  }
-
  async function testConnection(){
    try{
      const c=await getConfig();
