@@ -7,27 +7,10 @@
 - Accès immédiat aux commandes récentes et à leurs tickets depuis la caisse.
 - Aucun Wix / V1 / localStorage.
 """
-import importlib
-import json
-
-from flask import g, jsonify, request
+from flask import jsonify
 
 
 def register_pos_touch_layout(app, db):
-    core = importlib.import_module("clean_caisse.app")
-
-    def clean_ticket_type(source):
-        value = str(source or "").upper()
-        if value == "SALLE":
-            return "Salle"
-        if value in {"EMPORTER", "TAKEAWAY"}:
-            return "Emporter"
-        if value in {"LIVRAISON", "DELIVERY"}:
-            return "Livraison"
-        return "Comptoir"
-
-    core.ticket_type = clean_ticket_type
-
     @app.get("/api/pos/recent-orders")
     def pos_recent_orders():
         try:
@@ -61,61 +44,9 @@ def register_pos_touch_layout(app, db):
         except Exception as exc:
             return jsonify({"ok": False, "error": "Commandes récentes indisponibles", "detail": str(exc)}), 500
 
-    @app.before_request
-    def capture_order_mode():
-        if request.path == "/api/orders" and request.method == "POST":
-            payload = request.get_json(silent=True) or {}
-            raw = str(payload.get("service_mode") or payload.get("ticket_type") or "").strip().upper()
-            if raw in {"LIVRAISON", "DELIVERY"}:
-                g.pos_order_mode = "LIVRAISON"
-            elif raw in {"EMPORTER", "TAKEAWAY", "COMPTOIR"}:
-                g.pos_order_mode = "EMPORTER"
-            elif raw in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
-                g.pos_order_mode = "SALLE"
-            else:
-                g.pos_order_mode = None
-            try:
-                g.pos_table_number = int(payload.get("table_number")) if g.pos_order_mode == "SALLE" else None
-            except (TypeError, ValueError):
-                g.pos_table_number = None
-            if g.pos_order_mode == "SALLE":
-                if not g.pos_table_number or g.pos_table_number < 1 or g.pos_table_number > 9:
-                    return jsonify({"ok": False, "error": "Sur place : choisissez une table de 1 à 9."}), 400
-
     @app.after_request
-    def apply_order_mode_and_touch_layout(response):
-        if request.path == "/api/orders" and request.method == "POST" and response.status_code == 201:
-            mode = getattr(g, "pos_order_mode", None)
-            table_number = getattr(g, "pos_table_number", None)
-            try:
-                data = response.get_json(silent=True) or {}
-                order_id = data.get("id")
-                if order_id and mode in {"SALLE", "EMPORTER", "LIVRAISON"}:
-                    with db() as conn:
-                        with conn.transaction():
-                            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_number INTEGER NULL")
-                            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_label TEXT NULL")
-                            if mode == "SALLE" and table_number:
-                                conn.execute(
-                                    "UPDATE caisse_orders SET source=%s, table_number=%s, table_label=%s WHERE id=%s",
-                                    (mode, table_number, f"Table {table_number}", order_id),
-                                )
-                            else:
-                                conn.execute(
-                                    "UPDATE caisse_orders SET source=%s, table_number=NULL, table_label=NULL WHERE id=%s",
-                                    (mode, order_id),
-                                )
-                    data["ticket_type"] = clean_ticket_type(mode)
-                    if mode == "SALLE" and table_number:
-                        data["service_mode"] = "Salle"
-                        data["table_number"] = table_number
-                        data["table_label"] = f"Table {table_number}"
-                response.set_data(json.dumps(data, ensure_ascii=False))
-                response.content_type = "application/json; charset=utf-8"
-            except Exception:
-                pass
-            return response
-
+    def apply_touch_layout(response):
+        from flask import request
         if request.path != "/pos" or response.status_code != 200 or response.mimetype != "text/html":
             return response
 
