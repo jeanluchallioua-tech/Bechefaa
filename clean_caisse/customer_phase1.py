@@ -65,7 +65,23 @@ def register_customer_phase1(app, db, ensure_order_schema):
     def capture_customer_for_new_order():
         if request.path=="/api/orders" and request.method=="POST":
             payload=request.get_json(silent=True) or {}
-            g.phase1_customer=_clean_customer(payload.get("customer"))
+            customer=_clean_customer(payload.get("customer"))
+            g.phase1_customer=customer
+            service_mode=str(payload.get("service_mode") or "").strip().upper()
+            ticket_type_value=str(payload.get("ticket_type") or "").strip().lower()
+            is_delivery=service_mode in {"LIVRAISON","DELIVERY"} or ticket_type_value=="livraison"
+            if is_delivery:
+                missing=[]
+                if not (customer.get("first_name") or customer.get("last_name")): missing.append("nom ou prénom")
+                if not customer.get("phone"): missing.append("téléphone")
+                if not customer.get("address"): missing.append("adresse")
+                if not customer.get("postal_code"): missing.append("code postal")
+                if not customer.get("city"): missing.append("ville")
+                if missing:
+                    return jsonify({"ok":False,"error":"Livraison : renseignez "+", ".join(missing)+"."}),400
+                postal=str(customer.get("postal_code") or "")
+                if len(postal)!=5 or not postal.isdigit():
+                    return jsonify({"ok":False,"error":"Livraison : code postal invalide."}),400
 
     @app.after_request
     def attach_customer_and_inject_pos(response):
@@ -107,6 +123,7 @@ def register_customer_phase1(app, db, ensure_order_schema):
   let postalTimer=null;document.getElementById('cust-postal').addEventListener('input',function(){const code=this.value.replace(/\D/g,'').slice(0,5);this.value=code;clearTimeout(postalTimer);if(code.length!==5)return;document.getElementById('cust-note').textContent='Recherche de la ville…';postalTimer=setTimeout(async()=>{try{const r=await originalFetch('/api/postal-code/'+encodeURIComponent(code)),d=await r.json();if(r.ok&&d.ok&&d.cities&&d.cities.length){document.getElementById('cust-city').value=d.cities[0];document.getElementById('cust-note').textContent='Ville renseignée automatiquement.'}else document.getElementById('cust-note').textContent='Ville non trouvée — saisissez-la.'}catch(e){document.getElementById('cust-note').textContent='Ville non trouvée — saisissez-la.'}},250)});
   document.getElementById('cust-save').onclick=async function(){const c=values();document.getElementById('cust-note').textContent='Enregistrement…';try{let r=await originalFetch('/api/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Erreur');document.getElementById('cust-search').value=d.client.display_name||d.client.phone||'';document.getElementById('cust-note').innerHTML='<span class="customer-ok">Client enregistré.</span>'}catch(e){document.getElementById('cust-note').textContent='Enregistrement client impossible.'}};
   document.getElementById('cust-clear').onclick=function(){document.getElementById('cust-search').value='';ids.forEach(k=>document.getElementById('cust-'+k).value='');document.getElementById('cust-results').style.display='none';document.getElementById('cust-note').textContent='Recherchez un client existant ou saisissez un nouveau client.'};
+  const orderMsg=document.getElementById('order-message');if(orderMsg)new MutationObserver(function(){const t=(orderMsg.textContent||'').toLowerCase();if(t.includes('envoyée en cuisine'))setTimeout(()=>document.getElementById('cust-clear').click(),100)}).observe(orderMsg,{childList:true,subtree:true,characterData:true});
  });
 })();
 </script>'''
