@@ -65,26 +65,48 @@ def register_pos_touch_layout(app, db):
     def capture_order_mode():
         if request.path == "/api/orders" and request.method == "POST":
             payload = request.get_json(silent=True) or {}
-            mode = str(payload.get("ticket_type") or "Salle").strip().lower()
-            if mode == "livraison":
+            raw = str(payload.get("service_mode") or payload.get("ticket_type") or "").strip().upper()
+            if raw in {"LIVRAISON", "DELIVERY"}:
                 g.pos_order_mode = "LIVRAISON"
-            elif mode == "emporter":
+            elif raw in {"EMPORTER", "TAKEAWAY", "COMPTOIR"}:
                 g.pos_order_mode = "EMPORTER"
-            else:
+            elif raw in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
                 g.pos_order_mode = "SALLE"
+            else:
+                g.pos_order_mode = None
+            try:
+                g.pos_table_number = int(payload.get("table_number")) if g.pos_order_mode == "SALLE" else None
+            except (TypeError, ValueError):
+                g.pos_table_number = None
 
     @app.after_request
     def apply_order_mode_and_touch_layout(response):
         if request.path == "/api/orders" and request.method == "POST" and response.status_code == 201:
-            mode = getattr(g, "pos_order_mode", "SALLE")
+            mode = getattr(g, "pos_order_mode", None)
+            table_number = getattr(g, "pos_table_number", None)
             try:
                 data = response.get_json(silent=True) or {}
                 order_id = data.get("id")
-                if order_id and mode in {"SALLE", "EMPORTER"}:
+                if order_id and mode in {"SALLE", "EMPORTER", "LIVRAISON"}:
                     with db() as conn:
                         with conn.transaction():
-                            conn.execute("UPDATE caisse_orders SET source=%s WHERE id=%s", (mode, order_id))
-                data["ticket_type"] = clean_ticket_type(mode)
+                            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_number INTEGER NULL")
+                            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_label TEXT NULL")
+                            if mode == "SALLE" and table_number:
+                                conn.execute(
+                                    "UPDATE caisse_orders SET source=%s, table_number=%s, table_label=%s WHERE id=%s",
+                                    (mode, table_number, f"Table {table_number}", order_id),
+                                )
+                            else:
+                                conn.execute(
+                                    "UPDATE caisse_orders SET source=%s, table_number=NULL, table_label=NULL WHERE id=%s",
+                                    (mode, order_id),
+                                )
+                    data["ticket_type"] = clean_ticket_type(mode)
+                    if mode == "SALLE" and table_number:
+                        data["service_mode"] = "Salle"
+                        data["table_number"] = table_number
+                        data["table_label"] = f"Table {table_number}"
                 response.set_data(json.dumps(data, ensure_ascii=False))
                 response.content_type = "application/json; charset=utf-8"
             except Exception:
@@ -104,12 +126,12 @@ def register_pos_touch_layout(app, db):
 .ticket-choice{position:sticky;top:0;z-index:15;background:#fff;padding:4px 0 8px;margin:0;gap:7px}
 .ticket-choice button{min-height:52px;font-size:14px;touch-action:manipulation;padding:8px 5px}
 .touch-client-summary{background:#f7f8fa;border:1px solid #d9dde3;border-radius:10px;padding:10px 12px;margin:8px 0 12px;display:flex;align-items:center;gap:10px;cursor:pointer;min-height:54px;touch-action:manipulation}
-.touch-client-summary.hidden{display:none!important}.touch-client-summary .tc-main{flex:1;min-width:0}.touch-client-summary b{display:block;font-size:14px}.touch-client-summary span{display:block;font-size:12px;color:#667085;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.touch-client-summary .tc-edit{font-weight:800;font-size:13px;background:#111827;color:#fff;padding:9px 11px;border-radius:8px}
+.touch-client-summary.hidden{display:none!important}.touch-client-summary .tc-main{flex:1;min-width:0}.touch-client-summary b{display:block;font-size:18px;color:#111827;font-weight:900}.touch-client-summary span{display:block;font-size:15px;color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.touch-client-summary .tc-edit{font-weight:900;font-size:14px;background:#111827;color:#fff;padding:10px 12px;border-radius:8px}
 .customer-box.touch-modal{display:none!important;position:fixed!important;z-index:10000;inset:0!important;margin:0!important;border:0!important;border-radius:0!important;background:#0008!important;padding:20px!important;overflow:auto!important}
 .customer-box.touch-modal.open{display:flex!important;align-items:flex-start;justify-content:center}
 .customer-box.touch-modal .touch-client-panel{width:min(620px,96vw);background:#fff;border-radius:16px;padding:18px;margin-top:max(12px,5vh);box-shadow:0 18px 55px #0005;position:relative}
 .touch-client-close{position:absolute;right:12px;top:10px;border:0;background:#eef0f3;border-radius:9px;width:42px;height:42px;font-size:24px;font-weight:800;cursor:pointer;touch-action:manipulation}
-.customer-box.touch-modal h3{font-size:22px;padding-right:50px;margin-bottom:14px}.customer-box.touch-modal input{font-size:16px;min-height:46px}.customer-box.touch-modal button{min-height:44px}.order-box{scroll-margin-top:70px}
+.customer-box.touch-modal h3{font-size:22px;padding-right:50px;margin-bottom:14px}.customer-box.touch-modal input{font-size:17px;min-height:48px;color:#111827;background:#fff}.customer-box.touch-modal button{min-height:44px}.customer-box.touch-modal .customer-results{background:#fff!important}.customer-box.touch-modal .customer-result{color:#111827!important;font-size:16px!important;padding:13px 12px!important}.customer-box.touch-modal .customer-result b{font-size:18px!important;color:#111827!important;font-weight:900!important}.customer-box.touch-modal .customer-result small{font-size:15px!important;color:#4b5563!important;margin-top:3px!important;display:block!important}.order-box{scroll-margin-top:70px}
 .pos-settings-link{display:flex;align-items:center;gap:9px;width:100%;padding:13px 10px;margin:0 0 10px;border:0;border-radius:8px;background:#111827;color:#fff!important;text-decoration:none;text-align:left;font-weight:900;font-size:14px;cursor:pointer;touch-action:manipulation;position:sticky;top:0;z-index:20;box-shadow:0 2px 8px #0002}
 .pos-settings-link:hover{background:#263244}.pos-settings-link .gear{font-size:19px;line-height:1}
 .pos-recent-orders-btn{width:100%;min-height:48px;margin:0 0 10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#111827;font-size:14px;font-weight:900;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:8px}
@@ -176,7 +198,17 @@ def register_pos_touch_layout(app, db):
    panel.addEventListener('click',e=>{if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);if(e.target.closest('#cust-save'))setTimeout(updateSummary,100)});
    const note=document.getElementById('cust-note');if(note){new MutationObserver(()=>{const text=(note.textContent||'').toLowerCase();if(text.includes('client enregistré'))setTimeout(()=>{updateSummary();shut()},120)}).observe(note,{childList:true,subtree:true,characterData:true})}
    ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
-   const msg=document.getElementById('order-message');if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine')){clearCustomer();shut();const mode=ticket.querySelector('[data-ticket].active')?.dataset.ticket||'';if(mode&&mode!=='Salle')document.getElementById('tc-name').textContent=(mode==='Livraison'?'Client livraison':'Client emporter')}});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
+   function resetCurrentOrder(){
+     try{if(typeof ORDER!=='undefined'&&Array.isArray(ORDER)){ORDER.length=0;if(typeof renderOrder==='function')renderOrder()}}catch(e){}
+     try{if(typeof LAST_SAVED_ORDER!=='undefined')LAST_SAVED_ORDER=null}catch(e){}
+     if(msg)msg.innerHTML='';
+     clearCustomer();shut();
+     summary.classList.add('hidden');
+   }
+   const msg=document.getElementById('order-message');
+   if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine'))setTimeout(()=>{resetCurrentOrder();document.dispatchEvent(new CustomEvent('bechefaa:new-order'))},450)});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
+   document.addEventListener('bechefaa:new-order',resetCurrentOrder);
+   document.addEventListener('click',function(e){const a=e.target.closest('a.pos-v3-nav[href="/pos"]');if(!a||!String(a.textContent||'').toLowerCase().includes('nouvelle commande'))return;e.preventDefault();document.dispatchEvent(new CustomEvent('bechefaa:new-order'))},true);
    updateSummary();
  });
 })();
