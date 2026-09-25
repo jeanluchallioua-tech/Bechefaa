@@ -9,6 +9,7 @@ Configuration actuelle restaurant:
 - ePOS-Print activé
 - Device ID local_printer
 """
+from decimal import Decimal, ROUND_HALF_UP
 from xml.sax.saxutils import escape
 
 from flask import Response, jsonify, request
@@ -20,6 +21,35 @@ DEFAULT_DEVICE_ID = "local_printer"
 
 def _line(text=""):
     return '<text>' + escape(str(text or "")) + '</text><feed line="1"/>'
+
+
+def _money(value):
+    try:
+        return f"{Decimal(str(value or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}".replace(".", ",") + " EUR"
+    except Exception:
+        return "0,00 EUR"
+
+
+def _tax_values(order):
+    total = Decimal(str(order.get("total_ttc") if order.get("total_ttc") is not None else order.get("total") or 0)).quantize(Decimal("0.01"))
+    rate = Decimal(str(order.get("tax_rate") if order.get("tax_rate") is not None else 10))
+    if order.get("total_ht") is not None and order.get("tax_amount") is not None:
+        ht = Decimal(str(order.get("total_ht"))).quantize(Decimal("0.01"))
+        tax = Decimal(str(order.get("tax_amount"))).quantize(Decimal("0.01"))
+    else:
+        divisor = Decimal("1") + (rate / Decimal("100"))
+        ht = (total / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tax = (total - ht).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return ht, tax, total, rate
+
+
+def _service_label(order):
+    if order.get("table_number") or str(order.get("service_mode") or "").upper()=="SALLE":
+        return "SUR PLACE"
+    source = str(order.get("source") or "").upper()
+    if source in {"LIVRAISON", "DELIVERY"}:
+        return "LIVRAISON"
+    return "A EMPORTER"
 
 
 def _option_text(item):
@@ -38,7 +68,31 @@ def _option_text(item):
     return " | ".join(values)
 
 
+def _identity_lines(identity):
+    identity = identity or {}
+    lines = []
+    address = str(identity.get("address") or "").strip()
+    postal = str(identity.get("postal_code") or "").strip()
+    city = str(identity.get("city") or "").strip()
+    if address:
+        lines.append(address)
+    locality = " ".join(x for x in (postal, city) if x)
+    if locality:
+        lines.append(locality)
+    phone = str(identity.get("phone") or "").strip()
+    if phone:
+        lines.append("Tel. " + phone)
+    siret = str(identity.get("siret") or "").strip()
+    if siret:
+        lines.append("SIRET " + siret)
+    vat = str(identity.get("vat_number") or "").strip()
+    if vat:
+        lines.append("TVA " + vat)
+    return lines
+
+
 def _kitchen_xml(order):
+    mode = _service_label(order)
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
@@ -46,36 +100,39 @@ def _kitchen_xml(order):
         _line("BECHEFAA"),
         '<text width="1" height="1"/>',
         _line("--------------------------------"),
-        '<text width="2" height="2"/>',
-        _line("COMMANDE " + str(order.get("num") or "")),
+        '<text width="2" height="2" emphasized="true"/>',
+        _line(mode),
         '<text width="1" height="1"/>',
     ]
-
+    if order.get("table_number"):
+        parts.append('<text width="2" height="1" emphasized="true"/>')
+        parts.append(_line("TABLE " + str(order.get("table_number"))))
+        parts.append('<text width="1" height="1"/>')
+    parts.extend([
+        '<text width="2" height="2" emphasized="true"/>',
+        _line("COMMANDE N " + str(order.get("num") or "")),
+        '<text width="1" height="1"/>',
+    ])
     customer = str(order.get("customer_name") or "").strip()
     if customer and customer.lower() not in {"client comptoir", "client livraison"}:
         parts.append(_line(customer))
-
-    source = str(order.get("source") or "").upper()
-    if source in {"LIVRAISON", "DELIVERY"}:
-        parts.append(_line("LIVRAISON"))
-    else:
-        parts.append(_line("A EMPORTER"))
-
     parts.append(_line("--------------------------------"))
+    parts.append('<text align="left"/>')
 
     for item in order.get("items") or []:
         qty = item.get("qty") or 1
         name = str(item.get("name") or "")
-        parts.append('<text width="2" height="1"/>')
+        parts.append('<text align="left" width="2" height="1" emphasized="true"/>')
         parts.append(_line(f"{qty} x {name}"))
-        parts.append('<text width="1" height="1"/>')
+        parts.append('<text align="left" width="1" height="1" emphasized="false"/>')
         opts = _option_text(item)
         if opts:
-            # ePOS text handles wrapping; split logical option groups for readability.
             for chunk in [x.strip() for x in opts.replace(" • ", "|").split("|") if x.strip()]:
                 parts.append(_line("  - " + chunk))
+        parts.append('<feed line="1"/>')
 
     parts.extend([
+        '<text align="left" width="1" height="1"/>',
         _line("--------------------------------"),
         '<feed line="3"/>',
         '<cut type="feed"/>',
@@ -84,45 +141,75 @@ def _kitchen_xml(order):
     return "".join(parts)
 
 
-def _client_xml(order):
+def _client_xml(order, identity=None):
+    ht, tax, total, rate = _tax_values(order)
+    identity = identity or {}
+    brand = str(identity.get("name") or "BECHEFAA").strip() or "BECHEFAA"
+    mode = _service_label(order)
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
-        '<text align="center" font="font_a" width="2" height="2"/>',
-        _line("BECHEFAA"),
-        '<text width="1" height="1"/>',
-        _line("--------------------------------"),
-        '<text width="2" height="2"/>',
-        _line("TICKET " + str(order.get("num") or "")),
-        '<text width="1" height="1"/>',
+        '<text align="center" font="font_a" width="2" height="2" emphasized="true"/>',
+        _line(brand),
+        '<text width="1" height="1" emphasized="false"/>',
     ]
+    for line in _identity_lines(identity):
+        parts.append(_line(line))
+    parts.extend([
+        _line("--------------------------------"),
+        '<text width="2" height="1" emphasized="true"/>',
+        _line(mode),
+        '<text width="1" height="1" emphasized="false"/>',
+    ])
+    if order.get("table_number"):
+        parts.append(_line("Table " + str(order.get("table_number"))))
+    parts.append(_line("Ticket N " + str(order.get("num") or "")))
+
     customer = str(order.get("customer_name") or "").strip()
-    if customer:
+    if customer and customer.lower() not in {"client comptoir", "client livraison"}:
         parts.append(_line(customer))
-    source = str(order.get("source") or "").upper()
-    if source in {"LIVRAISON", "DELIVERY"}:
-        parts.append(_line("LIVRAISON"))
-    elif source in {"SALLE"}:
-        parts.append(_line("SUR PLACE"))
-    else:
-        parts.append(_line("A EMPORTER"))
+    if mode == "LIVRAISON":
+        phone = str(order.get("phone") or "").strip()
+        address = str(order.get("address") or "").strip()
+        postal = str(order.get("postal_code") or "").strip()
+        city = str(order.get("city") or "").strip()
+        if phone:
+            parts.append(_line(phone))
+        if address:
+            parts.append(_line(address))
+        locality = " ".join(x for x in (postal, city) if x)
+        if locality:
+            parts.append(_line(locality))
+
     parts.append(_line("--------------------------------"))
+    parts.append('<text align="left"/>')
+
     for item in order.get("items") or []:
         qty = item.get("qty") or 1
         name = str(item.get("name") or "")
-        price = float(item.get("unit_price") or 0) * float(qty)
-        parts.append(_line(f"{qty} x {name}  {price:.2f} EUR"))
+        price = Decimal(str(item.get("unit_price") or 0)) * Decimal(str(qty))
+        parts.append('<text align="left" width="1" height="1" emphasized="true"/>')
+        parts.append(_line(f"{qty} x {name}"))
+        parts.append('<text align="left" emphasized="false"/>')
+        parts.append(_line("    " + _money(price)))
         opts = _option_text(item)
         if opts:
             for chunk in [x.strip() for x in opts.replace(" • ", "|").split("|") if x.strip()]:
                 parts.append(_line("  - " + chunk))
+        parts.append('<feed line="1"/>')
+
+    rate_text = f"{rate:g}".replace(".", ",")
     parts.extend([
+        '<text align="left" width="1" height="1"/>',
         _line("--------------------------------"),
-        '<text width="2" height="2"/>',
-        _line("TOTAL " + f"{float(order.get('total') or 0):.2f} EUR"),
-        '<text width="1" height="1"/>',
+        _line("Total HT        " + _money(ht)),
+        _line("TVA " + rate_text + " %       " + _money(tax)),
+        '<text width="2" height="1" emphasized="true"/>',
+        _line("TOTAL TTC " + _money(total)),
+        '<text width="1" height="1" emphasized="false"/>',
         _line("Paiement: " + str(order.get("payment") or "A ENCAISSER")),
         _line("--------------------------------"),
+        '<text align="center"/>',
         _line("Merci"),
         '<feed line="3"/>',
         '<cut type="feed"/>',
@@ -132,6 +219,40 @@ def _client_xml(order):
 
 
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
+    def _load_identity(conn):
+        try:
+            rows = conn.execute("SELECT setting_key,setting_value FROM caisse_restaurant_settings").fetchall()
+            return {r["setting_key"]: (r["setting_value"] or "") for r in rows}
+        except Exception:
+            return {}
+
+    def _ensure_ticket_columns(conn):
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,3)")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12,2)")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_number INTEGER NULL")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_label TEXT NULL")
+
+    def _load_print_order(conn, order_id):
+        ensure_order_schema(conn)
+        _ensure_ticket_columns(conn)
+        conn.commit()
+        row = conn.execute(
+            """SELECT id,num,customer_name,phone,email,address,postal_code,city,
+                      source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,
+                      table_number,table_label,created_at,updated_at
+               FROM caisse_orders WHERE id=%s""",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            return None
+        order = order_payload(conn, row)
+        for key in ("phone","email","address","postal_code","city","total_ttc","total_ht","tax_rate","tax_amount","table_number","table_label"):
+            order[key] = row.get(key)
+        order["service_mode"] = "SALLE" if row.get("table_number") else ("LIVRAISON" if str(row.get("source") or "").upper() in {"LIVRAISON","DELIVERY"} else "EMPORTER")
+        return order
+
     def _ensure_network_defaults(conn):
         conn.execute("""CREATE TABLE IF NOT EXISTS caisse_hardware_config (
             config_key TEXT PRIMARY KEY,
@@ -184,16 +305,9 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
     def epson_kitchen_xml_phase6(order_id):
         try:
             with db() as conn:
-                ensure_order_schema(conn)
-                conn.commit()
-                row = conn.execute(
-                    """SELECT id,num,customer_name,source,payment,status,total,created_at,updated_at
-                       FROM caisse_orders WHERE id=%s""",
-                    (order_id,),
-                ).fetchone()
-                if not row:
+                order = _load_print_order(conn, order_id)
+                if not order:
                     return "Commande introuvable", 404
-                order = order_payload(conn, row)
             xml = _kitchen_xml(order)
             response = Response(xml, content_type="text/xml; charset=utf-8")
             response.headers["Cache-Control"] = "no-store"
@@ -205,17 +319,11 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
     def epson_client_xml_phase6(order_id):
         try:
             with db() as conn:
-                ensure_order_schema(conn)
-                conn.commit()
-                row = conn.execute(
-                    """SELECT id,num,customer_name,source,payment,status,total,created_at,updated_at
-                       FROM caisse_orders WHERE id=%s""",
-                    (order_id,),
-                ).fetchone()
-                if not row:
+                order = _load_print_order(conn, order_id)
+                if not order:
                     return "Commande introuvable", 404
-                order = order_payload(conn, row)
-            xml = _client_xml(order)
+                identity = _load_identity(conn)
+            xml = _client_xml(order, identity)
             response = Response(xml, content_type="text/xml; charset=utf-8")
             response.headers["Cache-Control"] = "no-store"
             return response
