@@ -206,7 +206,7 @@ def register_pos_touch_layout(app, db):
      summary.classList.add('hidden');
    }
    const msg=document.getElementById('order-message');
-   if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine'))setTimeout(()=>{resetCurrentOrder();document.dispatchEvent(new CustomEvent('bechefaa:new-order'))},450)});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
+   if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine'))setTimeout(()=>document.dispatchEvent(new CustomEvent('bechefaa:new-order')),450)});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
    document.addEventListener('bechefaa:new-order',resetCurrentOrder);
    document.addEventListener('click',function(e){const a=e.target.closest('a.pos-v3-nav[href="/pos"]');if(!a||!String(a.textContent||'').toLowerCase().includes('nouvelle commande'))return;e.preventDefault();document.dispatchEvent(new CustomEvent('bechefaa:new-order'))},true);
    updateSummary();
