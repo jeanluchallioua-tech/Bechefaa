@@ -84,6 +84,53 @@ def _kitchen_xml(order):
     return "".join(parts)
 
 
+def _client_xml(order):
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
+        '<text align="center" font="font_a" width="2" height="2"/>',
+        _line("BECHEFAA"),
+        '<text width="1" height="1"/>',
+        _line("--------------------------------"),
+        '<text width="2" height="2"/>',
+        _line("TICKET " + str(order.get("num") or "")),
+        '<text width="1" height="1"/>',
+    ]
+    customer = str(order.get("customer_name") or "").strip()
+    if customer:
+        parts.append(_line(customer))
+    source = str(order.get("source") or "").upper()
+    if source in {"LIVRAISON", "DELIVERY"}:
+        parts.append(_line("LIVRAISON"))
+    elif source in {"SALLE"}:
+        parts.append(_line("SUR PLACE"))
+    else:
+        parts.append(_line("A EMPORTER"))
+    parts.append(_line("--------------------------------"))
+    for item in order.get("items") or []:
+        qty = item.get("qty") or 1
+        name = str(item.get("name") or "")
+        price = float(item.get("unit_price") or 0) * float(qty)
+        parts.append(_line(f"{qty} x {name}  {price:.2f} EUR"))
+        opts = _option_text(item)
+        if opts:
+            for chunk in [x.strip() for x in opts.replace(" • ", "|").split("|") if x.strip()]:
+                parts.append(_line("  - " + chunk))
+    parts.extend([
+        _line("--------------------------------"),
+        '<text width="2" height="2"/>',
+        _line("TOTAL " + f"{float(order.get('total') or 0):.2f} EUR"),
+        '<text width="1" height="1"/>',
+        _line("Paiement: " + str(order.get("payment") or "A ENCAISSER")),
+        _line("--------------------------------"),
+        _line("Merci"),
+        '<feed line="3"/>',
+        '<cut type="feed"/>',
+        '</epos-print>',
+    ])
+    return "".join(parts)
+
+
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
     def _ensure_network_defaults(conn):
         conn.execute("""CREATE TABLE IF NOT EXISTS caisse_hardware_config (
@@ -154,6 +201,27 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
         except Exception as exc:
             return "Ticket Epson indisponible : " + str(exc), 500
 
+    @app.get("/api/epson/client-xml/<order_id>")
+    def epson_client_xml_phase6(order_id):
+        try:
+            with db() as conn:
+                ensure_order_schema(conn)
+                conn.commit()
+                row = conn.execute(
+                    """SELECT id,num,customer_name,source,payment,status,total,created_at,updated_at
+                       FROM caisse_orders WHERE id=%s""",
+                    (order_id,),
+                ).fetchone()
+                if not row:
+                    return "Commande introuvable", 404
+                order = order_payload(conn, row)
+            xml = _client_xml(order)
+            response = Response(xml, content_type="text/xml; charset=utf-8")
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except Exception as exc:
+            return "Ticket Epson indisponible : " + str(exc), 500
+
     @app.after_request
     def inject_epson_network_phase6(response):
         if request.path != "/pos" or response.status_code != 200 or response.mimetype != "text/html":
@@ -184,8 +252,35 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    cfg=d;return d;
  }
 
+ async function openPrintAssistant(xml,label,orderId){
+   if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
+   const success=window.location.href;
+   const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
+     +'success='+encodeURIComponent(success)
+     +'&ver=1'
+     +'&data-type=eposprintxml'
+     +'&data='+encodeURIComponent(xml)
+     +'&timeout=30000'
+     +'&error-dialog=yes';
+   if(orderId)printed.add(String(label)+':'+String(orderId));
+   status('work','Epson : ouverture de TM Print Assistant…');
+   window.location.href=assistantUrl;
+   return true;
+ }
+
+ async function printClient(orderId){
+   if(!orderId)return true;
+   status('work','Epson : préparation du ticket client…');
+   const xr=await nativeFetch('/api/epson/client-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
+   if(!xr.ok)throw new Error('Ticket client introuvable');
+   const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'client',orderId);
+   window.location.href='/impression/client/'+encodeURIComponent(orderId);
+   return true;
+ }
+
  async function printKitchen(orderId){
-   if(!orderId||printed.has(orderId))return true;
+   if(!orderId)return true;
    status('work','Epson : préparation du ticket…');
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
@@ -194,21 +289,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    // Android / Samsung Internet : méthode officielle Epson TM Print Assistant.
    // L'application reçoit l'ePOS-Print XML via le schéma URL et relaie
    // l'impression vers la TM-m30II déjà sélectionnée dans TM Print Assistant.
-   if(/Android/i.test(navigator.userAgent||'')){
-     if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
-     const success=window.location.href;
-     const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
-       +'success='+encodeURIComponent(success)
-       +'&ver=1'
-       +'&data-type=eposprintxml'
-       +'&data='+encodeURIComponent(xml)
-       +'&timeout=30000'
-       +'&error-dialog=yes';
-     printed.add(orderId);
-     status('work','Epson : ouverture de TM Print Assistant…');
-     window.location.href=assistantUrl;
-     return true;
-   }
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'kitchen',orderId);
 
    // Secours hors Android : communication ePOS réseau directe.
    const c=await getConfig();
@@ -272,6 +353,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  }
 
  window.bechefaaPrintKitchen=printKitchen;
+ window.bechefaaPrintClient=printClient;
  testConnection();
 })();
 </script>'''
