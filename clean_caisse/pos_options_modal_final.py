@@ -49,17 +49,32 @@ html.bechefaa-tablet .cat{
 }
 
 /* Options produit en fenêtre modale. */
-.pos-final-options-overlay{display:none;position:fixed;inset:0;z-index:32000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:22px}
+.pos-final-options-overlay{display:none;position:fixed;inset:0;z-index:32000;background:rgba(17,24,39,.38);align-items:center;justify-content:center;padding:22px}
 .pos-final-options-overlay.open{display:flex}
-.pos-final-options-panel{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#0f1316;border:1px solid #343b42;border-radius:16px;box-shadow:0 28px 80px #000b;overflow:hidden;color:#fff}
-.pos-final-options-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #2a3036;background:#0b0e11}
-.pos-final-options-head h2{margin:0;flex:1;font-size:20px;color:#fff}
-.pos-final-options-close{width:42px;height:42px;border-radius:9px;border:1px solid #3b4249;background:#171c21;color:#fff;font-size:26px;font-weight:800;cursor:pointer}
+.pos-final-options-panel{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border:1px solid #d9dde3;border-radius:16px;box-shadow:0 24px 70px #0004;overflow:hidden;color:#111827}
+.pos-final-options-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #e5e7eb;background:#fff}
+.pos-final-options-head h2{margin:0;flex:1;font-size:24px;color:#111827;font-weight:900}
+.pos-final-options-close{width:42px;height:42px;border-radius:9px;border:1px solid #d1d5db;background:#f3f4f6;color:#111827;font-size:26px;font-weight:800;cursor:pointer}
 .pos-final-options-body{padding:14px;overflow:auto;min-height:0}
-.pos-final-options-overlay #options{display:block!important;margin:0!important;background:#0f1316!important;border:0!important;padding:0!important}
-.pos-final-options-overlay #options .action.add{position:sticky!important;bottom:0!important;z-index:5!important;margin:14px 0 0!important;min-height:56px!important;background:linear-gradient(180deg,#f0c568,#e4ad43)!important;color:#111!important;border-radius:9px!important;font-size:15px!important;font-weight:950!important;box-shadow:0 -8px 18px #0f1316!important}
+.pos-final-options-overlay #options{display:block!important;margin:0!important;background:#fff!important;color:#111827!important;border:0!important;padding:0!important}
+.pos-final-options-overlay #options .action.add{position:sticky!important;bottom:0!important;z-index:5!important;margin:14px 0 0!important;min-height:56px!important;background:linear-gradient(180deg,#f0c568,#e4ad43)!important;color:#111!important;border-radius:9px!important;font-size:15px!important;font-weight:950!important;box-shadow:0 -8px 18px #fff!important}
 body.pos-ref-options-closed .pos-final-options-overlay.open #options{display:block!important}
 .cart #options{display:none!important}
+
+/* Thème clair commun options + upsell, proche du site. */
+.pos-final-options-overlay .selection-summary{background:#f8fafc!important;color:#111827!important;border:1px solid #e5e7eb!important;font-size:17px!important}
+.pos-final-options-overlay .opt-group{border-top-color:#e5e7eb!important}
+.pos-final-options-overlay .opt-head,.pos-final-options-overlay .opt-head b{color:#111827!important;font-size:18px!important}
+.pos-final-options-overlay .rule{color:#6b7280!important;font-size:14px!important}
+.pos-final-options-overlay .opt-value{background:#fff!important;color:#111827!important;border:1px solid #d1d5db!important;font-size:17px!important;min-height:50px!important}
+.pos-final-options-overlay .opt-value.selected{background:#fff7df!important;color:#111827!important;border:2px solid #d6a62d!important}
+.pos-ref-upsell-overlay{background:rgba(17,24,39,.38)!important}
+.pos-ref-upsell-overlay .pos-ref-modal{background:#fff!important;color:#111827!important;border:1px solid #d9dde3!important;box-shadow:0 24px 70px #0004!important}
+.pos-ref-upsell-overlay .pos-ref-modal h2{color:#111827!important;font-size:24px!important;font-weight:900!important}
+.pos-ref-upsell-overlay .pos-ref-upsell-item{background:#fff!important;color:#111827!important;border:1px solid #d1d5db!important;min-height:68px!important}
+.pos-ref-upsell-overlay .pos-ref-upsell-item b{font-size:18px!important;color:#111827!important}
+.pos-ref-upsell-overlay .pos-ref-upsell-price{font-size:18px!important;color:#8a6410!important}
+.pos-ref-upsell-overlay .pos-ref-no{background:#f3f4f6!important;color:#111827!important;border:1px solid #d1d5db!important;font-size:17px!important;min-height:52px!important}
 
 /* Tablette Samsung : options et groupes d'options plus lisibles. */
 html.bechefaa-tablet .pos-final-options-panel{
@@ -200,7 +215,16 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      const items=upsellItems(cat);
      upsellList.innerHTML=items.length?items.map(p=>'<button type="button" class="pos-ref-upsell-item" data-final-upsell-id="'+esc(p.id)+'" data-final-upsell-name="'+esc(p.name)+'">'+(p.photo?'<img src="'+esc(p.photo)+'" alt="">':'')+'<b>'+esc(p.name)+'</b><span class="pos-ref-upsell-price">'+euro(p.price)+'</span></button>').join(''):'<div style="color:#a7adb4;padding:12px">Aucun produit disponible.</div>';
    }
+   function cartHasCategory(category){
+     try{
+       if(typeof DATA==='undefined'||!DATA||!Array.isArray(DATA.items)||typeof ORDER==='undefined'||!Array.isArray(ORDER))return false;
+       const byId=new Map(DATA.items.map(p=>[String(p.id||''),norm(p.category)]));
+       return ORDER.some(line=>byId.get(String(line.product_id||''))===category);
+     }catch(e){return false}
+   }
    function openUpsellPhase(){
+     if(upsellPhase==='drink'&&cartHasCategory('boissons')){upsellPhase='dessert';openUpsellPhase();return}
+     if(upsellPhase==='dessert'&&cartHasCategory('desserts')){finishUpsellAndSave();return}
      if(!upsell){finishUpsellAndSave();return}
      upsellFlow=true;upsell.classList.add('open');setTimeout(renderUpsell,0);
    }
