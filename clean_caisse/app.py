@@ -167,6 +167,8 @@ def ensure_order_schema(conn):
         modified_at BIGINT NULL
     )""")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS offline_sync_key TEXT NULL")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_number INTEGER NULL")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_label TEXT NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_orders_offline_sync_key ON caisse_orders(offline_sync_key) WHERE offline_sync_key IS NOT NULL")
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_order_items (
         id BIGSERIAL PRIMARY KEY,
@@ -199,7 +201,14 @@ def load_catalog():
 
 
 def ticket_type(source):
-    return "Livraison" if str(source or "").upper() in {"LIVRAISON", "DELIVERY"} else "Comptoir"
+    value = str(source or "").upper()
+    if value in {"LIVRAISON", "DELIVERY"}:
+        return "Livraison"
+    if value in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
+        return "Salle"
+    if value in {"EMPORTER", "TAKEAWAY", "CAISSE", "COMPTOIR"}:
+        return "Emporter"
+    return "Emporter"
 
 
 def order_payload(conn, order_row):
@@ -391,8 +400,27 @@ def create_order():
 
     now = int(time.time() * 1000)
     order_id = "caisse-" + uuid.uuid4().hex
-    source = "LIVRAISON" if str(payload.get("ticket_type") or "").lower() == "livraison" else "CAISSE"
-    customer_name = "Client livraison" if source == "LIVRAISON" else "Client comptoir"
+
+    raw_mode = str(payload.get("service_mode") or payload.get("ticket_type") or "").strip().upper()
+    if raw_mode in {"LIVRAISON", "DELIVERY"}:
+        source = "LIVRAISON"
+    elif raw_mode in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
+        source = "SALLE"
+    else:
+        source = "EMPORTER"
+
+    table_number = None
+    table_label = None
+    if source == "SALLE":
+        try:
+            table_number = int(payload.get("table_number"))
+        except (TypeError, ValueError):
+            table_number = None
+        if not table_number or table_number < 1 or table_number > 9:
+            return jsonify({"ok": False, "error": "Sur place : choisissez une table de 1 à 9."}), 400
+        table_label = f"Table {table_number}"
+
+    customer_name = "Client livraison" if source == "LIVRAISON" else ("Client comptoir" if source == "EMPORTER" else table_label)
     try:
         with db() as conn:
             with conn.transaction():
@@ -418,9 +446,13 @@ def create_order():
                 order_num = int(row["next_num"])
                 conn.execute(
                     """INSERT INTO caisse_orders
-                       (id, num, customer_name, offline_sync_key, source, payment, status, total, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (order_id, order_num, customer_name, offline_sync_key, source, "À ENCAISSER", "Enregistrée", total, now, now),
+                       (id, num, customer_name, offline_sync_key, source, table_number, table_label,
+                        payment, status, total, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        order_id, order_num, customer_name, offline_sync_key, source, table_number, table_label,
+                        "À ENCAISSER", "Enregistrée", total, now, now,
+                    ),
                 )
                 for line in normalized:
                     conn.execute(
@@ -449,6 +481,9 @@ def create_order():
         "total": float(total),
         "status": "Enregistrée",
         "ticket_type": ticket_type(source),
+        "service_mode": ticket_type(source),
+        "table_number": table_number,
+        "table_label": table_label,
     }), 201
 
 
