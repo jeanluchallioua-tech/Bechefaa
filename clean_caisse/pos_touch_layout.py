@@ -78,6 +78,9 @@ def register_pos_touch_layout(app, db):
                 g.pos_table_number = int(payload.get("table_number")) if g.pos_order_mode == "SALLE" else None
             except (TypeError, ValueError):
                 g.pos_table_number = None
+            if g.pos_order_mode == "SALLE":
+                if not g.pos_table_number or g.pos_table_number < 1 or g.pos_table_number > 9:
+                    return jsonify({"ok": False, "error": "Sur place : choisissez une table de 1 à 9."}), 400
 
     @app.after_request
     def apply_order_mode_and_touch_layout(response):
