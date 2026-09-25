@@ -70,6 +70,7 @@ def register_customer_phase1(app, db, ensure_order_schema):
             service_mode=str(payload.get("service_mode") or "").strip().upper()
             ticket_type_value=str(payload.get("ticket_type") or "").strip().lower()
             is_delivery=service_mode in {"LIVRAISON","DELIVERY"} or ticket_type_value=="livraison"
+            is_takeaway=service_mode in {"EMPORTER","TAKEAWAY"} or ticket_type_value in {"emporter","comptoir"}
             if is_delivery:
                 missing=[]
                 if not (customer.get("first_name") or customer.get("last_name")): missing.append("nom ou prénom")
@@ -82,6 +83,8 @@ def register_customer_phase1(app, db, ensure_order_schema):
                 postal=str(customer.get("postal_code") or "")
                 if len(postal)!=5 or not postal.isdigit():
                     return jsonify({"ok":False,"error":"Livraison : code postal invalide."}),400
+            elif is_takeaway and not (customer.get("first_name") or customer.get("last_name")):
+                return jsonify({"ok":False,"error":"À emporter : renseignez le nom ou le prénom du client."}),400
 
     @app.after_request
     def attach_customer_and_inject_pos(response):
@@ -119,7 +122,23 @@ def register_customer_phase1(app, db, ensure_order_schema):
   function values(){let o={};ids.forEach(k=>o[k]=document.getElementById('cust-'+k).value.trim());return{first_name:o.first,last_name:o.last,address:o.address,postal_code:o.postal,city:o.city,door_intercom:o.intercom,phone:o.phone,email:o.email}}
   function fill(c){document.getElementById('cust-first').value=c.first_name||'';document.getElementById('cust-last').value=c.last_name||'';document.getElementById('cust-address').value=c.address||'';document.getElementById('cust-postal').value=c.postal_code||'';document.getElementById('cust-city').value=c.city||'';document.getElementById('cust-intercom').value=c.door_intercom||'';document.getElementById('cust-phone').value=c.phone||'';document.getElementById('cust-email').value=c.email||'';document.getElementById('cust-search').value=c.display_name||c.phone||'';document.getElementById('cust-results').style.display='none';document.getElementById('cust-note').innerHTML='<span class="customer-ok">Client sélectionné.</span>'}
   window.fetch=function(input,init){try{const url=typeof input==='string'?input:(input&&input.url)||'';if(url==='/api/orders'&&init&&String(init.method||'GET').toUpperCase()==='POST'&&init.body){const body=JSON.parse(init.body);body.customer=values();init=Object.assign({},init,{body:JSON.stringify(body)})}}catch(e){}return originalFetch(input,init)};
-  let searchTimer=null;document.getElementById('cust-search').addEventListener('input',function(){const q=this.value.trim(),res=document.getElementById('cust-results');clearTimeout(searchTimer);if(q.length<2){res.style.display='none';return}searchTimer=setTimeout(async()=>{try{let r=await originalFetch('/api/clients?q='+encodeURIComponent(q)),d=await r.json(),rows=d.clients||[];res.innerHTML=rows.length?rows.slice(0,8).map((c,i)=>`<div class="customer-result" data-i="${i}"><b>${String(c.display_name||'Client').replace(/[<>]/g,'')}</b><small>${String(c.phone||'').replace(/[<>]/g,'')}${c.city?' · '+String(c.city).replace(/[<>]/g,''):''}</small></div>`).join(''):'<div class="customer-result">Aucun client trouvé</div>';res.style.display='block';res.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>fill(rows[Number(el.dataset.i)]))}catch(e){res.style.display='none'}},220)});
+  let searchTimer=null;
+  async function showClientResults(q){
+    const res=document.getElementById('cust-results');
+    try{
+      const url='/api/clients'+(q?'?q='+encodeURIComponent(q):'');
+      const r=await originalFetch(url,{cache:'no-store'}),d=await r.json(),rows=d.clients||[];
+      const visible=rows.slice(0,12);
+      res.innerHTML=visible.length?visible.map((c,i)=>`<div class="customer-result" data-i="${i}"><b>${String(c.display_name||'Client').replace(/[<>]/g,'')}</b><small>${String(c.phone||'').replace(/[<>]/g,'')}${c.city?' · '+String(c.city).replace(/[<>]/g,''):''}</small></div>`).join(''):'<div class="customer-result">Aucun client trouvé</div>';
+      res.style.display='block';
+      res.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>fill(visible[Number(el.dataset.i)]));
+    }catch(e){
+      res.innerHTML='<div class="customer-result">Liste clients indisponible</div>';
+      res.style.display='block';
+    }
+  }
+  document.getElementById('cust-search').addEventListener('focus',function(){showClientResults(this.value.trim())});
+  document.getElementById('cust-search').addEventListener('input',function(){const q=this.value.trim();clearTimeout(searchTimer);searchTimer=setTimeout(()=>showClientResults(q),180)});
   let postalTimer=null;document.getElementById('cust-postal').addEventListener('input',function(){const code=this.value.replace(/\D/g,'').slice(0,5);this.value=code;clearTimeout(postalTimer);if(code.length!==5)return;document.getElementById('cust-note').textContent='Recherche de la ville…';postalTimer=setTimeout(async()=>{try{const r=await originalFetch('/api/postal-code/'+encodeURIComponent(code)),d=await r.json();if(r.ok&&d.ok&&d.cities&&d.cities.length){document.getElementById('cust-city').value=d.cities[0];document.getElementById('cust-note').textContent='Ville renseignée automatiquement.'}else document.getElementById('cust-note').textContent='Ville non trouvée — saisissez-la.'}catch(e){document.getElementById('cust-note').textContent='Ville non trouvée — saisissez-la.'}},250)});
   document.getElementById('cust-save').onclick=async function(){const c=values();document.getElementById('cust-note').textContent='Enregistrement…';try{let r=await originalFetch('/api/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Erreur');document.getElementById('cust-search').value=d.client.display_name||d.client.phone||'';document.getElementById('cust-note').innerHTML='<span class="customer-ok">Client enregistré.</span>'}catch(e){document.getElementById('cust-note').textContent='Enregistrement client impossible.'}};
   document.getElementById('cust-clear').onclick=function(){document.getElementById('cust-search').value='';ids.forEach(k=>document.getElementById('cust-'+k).value='');document.getElementById('cust-results').style.display='none';document.getElementById('cust-note').textContent='Recherchez un client existant ou saisissez un nouveau client.'};
