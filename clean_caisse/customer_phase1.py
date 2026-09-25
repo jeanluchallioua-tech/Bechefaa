@@ -76,12 +76,11 @@ def register_customer_phase1(app, db, ensure_order_schema):
                 if not (customer.get("first_name") or customer.get("last_name")): missing.append("nom ou prénom")
                 if not customer.get("phone"): missing.append("téléphone")
                 if not customer.get("address"): missing.append("adresse")
-                if not customer.get("postal_code"): missing.append("code postal")
                 if not customer.get("city"): missing.append("ville")
                 if missing:
                     return jsonify({"ok":False,"error":"Livraison : renseignez "+", ".join(missing)+"."}),400
                 postal=str(customer.get("postal_code") or "")
-                if len(postal)!=5 or not postal.isdigit():
+                if postal and (len(postal)!=5 or not postal.isdigit()):
                     return jsonify({"ok":False,"error":"Livraison : code postal invalide."}),400
             elif is_takeaway and not (customer.get("first_name") or customer.get("last_name")):
                 return jsonify({"ok":False,"error":"À emporter : renseignez le nom ou le prénom du client."}),400
@@ -109,7 +108,7 @@ def register_customer_phase1(app, db, ensure_order_schema):
             html=response.get_data(as_text=True)
             customer_html=r'''
 <style>
-.customer-box{position:relative;border:1px solid #d9dde3;border-radius:10px;padding:12px;margin:0 0 14px;background:#fafbfc}.customer-box h3{margin:0 0 8px}.customer-search{width:100%;padding:10px;border:2px solid #111827;border-radius:8px;font-size:14px;margin-bottom:8px}.customer-results{display:none;position:absolute;z-index:50;left:12px;right:12px;top:82px;background:#fff;border:1px solid #ccd1d8;border-radius:8px;max-height:210px;overflow:auto;box-shadow:0 5px 16px #0002}.customer-result{padding:10px;border-bottom:1px solid #eee;cursor:pointer}.customer-result:hover{background:#f0f2f5}.customer-result b{display:block}.customer-result small{color:#667085}.customer-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.customer-grid .wide{grid-column:1/-1}.customer-grid input{width:100%;padding:9px;border:1px solid #ccd1d8;border-radius:8px;font-size:13px}.customer-actions{display:flex;gap:8px;margin-top:9px}.customer-save{flex:1;border:0;border-radius:8px;padding:10px;background:#14804a;color:white;font-weight:800;cursor:pointer}.customer-clear{border:0;background:transparent;color:#b42318;cursor:pointer;font-size:12px}.customer-note{font-size:11px;color:#667085;margin-top:7px}.customer-ok{color:#14804a;font-weight:700}
+.customer-box{position:relative;border:1px solid #d9dde3;border-radius:10px;padding:12px;margin:0 0 14px;background:#fafbfc}.customer-box h3{margin:0 0 8px}.customer-search{width:100%;padding:10px;border:2px solid #111827;border-radius:8px;font-size:14px;margin-bottom:8px}.customer-results{display:none;position:absolute;z-index:50;left:12px;right:12px;top:82px;background:#fff;border:1px solid #ccd1d8;border-radius:8px;max-height:280px;overflow:auto;box-shadow:0 5px 16px #0002}.customer-result{padding:13px 12px;border-bottom:1px solid #eee;cursor:pointer;color:#111827;font-size:16px}.customer-result:hover{background:#f0f2f5}.customer-result b{display:block;font-size:18px;color:#111827;font-weight:900}.customer-result small{color:#4b5563;font-size:15px;display:block;margin-top:3px}.customer-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.customer-grid .wide{grid-column:1/-1}.customer-grid input{width:100%;padding:9px;border:1px solid #ccd1d8;border-radius:8px;font-size:13px}.customer-actions{display:flex;gap:8px;margin-top:9px}.customer-save{flex:1;border:0;border-radius:8px;padding:10px;background:#14804a;color:white;font-weight:800;cursor:pointer}.customer-clear{border:0;background:transparent;color:#b42318;cursor:pointer;font-size:12px}.customer-note{font-size:11px;color:#667085;margin-top:7px}.customer-ok{color:#14804a;font-weight:700}
 </style>
 <script>
 (function(){
@@ -129,7 +128,7 @@ def register_customer_phase1(app, db, ensure_order_schema):
       const url='/api/clients'+(q?'?q='+encodeURIComponent(q):'');
       const r=await originalFetch(url,{cache:'no-store'}),d=await r.json(),rows=d.clients||[];
       const visible=rows.slice(0,12);
-      res.innerHTML=visible.length?visible.map((c,i)=>`<div class="customer-result" data-i="${i}"><b>${String(c.display_name||'Client').replace(/[<>]/g,'')}</b><small>${String(c.phone||'').replace(/[<>]/g,'')}${c.city?' · '+String(c.city).replace(/[<>]/g,''):''}</small></div>`).join(''):'<div class="customer-result">Aucun client trouvé</div>';
+      res.innerHTML=visible.length?visible.map((c,i)=>{const full=((c.first_name||'')+' '+(c.last_name||'')).trim();const name=String(c.display_name||full||c.phone||'Client').replace(/[<>]/g,'');return `<div class="customer-result" data-i="${i}"><b>${name}</b><small>${String(c.phone||'').replace(/[<>]/g,'')}${c.city?' · '+String(c.city).replace(/[<>]/g,''):''}</small></div>`}).join(''):'<div class="customer-result">Aucun client trouvé</div>';
       res.style.display='block';
       res.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>fill(visible[Number(el.dataset.i)]));
     }catch(e){
@@ -177,13 +176,13 @@ def register_customer_phase1(app, db, ensure_order_schema):
                 if q:
                     like="%"+q+"%";rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at
                         FROM caisse_clients
-                        WHERE display_name ILIKE %s OR phone ILIKE %s OR email ILIKE %s
+                        WHERE display_name ILIKE %s OR first_name ILIKE %s OR last_name ILIKE %s OR phone ILIKE %s OR email ILIKE %s
                         ORDER BY
                             LOWER(COALESCE(NULLIF(last_name,''), NULLIF(display_name,''), '')),
                             LOWER(COALESCE(first_name,'')),
                             LOWER(COALESCE(display_name,'')),
                             created_at ASC
-                        LIMIT 5000""",(like,like,like)).fetchall()
+                        LIMIT 5000""",(like,like,like,like,like)).fetchall()
                 else:rows=conn.execute("""SELECT id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,created_at,updated_at
                     FROM caisse_clients
                     ORDER BY
@@ -192,5 +191,11 @@ def register_customer_phase1(app, db, ensure_order_schema):
                         LOWER(COALESCE(display_name,'')),
                         created_at ASC
                     LIMIT 5000""").fetchall()
-            return jsonify({"ok":True,"clients":[dict(r) for r in rows],"count":len(rows)})
+            clients=[]
+            for row in rows:
+                item=dict(row)
+                full=" ".join(x for x in (str(item.get("first_name") or "").strip(),str(item.get("last_name") or "").strip()) if x).strip()
+                item["display_name"]=str(item.get("display_name") or "").strip() or full or str(item.get("phone") or "").strip() or "Client"
+                clients.append(item)
+            return jsonify({"ok":True,"clients":clients,"count":len(clients)})
         except Exception as exc:return jsonify({"ok":False,"error":"Clients indisponibles","detail":str(exc)}),500
