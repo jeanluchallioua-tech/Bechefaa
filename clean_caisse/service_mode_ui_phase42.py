@@ -108,6 +108,13 @@ def register_service_mode_ui_phase42(app):
            if(msg)msg.innerHTML='<div class="error"><b>Choisissez une table de 1 à 9.</b></div>';
            return Promise.reject(new Error('Choisissez une table de 1 à 9'));
          }
+         try{
+           const p=JSON.parse(init.body||'{}');
+           p.service_mode=chosenMode==='salle'?'SALLE':(chosenMode==='livraison'?'LIVRAISON':'EMPORTER');
+           p.table_number=chosenMode==='salle'?selectedTable:null;
+           p.ticket_type=chosenMode==='livraison'?'Livraison':(chosenMode==='salle'?'Salle':'Emporter');
+           init=Object.assign({},init,{body:JSON.stringify(p)});
+         }catch(e){}
        }
        return nativeFetch(input,init);
      };
