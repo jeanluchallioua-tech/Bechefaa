@@ -53,8 +53,41 @@ def register_site_order_hours_phase6(app,db):
         if d.get("enabled"):
             for a,b in d.get("slots",[]):
                 start,end=_mins(a),_mins(b)-cutoff
-                if start<=cur<end: open_now=True; next_close=b; break
-        return {"open":open_now,"day":day,"day_label":LABELS[day],"now":now.strftime("%H:%M"),"cutoff_minutes":cutoff,"closing_time":next_close}
+                if start<=cur<end:
+                    open_now=True; next_close=b; break
+
+        next_open_day=None; next_open_time=None; next_open_label=None
+        if not open_now:
+            for offset in range(0,8):
+                idx=(now.weekday()+offset)%7
+                candidate_day=DAYS[idx]
+                candidate=cfg["days"].get(candidate_day,{"enabled":False,"slots":[]})
+                if not candidate.get("enabled"): continue
+                starts=sorted([a for a,b in candidate.get("slots",[])],key=_mins)
+                for a in starts:
+                    if offset==0 and _mins(a)<=cur: continue
+                    next_open_day=candidate_day
+                    next_open_time=a
+                    if offset==0:
+                        next_open_label="Aujourd’hui à "+a
+                    elif offset==1:
+                        next_open_label="Demain à "+a
+                    else:
+                        next_open_label=LABELS[candidate_day]+" à "+a
+                    break
+                if next_open_time: break
+
+        return {
+            "open":open_now,
+            "day":day,
+            "day_label":LABELS[day],
+            "now":now.strftime("%H:%M"),
+            "cutoff_minutes":cutoff,
+            "closing_time":next_close,
+            "next_open_day":next_open_day,
+            "next_open_time":next_open_time,
+            "next_open_label":next_open_label,
+        }
     @app.get("/api/public/order-hours")
     def public_hours():
         cfg=read(); return jsonify({"ok":True,"config":cfg,"state":state(cfg)})
