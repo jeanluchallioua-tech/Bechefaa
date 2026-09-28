@@ -39,7 +39,9 @@ def register_pos_quick_add(app):
   }
 
   document.addEventListener('click',function(e){
-    const card=e.target.closest && e.target.closest('.product');
+    const add=e.target.closest && e.target.closest('.pos-product-add');
+    if(!add) return;
+    const card=add.closest('.product');
     if(!card || !document.getElementById('grid') || !document.getElementById('grid').contains(card)) return;
     const p=catalogMap[String(card.dataset.id||'')];
     if(!p || Number(p.optionGroups||0)!==0) return;
