@@ -632,7 +632,7 @@ fetch('/api/catalog/summary').then(r=>r.json()).then(d=>{DATA=d;document.getElem
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).catch(()=>{}));
 }
-</script></body></html>'''
+</script><div id="pos-build-marker" style="position:fixed;right:6px;bottom:4px;z-index:99999;font:700 9px Arial;color:#6b7280;background:#ffffffcc;padding:2px 5px;border-radius:4px">POS BUILD c229801 / UI CLEAN</div></body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
 
