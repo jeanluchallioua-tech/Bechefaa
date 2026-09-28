@@ -83,6 +83,7 @@ def register_catalog_summary_fast_phase32(app, load_catalog):
                 "name": name,
                 "category": product.get("category") or product.get("cat") or "",
                 "price": product.get("price", 0),
+                "ingredients": product.get("ingredients") or product.get("description") or "",
                 "optionGroups": len(direct_options) if direct_options else len(active_selection_groups),
                 "hasDirectOptions": bool(direct_options),
                 "photo": photo_out,
