@@ -299,8 +299,10 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
    document.addEventListener('click',function(e){
      const save=e.target.closest('[data-action="save-order"]');
      if(!save||savingAfterUpsell)return;
-     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
      if(typeof ORDER==='undefined'||!Array.isArray(ORDER)||!ORDER.length)return;
+     const activeService=document.querySelector('.ticket-choice [data-ticket].active');
+     if(!activeService)return;
+     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
      upsellPhase='drink';waitingUpsellProduct=false;upsellFlow=true;openUpsellPhase();
    },true);
  })
