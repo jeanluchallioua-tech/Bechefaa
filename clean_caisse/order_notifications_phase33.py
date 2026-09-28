@@ -145,10 +145,10 @@ def register_order_notifications_phase33(app):
    if(PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id)return;
    const n=Number(order.num);if(!Number.isFinite(n))return;
    const raw=localStorage.getItem(SITE_PRINT_KEY);
-   if(raw===null){localStorage.setItem(SITE_PRINT_KEY,String(n));return;}
-   const last=Number(raw);
-   if(!Number.isFinite(last)||n<last){localStorage.setItem(SITE_PRINT_KEY,String(n));return;}
-   if(n<=last)return;
+   if(raw!==null){
+     const last=Number(raw);
+     if(Number.isFinite(last) && n<=last)return;
+   }
    localStorage.setItem(SITE_PRINT_KEY,String(n));
    let tries=0;
    const launch=function(){
