@@ -17,6 +17,7 @@ from clean_caisse.client_import_cleaned_20260922 import import_cleaned_clients_o
 from clean_caisse.clients_management_isolated_phase6 import register_clients_management_isolated_phase6
 from clean_caisse.site_orders_bridge_isolated_phase6 import register_site_orders_bridge_isolated_phase6
 from clean_caisse.site_order_runtime_diag_phase6 import register_site_order_runtime_diag_phase6
+from clean_caisse.site_order_hours_phase6 import register_site_order_hours_phase6
 from clean_caisse.public_catalog_bridge_isolated_phase6 import register_public_catalog_bridge_isolated_phase6
 from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
@@ -141,6 +142,7 @@ register_offline_mode_phase6(app)
 register_clients_management_isolated_phase6(app, db, ensure_order_schema)
 register_site_orders_bridge_isolated_phase6(app)
 register_site_order_runtime_diag_phase6(app, db, ensure_order_schema)
+register_site_order_hours_phase6(app, db)
 register_public_catalog_bridge_isolated_phase6(app, load_catalog)
 register_delivery_zones(app, db)
 register_pos_quick_add(app)
