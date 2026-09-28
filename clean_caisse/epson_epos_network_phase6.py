@@ -444,6 +444,8 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    return true;
  }
 
+ window.bechefaaPrintOrderPack=printOrderPack;
+
  async function printKitchen(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket…');
