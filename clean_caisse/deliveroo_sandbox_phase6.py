@@ -7,9 +7,50 @@ import os
 import urllib.parse
 import urllib.request
 import json
-from flask import jsonify
+from flask import jsonify, request
+
+_last_webhooks = {"orders": None, "menu": None}
 
 def register_deliveroo_sandbox_phase6(app):
+    def _capture_webhook(kind):
+        payload = request.get_json(silent=True) or {}
+        event = str(payload.get("event") or "")
+        guid = (request.headers.get("X-Deliveroo-Sequence-Guid") or "").strip()
+        payload_type = (request.headers.get("X-Deliveroo-Payload-Type") or "").strip()
+        version = (request.headers.get("X-Deliveroo-Webhook-Version") or "").strip()
+        _last_webhooks[kind] = {
+            "received": True,
+            "event": event,
+            "sequence_guid": guid,
+            "payload_type": payload_type,
+            "webhook_version": version,
+        }
+        app.logger.info(
+            "Deliveroo sandbox webhook kind=%s event=%s guid=%s payload_type=%s version=%s",
+            kind, event, guid, payload_type, version
+        )
+        return jsonify({"ok": True}), 200
+
+    @app.post("/api/deliveroo/webhooks/orders")
+    def deliveroo_orders_webhook_phase6():
+        # Phase 1: acknowledge only. No POS order is created until the Sandbox
+        # payload has been observed and HMAC verification has been configured.
+        return _capture_webhook("orders")
+
+    @app.post("/api/deliveroo/webhooks/menu")
+    def deliveroo_menu_webhook_phase6():
+        return _capture_webhook("menu")
+
+    @app.get("/api/deliveroo/webhooks/status-phase6")
+    def deliveroo_webhooks_status_phase6():
+        return jsonify({
+            "ok": True,
+            "orders_url": "https://caisse.bechefaa.fr/api/deliveroo/webhooks/orders",
+            "menu_url": "https://caisse.bechefaa.fr/api/deliveroo/webhooks/menu",
+            "last_orders": _last_webhooks["orders"],
+            "last_menu": _last_webhooks["menu"],
+        })
+
     @app.get("/api/deliveroo/status-phase6")
     def deliveroo_status_phase6():
         client_id=(os.environ.get("BECHEFAA_DELIVEROO_CLIENT_ID") or "").strip()
