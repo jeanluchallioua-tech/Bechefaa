@@ -175,6 +175,11 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      const desc=(p.desc===undefined?'(absent)':String(p.desc));
      modalDiag.textContent='DIAG DESC: keys=['+keys+'] | description='+description+' | desc='+desc;
    }
+   const descDiagObserver=new MutationObserver(function(){
+     setTimeout(updateDescriptionDiag,0);
+     setTimeout(updateDescriptionDiag,80);
+   });
+   descDiagObserver.observe(options,{childList:true,subtree:true,characterData:true});
 
    function openOptions(name){
      document.body.classList.remove('pos-ref-options-closed');
