@@ -32,7 +32,7 @@ body{background:var(--pos-bg)!important;color:#15181c!important;overflow:hidden!
 .pos-v3-rail{grid-column:1;grid-row:1;min-width:88px;background:var(--pos-dark)!important;border-right:1px solid #252a31;display:flex;flex-direction:column;align-items:center;padding:12px 8px;gap:8px;overflow:auto;z-index:40}
 .pos-v3-brand{width:54px;height:54px;border-radius:16px;background:var(--pos-gold);color:#111;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:1000;margin-bottom:6px;box-shadow:0 7px 18px #0003}
 .pos-v3-nav{width:100%;min-height:60px;border:1px solid transparent;border-radius:13px;color:#d5dae0;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:10px;font-weight:900;line-height:1.1;text-align:center;padding:6px 3px}
-.pos-v3-nav span{font-size:20px;line-height:1}.pos-v3-nav:hover{background:var(--pos-dark2);border-color:#30363f}.pos-v3-nav.active{background:var(--pos-gold);color:#111}.pos-v3-rail-spacer{flex:1}
+.pos-v3-nav span{font-size:20px;line-height:1}.pos-v3-nav:hover{background:var(--pos-dark2);border-color:#30363f}.pos-v3-nav.active{background:var(--pos-gold);color:#111}.pos-v3-rail-spacer{flex:1}.pos-v3-logout{margin-top:2px!important;border-color:#4b2525!important;color:#f3b4b4!important}.pos-v3-logout:hover{background:#2a1515!important;border-color:#7f1d1d!important;color:#fff!important}
 
 /* Zone centre */
 .main{grid-column:2!important;grid-row:1!important;padding:0!important;background:var(--pos-bg)!important;overflow:auto!important;min-width:0!important}
@@ -263,7 +263,7 @@ html.bechefaa-tablet .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!impo
    // Rail gauche
    if(!document.querySelector('.pos-v3-rail')){
      const rail=document.createElement('aside');rail.className='pos-v3-rail';
-     rail.innerHTML='<div class="pos-v3-brand">B</div><a class="pos-v3-nav active" href="/pos"><span>＋</span>Nouvelle commande</a><a class="pos-v3-nav" href="/cuisine"><span>♨</span>Cuisine</a><a class="pos-v3-nav" href="/historique"><span>≡</span>Historique</a><div class="pos-v3-rail-spacer"></div><a class="pos-v3-nav" href="/administration"><span>⚙</span>Réglages</a>';
+     rail.innerHTML='<div class="pos-v3-brand">B</div><a class="pos-v3-nav active" href="/pos"><span>＋</span>Nouvelle commande</a><a class="pos-v3-nav" href="/cuisine"><span>♨</span>Cuisine</a><a class="pos-v3-nav" href="/historique"><span>≡</span>Historique</a><div class="pos-v3-rail-spacer"></div><a class="pos-v3-nav" href="/administration"><span>⚙</span>Réglages</a><a class="pos-v3-nav pos-v3-logout" href="/auth/logout"><span>⏻</span>Quitter la caisse</a>';
      layout.insertBefore(rail,layout.firstChild);
    }
 
