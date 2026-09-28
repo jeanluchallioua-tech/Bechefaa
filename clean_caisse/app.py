@@ -632,7 +632,35 @@ fetch('/api/catalog/summary').then(r=>r.json()).then(d=>{DATA=d;document.getElem
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).catch(()=>{}));
 }
-</script><div id="pos-build-marker" style="position:fixed;right:6px;bottom:4px;z-index:99999;font:700 9px Arial;color:#6b7280;background:#ffffffcc;padding:2px 5px;border-radius:4px">POS BUILD c229801 / UI CLEAN</div></body></html>'''
+</script>
+<script id="pos-table-dom-diagnostic">
+window.addEventListener('load',function(){
+  setTimeout(function(){
+    try{
+      const buttons=[...document.querySelectorAll('button')].filter(b=>/^Table\s+[1-9]$/i.test((b.textContent||'').trim()));
+      const groups=[];
+      const seen=new Set();
+      buttons.forEach(b=>{
+        const p=b.parentElement;
+        if(!p||seen.has(p))return;
+        seen.add(p);
+        groups.push({
+          parentId:p.id||'(sans id)',
+          parentClass:p.className||'(sans classe)',
+          count:[...p.querySelectorAll('button')].filter(x=>/^Table\s+[1-9]$/i.test((x.textContent||'').trim())).length,
+          firstAttr:b.getAttributeNames().map(n=>n+'='+b.getAttribute(n)).join(' | ')
+        });
+      });
+      const box=document.createElement('div');
+      box.id='pos-table-dom-debug';
+      box.style.cssText='position:fixed;left:130px;right:8px;bottom:24px;z-index:100000;background:#fff;color:#111;border:2px solid #d97706;border-radius:8px;padding:8px;font:700 11px Arial;max-height:120px;overflow:auto';
+      box.innerHTML='<b>DIAG TABLES:</b> '+(groups.length?groups.map((g,i)=>'#'+(i+1)+' parent='+g.parentId+' / class='+g.parentClass+' / '+g.count+' boutons / '+g.firstAttr).join('<br>'):'aucun groupe');
+      document.body.appendChild(box);
+    }catch(e){}
+  },1200);
+});
+</script>
+<div id="pos-build-marker" style="position:fixed;right:6px;bottom:4px;z-index:99999;font:700 9px Arial;color:#6b7280;background:#ffffffcc;padding:2px 5px;border-radius:4px">POS BUILD c229801 / UI CLEAN</div></body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
 
