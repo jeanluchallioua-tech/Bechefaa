@@ -633,46 +633,7 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).catch(()=>{}));
 }
 </script>
-<script id="pos-table-dom-diagnostic">
-(function(){
- function renderDiag(){
-  try{
-   let box=document.getElementById('pos-table-dom-debug');
-   if(!box){
-    box=document.createElement('div');
-    box.id='pos-table-dom-debug';
-    box.style.cssText='position:fixed;left:130px;right:8px;bottom:24px;z-index:100000;background:#fff;color:#111;border:2px solid #d97706;border-radius:8px;padding:8px;font:700 11px Arial;max-height:150px;overflow:auto';
-    document.body.appendChild(box);
-   }
-   const buttons=[...document.querySelectorAll('button')].filter(b=>/^Table\\s+[1-9]$/i.test((b.textContent||'').trim()));
-   const groups=[];const seen=new Set();
-   buttons.forEach(b=>{
-    const p=b.parentElement;if(!p||seen.has(p))return;seen.add(p);
-    groups.push({parentId:p.id||'(sans id)',parentClass:p.className||'(sans classe)',count:[...p.querySelectorAll('button')].filter(x=>/^Table\\s+[1-9]$/i.test((x.textContent||'').trim())).length,firstAttr:b.getAttributeNames().map(n=>n+'='+b.getAttribute(n)).join(' | ')});
-   });
-   const printButtons=[...document.querySelectorAll('button,a')].filter(el=>{
-    const t=(el.textContent||'').trim().toLowerCase();
-    return t==='ticket client'||t==='ticket cuisine'||t.includes('ticket client')||t.includes('ticket cuisine');
-   }).map(el=>({text:(el.textContent||'').trim(),cls:el.className||'(sans classe)',parentId:el.parentElement?.id||'(sans id)',parentClass:el.parentElement?.className||'(sans classe)'}));
-   const scripts=[...document.scripts].map((sc,i)=>({
-    i,id:sc.id||'(sans id)',src:sc.src||'(inline)',
-    table:/pos-ref-tablebar|data-ref-table/.test(sc.textContent||''),
-    buttons:/Ticket client|Ticket cuisine|data-print-client|data-print-kitchen/.test(sc.textContent||''),
-    kitchen:/printKitchen\\s*\\(|bechefaaPrintKitchen/.test(sc.textContent||''),
-    pack:/order-pack-xml|printOrderPack\\s*\\(/.test(sc.textContent||''),
-    send:/send-kitchen/.test(sc.textContent||'')
-   })).filter(x=>x.table||x.buttons||x.kitchen||x.pack||x.send);
-   box.innerHTML='<b>DIAG TABLES:</b> '+(groups.length?groups.map((g,i)=>'#'+(i+1)+' parent='+g.parentId+' / class='+g.parentClass+' / '+g.count+' boutons / '+g.firstAttr).join('<br>'):'aucun groupe')
-    +'<br><b>DIAG PRINT BUTTONS:</b> '+(printButtons.length?printButtons.map(x=>x.text+' / class='+x.cls+' / parent='+x.parentId+' '+x.parentClass).join(' | '):'aucun')
-    +'<br><b>DIAG PRINT SCRIPTS:</b> '+(scripts.length?scripts.map(x=>'#'+x.i+' id='+x.id+' buttons='+x.buttons+' kitchen='+x.kitchen+' pack='+x.pack+' send='+x.send).join(' | '):'aucun');
-  }catch(e){}
- }
- window.addEventListener('load',()=>setTimeout(renderDiag,1200));
- new MutationObserver(()=>setTimeout(renderDiag,50)).observe(document.documentElement,{childList:true,subtree:true});
- window.addEventListener('pageshow',()=>setTimeout(renderDiag,200));
-})();
-</script>
-<div id="pos-build-marker" style="position:fixed;right:6px;bottom:4px;z-index:99999;font:700 9px Arial;color:#6b7280;background:#ffffffcc;padding:2px 5px;border-radius:4px">POS BUILD c229801 / UI CLEAN</div></body></html>'''
+</body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
 
