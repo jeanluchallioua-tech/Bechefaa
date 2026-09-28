@@ -9,9 +9,9 @@ import urllib.request
 import json
 import hmac
 import hashlib
-from flask import jsonify, request
+from flask import jsonify, request, Response
 
-_last_webhooks = {"orders": None, "menu": None}
+_last_webhooks = {"orders": None, "menu": None, "last_error": None}
 
 def register_deliveroo_sandbox_phase6(app):
     def _capture_webhook(kind):
@@ -23,22 +23,26 @@ def register_deliveroo_sandbox_phase6(app):
         raw=request.get_data(cache=True)
 
         if not secret:
+            _last_webhooks["last_error"]={"kind":kind,"error":"webhook_secret_missing"}
             app.logger.error("Deliveroo webhook secret is not configured")
-            return jsonify({"ok":False,"error":"webhook_secret_missing"}),503
+            return Response(status=503)
         if not guid or not supplied:
+            _last_webhooks["last_error"]={"kind":kind,"error":"signature_headers_missing"}
             app.logger.warning("Deliveroo webhook rejected: missing signature headers")
-            return jsonify({"ok":False,"error":"signature_headers_missing"}),401
+            return Response(status=401)
 
         # Current Order/Menu webhooks use: GUID + single blank space + raw body.
         # Deliveroo requires the exact raw bytes, before JSON parsing.
         signed=guid.encode("utf-8")+b" "+raw
         calculated=hmac.new(secret.encode("utf-8"),signed,hashlib.sha256).hexdigest().lower()
         if not hmac.compare_digest(calculated,supplied):
+            _last_webhooks["last_error"]={"kind":kind,"error":"invalid_signature","sequence_guid":guid}
             app.logger.warning("Deliveroo webhook rejected: invalid HMAC kind=%s guid=%s",kind,guid)
-            return jsonify({"ok":False,"error":"invalid_signature"}),401
+            return Response(status=401)
 
         payload=request.get_json(silent=True) or {}
         event=str(payload.get("event") or "")
+        _last_webhooks["last_error"]=None
         _last_webhooks[kind]={
             "received":True,
             "signature_valid":True,
@@ -51,7 +55,7 @@ def register_deliveroo_sandbox_phase6(app):
             "Deliveroo sandbox webhook verified kind=%s event=%s guid=%s payload_type=%s version=%s",
             kind,event,guid,payload_type,version
         )
-        return jsonify({"ok":True}),200
+        return Response(status=200)
 
     @app.post("/api/deliveroo/webhooks/orders")
     def deliveroo_orders_webhook_phase6():
@@ -71,6 +75,7 @@ def register_deliveroo_sandbox_phase6(app):
             "menu_url": "https://caisse.bechefaa.fr/api/deliveroo/webhooks/menu",
             "last_orders": _last_webhooks["orders"],
             "last_menu": _last_webhooks["menu"],
+            "last_error": _last_webhooks["last_error"],
         })
 
     @app.get("/api/deliveroo/status-phase6")
