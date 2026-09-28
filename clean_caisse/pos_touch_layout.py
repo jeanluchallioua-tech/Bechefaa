@@ -67,6 +67,7 @@ def register_pos_touch_layout(app, db):
 }
 .ticket-choice{position:sticky;top:0;z-index:15;background:#fff;padding:4px 0 8px;margin:0;gap:7px}
 .ticket-choice button{min-height:52px;font-size:14px;touch-action:manipulation;padding:8px 5px}
+.pos-cancel-current{display:none;width:calc(100% - 22px);margin:5px 11px 8px;min-height:46px;border:1px solid #b42318;border-radius:9px;background:#fff;color:#b42318;font-size:14px;font-weight:900;cursor:pointer}.pos-cancel-current.show{display:block}
 .touch-client-summary{background:#f7f8fa;border:1px solid #d9dde3;border-radius:10px;padding:10px 12px;margin:8px 0 12px;display:flex;align-items:center;gap:10px;cursor:pointer;min-height:54px;touch-action:manipulation}
 .touch-client-summary.hidden{display:none!important}.touch-client-summary .tc-main{flex:1;min-width:0}.touch-client-summary b{display:block;font-size:18px;color:#111827;font-weight:900}.touch-client-summary span{display:block;font-size:15px;color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.touch-client-summary .tc-edit{font-weight:900;font-size:14px;background:#111827;color:#fff;padding:10px 12px;border-radius:8px}
 .customer-box.touch-modal{display:none!important;position:fixed!important;z-index:10000;inset:0!important;margin:0!important;border:0!important;border-radius:0!important;background:#0008!important;padding:20px!important;overflow:auto!important}
@@ -140,12 +141,35 @@ def register_pos_touch_layout(app, db):
    panel.addEventListener('click',e=>{if(e.target.closest('#cust-clear'))setTimeout(updateSummary,100);if(e.target.closest('.customer-result[data-i]'))setTimeout(()=>{updateSummary();shut()},120);if(e.target.closest('#cust-save'))setTimeout(updateSummary,100)});
    const note=document.getElementById('cust-note');if(note){new MutationObserver(()=>{const text=(note.textContent||'').toLowerCase();if(text.includes('client enregistré'))setTimeout(()=>{updateSummary();shut()},120)}).observe(note,{childList:true,subtree:true,characterData:true})}
    ticket.addEventListener('click',e=>{const b=e.target.closest('[data-ticket]');if(!b)return;setTimeout(()=>applyMode(b.dataset.ticket),0)});document.querySelectorAll('.main,.cats,.cart').forEach(el=>{el.style.webkitOverflowScrolling='touch'});
+   const orderBox=document.querySelector('.order-box');
+   let cancelCurrent=document.querySelector('.pos-cancel-current');
+   if(orderBox&&!cancelCurrent){
+     cancelCurrent=document.createElement('button');
+     cancelCurrent.type='button';
+     cancelCurrent.className='pos-cancel-current';
+     cancelCurrent.textContent='Annuler la commande';
+     orderBox.insertBefore(cancelCurrent,orderBox.firstChild);
+     cancelCurrent.addEventListener('click',function(){
+       document.dispatchEvent(new CustomEvent('bechefaa:new-order'));
+     });
+   }
+   function paintCancelCurrent(){
+     try{
+       const hasItems=typeof ORDER!=='undefined'&&Array.isArray(ORDER)&&ORDER.length>0;
+       if(cancelCurrent)cancelCurrent.classList.toggle('show',hasItems);
+     }catch(e){}
+   }
+   const orderEl=document.getElementById('order');
+   if(orderEl)new MutationObserver(()=>setTimeout(paintCancelCurrent,0)).observe(orderEl,{childList:true,subtree:true});
+   setTimeout(paintCancelCurrent,100);
+
    function resetCurrentOrder(){
      try{if(typeof ORDER!=='undefined'&&Array.isArray(ORDER)){ORDER.length=0;if(typeof renderOrder==='function')renderOrder()}}catch(e){}
      try{if(typeof LAST_SAVED_ORDER!=='undefined')LAST_SAVED_ORDER=null}catch(e){}
      if(msg)msg.innerHTML='';
      clearCustomer();shut();
      summary.classList.add('hidden');
+     setTimeout(paintCancelCurrent,0);
    }
    const msg=document.getElementById('order-message');
    if(msg){const observer=new MutationObserver(function(){const text=(msg.textContent||'').toLowerCase();if(text.includes('envoyée en cuisine'))setTimeout(()=>document.dispatchEvent(new CustomEvent('bechefaa:new-order')),450)});observer.observe(msg,{childList:true,subtree:true,characterData:true})}
