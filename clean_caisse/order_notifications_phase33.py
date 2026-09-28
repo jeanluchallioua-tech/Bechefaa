@@ -140,6 +140,28 @@ def register_order_notifications_phase33(app):
    clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
  }
 
+ const SITE_PRINT_KEY='bechefaa_phase6_last_site_autoprint_v1';
+ function autoPrintSiteOrder(order){
+   if(PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id)return;
+   const n=Number(order.num);if(!Number.isFinite(n))return;
+   const raw=localStorage.getItem(SITE_PRINT_KEY);
+   if(raw===null){localStorage.setItem(SITE_PRINT_KEY,String(n));return;}
+   const last=Number(raw);
+   if(!Number.isFinite(last)||n<last){localStorage.setItem(SITE_PRINT_KEY,String(n));return;}
+   if(n<=last)return;
+   localStorage.setItem(SITE_PRINT_KEY,String(n));
+   let tries=0;
+   const launch=function(){
+     tries++;
+     if(typeof window.bechefaaPrintOrderPack==='function'){
+       window.bechefaaPrintOrderPack(order.id).catch(()=>{});
+       return;
+     }
+     if(tries<20)setTimeout(launch,150);
+   };
+   launch();
+ }
+
  function inspect(orders){
    const all=(orders||[]).filter(o=>Number.isFinite(Number(o.num)));
    if(!all.length)return;
@@ -169,7 +191,7 @@ def register_order_notifications_phase33(app):
      const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
      if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
      if(!newer.length)return;
-     const newest=newer[newer.length-1];showSiteNotice(newest);beep();return;
+     const newest=newer[newer.length-1];showSiteNotice(newest);beep();autoPrintSiteOrder(newest);return;
    }
 
    const ready=all.filter(o=>String(o.status||'').trim()==='À préparer');
