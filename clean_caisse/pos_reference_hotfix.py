@@ -19,7 +19,6 @@ def register_pos_reference_hotfix(app):
 .pos-v3-brand .pos-ref-brandname{display:block!important;width:100%!important;text-align:center!important;color:#e8b44a!important;font-size:19px!important;font-weight:950!important;letter-spacing:3px!important;line-height:1.1!important;white-space:nowrap!important;overflow:visible!important}
 
 /* Tables uniquement après clic explicite Sur place */
-.pos-ref-tablebar{display:none!important}.pos-ref-tablebar.show{display:grid!important}
 
 /* Catégories : jamais de fond blanc au survol */
 .cat:hover{background:#171c21!important;color:#fff!important;border-color:#6e572c!important}
@@ -48,15 +47,6 @@ def register_pos_reference_hotfix(app):
    const rail=document.querySelector('.pos-v3-rail');
    const brand=rail?.querySelector('.pos-v3-brand');
    if(brand)brand.innerHTML='<img class="pos-ref-logo" src="https://bechefaa.fr/logo-bechefaa.jpg" alt="BÉCHÉFAA"><div class="pos-ref-brandname">BÉCHÉFAA</div>';
-
-   /* Tables : masquées au départ, affichées uniquement après clic Sur place. */
-   const tablebar=document.querySelector('.pos-ref-tablebar');
-   function hideTables(){tablebar?.classList.remove('show')}
-   hideTables();setTimeout(hideTables,80);setTimeout(hideTables,250);
-   document.addEventListener('click',function(e){
-     const b=e.target.closest('.ticket-choice [data-ticket]');if(!b)return;
-     if(b.dataset.ticket==='Salle')tablebar?.classList.add('show');else tablebar?.classList.remove('show');
-   },true);
 
    /* Rail : Commandes -> Historique + Commandes récentes séparé. */
    if(rail){
