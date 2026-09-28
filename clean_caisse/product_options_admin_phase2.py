@@ -91,6 +91,7 @@ def register_product_options_admin_phase2(app, db):
                     k=str(g.get('key') or '')
                     if k.startswith('central_'): current_order.append(k[8:])
             groups=[]
+            known=set()
             for key,vals in lists.items():
                 if not isinstance(vals,list):continue
                 meta=_group_meta(data,product,key)
@@ -98,6 +99,15 @@ def register_product_options_admin_phase2(app, db):
                 for x in selections.get(key) or []:
                     try:selected.append(int(x))
                     except (TypeError,ValueError):pass
+                # Si une ancienne fiche n'a pas optionSelections mais possède déjà
+                # un groupe matérialisé, on retrouve les choix par leur nom.
+                if not selected:
+                    dg=next((g for g in direct if isinstance(g,dict) and str(g.get('key') or '')=='central_'+key),None)
+                    if isinstance(dg,dict) and isinstance(dg.get('choices'),list):
+                        direct_names={_choice_pair(v)[0].casefold() for v in dg.get('choices') or [] if _choice_pair(v)[0]}
+                        for i,v in enumerate(vals):
+                            n,_=_choice_pair(v)
+                            if n and n.casefold() in direct_names:selected.append(i)
                 groups.append({
                     'key':key,
                     'name':meta['title'],
@@ -105,7 +115,32 @@ def register_product_options_admin_phase2(app, db):
                     'max':meta['max'],
                     'selected':selected,
                     'options':[{'index':i,'name':_choice_pair(v)[0],'price':_choice_pair(v)[1]} for i,v in enumerate(vals) if _choice_pair(v)[0]],
+                    'source':'central',
                 })
+                known.add(key)
+            # Récupère aussi les groupes présents uniquement sur le produit
+            # (ex. Cuisson sur certaines anciennes fiches).
+            for dg in direct:
+                if not isinstance(dg,dict):continue
+                raw_key=str(dg.get('key') or '')
+                if not raw_key.startswith('central_'):continue
+                key=raw_key[8:]
+                if not key or key in known:continue
+                choices=dg.get('choices') if isinstance(dg.get('choices'),list) else []
+                opts=[]
+                for i,v in enumerate(choices):
+                    n,p=_choice_pair(v)
+                    if n:opts.append({'index':i,'name':n,'price':p})
+                groups.append({
+                    'key':key,
+                    'name':str(dg.get('title') or dg.get('name') or LABELS.get(key) or key),
+                    'required':bool(dg.get('required',False)),
+                    'max':dg.get('max',0) or 0,
+                    'selected':[o['index'] for o in opts],
+                    'options':opts,
+                    'source':'direct',
+                })
+                known.add(key)
             order=current_order+[g['key'] for g in groups if g['key'] not in current_order]
             groups.sort(key=lambda g: order.index(g['key']) if g['key'] in order else 9999)
             return jsonify({'ok':True,'product':{'id':product.get('id'),'name':product.get('name'),'category':product.get('category') or product.get('cat') or ''},'groups':groups,'order':order})
@@ -133,9 +168,13 @@ def register_product_options_admin_phase2(app, db):
                     for cfg in groups_payload:
                         if not isinstance(cfg,dict):continue
                         key=str(cfg.get('key') or '').strip()
-                        if not key or key in seen or not isinstance(lists.get(key),list):continue
+                        if not key or key in seen:continue
+                        previous=old_by_key.get(key)
+                        central_vals=lists.get(key) if isinstance(lists.get(key),list) else None
+                        direct_vals=previous.get('choices') if isinstance(previous,dict) and isinstance(previous.get('choices'),list) else None
+                        vals=central_vals if central_vals is not None else direct_vals
+                        if not isinstance(vals,list):continue
                         seen.add(key)
-                        vals=lists[key]
                         selected=[]
                         for raw in cfg.get('selected') or []:
                             try:i=int(raw)
@@ -144,20 +183,21 @@ def register_product_options_admin_phase2(app, db):
                         selections[key]=selected
                         if not selected:continue
                         meta=_group_meta(data,product,key)
-                        previous=old_by_key.get(key)
                         if isinstance(previous,dict):
                             meta['required']=bool(previous.get('required',meta['required']))
                             meta['max']=previous.get('max',meta['max']) or 0
                             meta['priceMode']=previous.get('priceMode',meta['priceMode'])
+                            meta['title']=str(previous.get('title') or previous.get('name') or meta['title'])
                         materialized=[]
                         for i in selected:
                             name,price=_choice_pair(vals[i])
                             if name:materialized.append([name,price])
                         meta['choices']=materialized
                         new_direct.append(meta)
-                    # Any central group omitted from payload is intentionally disabled for this product.
+                    # Un groupe connu mais non renvoyé par l'interface est désactivé.
+                    known_product_keys=set(lists.keys()) | set(old_by_key.keys())
                     for key in list(selections.keys()):
-                        if key in lists and key not in seen: selections[key]=[]
+                        if key in known_product_keys and key not in seen: selections[key]=[]
                     product['optionSelections']=selections
                     # Preserve any non-central direct groups, then use the user-defined central order.
                     noncentral=[g for g in old_direct if not (isinstance(g,dict) and str(g.get('key') or '').startswith('central_'))]
