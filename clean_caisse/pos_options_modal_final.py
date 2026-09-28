@@ -302,6 +302,14 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      if(typeof ORDER==='undefined'||!Array.isArray(ORDER)||!ORDER.length)return;
      const activeService=document.querySelector('.ticket-choice [data-ticket].active');
      if(!activeService)return;
+     const service=String(activeService.dataset.ticket||'').toLowerCase();
+     const first=(document.getElementById('cust-first')?.value||'').trim();
+     const last=(document.getElementById('cust-last')?.value||'').trim();
+     const phone=(document.getElementById('cust-phone')?.value||'').trim();
+     const address=(document.getElementById('cust-address')?.value||'').trim();
+     const city=(document.getElementById('cust-city')?.value||'').trim();
+     if(service==='emporter' && !(first||last))return;
+     if(service==='livraison' && (!(first||last)||!phone||!address||!city))return;
      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
      upsellPhase='drink';waitingUpsellProduct=false;upsellFlow=true;openUpsellPhase();
    },true);
