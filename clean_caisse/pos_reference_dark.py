@@ -113,9 +113,6 @@ html.bechefaa-tablet .product-photo{
      const spacer=rail.querySelector('.pos-v3-rail-spacer')||document.createElement('div');spacer.className='pos-v3-rail-spacer';
      rail.appendChild(spacer);
      function a(href,icon,label,active){const el=document.createElement('a');el.className='pos-v3-nav'+(active?' active':'');el.href=href;el.innerHTML='<span>'+icon+'</span>'+label;return el}
-     const newOrder=a('/pos','＋','Nouvelle commande',true);
-     newOrder.addEventListener('click',function(e){e.preventDefault();document.dispatchEvent(new CustomEvent('bechefaa:new-order'))});
-     rail.insertBefore(newOrder,spacer);
      const recent=document.querySelector('.pos-recent-orders-btn');if(recent){recent.className='pos-v3-nav pos-ref-recent';recent.innerHTML='<span>▤</span><span class="pos-ref-recent-label">Commandes</span>';rail.insertBefore(recent,spacer)}else rail.insertBefore(a('/historique','▤','Commandes',false),spacer);
      rail.insertBefore(a('/cuisine','♨','Cuisine',false),spacer);
      rail.insertBefore(a('/clients','♙','Clients',false),spacer);
