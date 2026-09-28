@@ -361,7 +361,7 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
 
     @app.after_request
     def inject_epson_network_phase6(response):
-        if request.path != "/pos" or response.status_code != 200 or response.mimetype != "text/html":
+        if request.path not in ("/pos", "/historique-modification") or response.status_code != 200 or response.mimetype != "text/html":
             return response
         html = response.get_data(as_text=True)
         if 'id="bechefaa-epson-phase6"' in html:
