@@ -654,7 +654,14 @@ window.addEventListener('load',function(){
       const box=document.createElement('div');
       box.id='pos-table-dom-debug';
       box.style.cssText='position:fixed;left:130px;right:8px;bottom:24px;z-index:100000;background:#fff;color:#111;border:2px solid #d97706;border-radius:8px;padding:8px;font:700 11px Arial;max-height:120px;overflow:auto';
-      box.innerHTML='<b>DIAG TABLES:</b> '+(groups.length?groups.map((g,i)=>'#'+(i+1)+' parent='+g.parentId+' / class='+g.parentClass+' / '+g.count+' boutons / '+g.firstAttr).join('<br>'):'aucun groupe');
+      const scripts=[...document.scripts].map((sc,i)=>({
+        i:i,
+        id:sc.id||'(sans id)',
+        src:sc.src||'(inline)',
+        hit:/pos-ref-tablebar|data-ref-table/.test(sc.textContent||'')
+      })).filter(x=>x.hit);
+      box.innerHTML='<b>DIAG TABLES:</b> '+(groups.length?groups.map((g,i)=>'#'+(i+1)+' parent='+g.parentId+' / class='+g.parentClass+' / '+g.count+' boutons / '+g.firstAttr).join('<br>'):'aucun groupe')
+        +'<br><b>SCRIPT SOURCE:</b> '+(scripts.length?scripts.map(x=>'#'+x.i+' id='+x.id+' src='+x.src).join(' | '):'aucun script trouvé');
       document.body.appendChild(box);
     }catch(e){}
   },1200);
