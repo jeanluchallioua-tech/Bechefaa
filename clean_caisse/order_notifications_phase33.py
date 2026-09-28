@@ -158,6 +158,14 @@ def register_order_notifications_phase33(app):
        return;
      }
      const last=Number(storedRaw);
+     if(!Number.isFinite(last)||maxSeen<last){
+       localStorage.setItem(LAST_KEY,String(maxSeen));
+       const newest=site.slice().sort((a,b)=>Number(a.num)-Number(b.num)).pop();
+       const ts=Number((newest&&newest.updated_at)||(newest&&newest.created_at)||0);
+       const recent=ts>0 && (Date.now()-ts)<10*60*1000;
+       if(recent){showSiteNotice(newest);beep();}
+       return;
+     }
      const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
      if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
      if(!newer.length)return;
