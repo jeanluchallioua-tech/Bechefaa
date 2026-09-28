@@ -51,13 +51,30 @@ def register_admin_dashboard_isolated_phase6(app):
 .admin-global-nav-phase6{position:fixed;top:10px;right:12px;z-index:99999;display:flex;gap:8px;align-items:center}
 .admin-global-nav-phase6 a{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 12px;border:1px solid #d99a18;border-radius:8px;background:#111;color:#f0bd45!important;text-decoration:none!important;font:800 13px Arial,sans-serif;box-shadow:0 2px 8px #0005}
 .admin-global-nav-phase6 a:hover{background:#d99a18;color:#111!important}
-.admin-back-phase6{position:fixed;top:10px;left:12px;z-index:100000;width:42px;height:42px;border:1px solid #d99a18;border-radius:50%;background:#111;color:#f0bd45!important;text-decoration:none!important;display:flex;align-items:center;justify-content:center;font:900 25px/1 Arial,sans-serif;box-shadow:0 2px 8px #0005;cursor:pointer}
-.admin-back-phase6:hover{background:#d99a18;color:#111!important}
+.admin-inline-title-phase6{display:flex!important;align-items:center!important;gap:10px!important}
+.admin-back-phase6{flex:0 0 auto;width:38px;height:38px;border:0;border-radius:9px;background:#111;color:#fff!important;text-decoration:none!important;display:inline-flex;align-items:center;justify-content:center;font:900 23px/1 Arial,sans-serif;box-shadow:0 2px 7px #0003;cursor:pointer}
+.admin-back-phase6:hover{background:#2b2b2b;color:#fff!important}
 body > header, body > .top, header.top, .topbar{background:#111!important;border-bottom:1px solid rgba(217,154,24,.55)!important}
-@media(max-width:620px){.admin-global-nav-phase6{top:6px;right:6px;gap:5px}.admin-global-nav-phase6 a{min-height:36px;padding:6px 9px;font-size:12px}.admin-back-phase6{top:6px;left:6px;width:36px;height:36px;font-size:22px}}
+@media(max-width:620px){.admin-global-nav-phase6{top:6px;right:6px;gap:5px}.admin-global-nav-phase6 a{min-height:36px;padding:6px 9px;font-size:12px}.admin-back-phase6{width:34px;height:34px;font-size:21px}}
 </style>
-<a class="admin-back-phase6" href="/administration" aria-label="Retour" title="Retour" onclick="if(history.length>1){history.back();return false;}">←</a>
 <nav class="admin-global-nav-phase6" aria-label="Navigation administration"><a href="/administration">Administration</a><a href="/pos">Caisse</a></nav>
+<script>
+document.addEventListener("DOMContentLoaded",function(){
+  var title=document.querySelector("main h1,.wrap h1,.w h1,.container h1,h1");
+  if(!title||title.querySelector(".admin-back-phase6")) return;
+  title.classList.add("admin-inline-title-phase6");
+  var a=document.createElement("a");
+  a.className="admin-back-phase6";
+  a.href="/administration";
+  a.setAttribute("aria-label","Retour");
+  a.setAttribute("title","Retour");
+  a.textContent="←";
+  a.addEventListener("click",function(e){
+    if(history.length>1){e.preventDefault();history.back();}
+  });
+  title.insertBefore(a,title.firstChild);
+});
+</script>
 '''
         html = html.replace("<body>", "<body>" + addon, 1)
         response.set_data(html)
