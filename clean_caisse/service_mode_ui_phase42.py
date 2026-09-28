@@ -61,6 +61,10 @@ def register_service_mode_ui_phase42(app):
      const b=e.target.closest('[data-ticket]');
      if(!b)return;
      const mode=String(b.dataset.ticket||'').toLowerCase();
+     if(mode==='salle' && chosenMode==='salle'){
+       clearChoice();
+       return;
+     }
      chosenMode=mode==='livraison'?'livraison':(mode==='salle'?'salle':'emporter');
      if(chosenMode!=='salle')selectedTable=null;
      paint();
