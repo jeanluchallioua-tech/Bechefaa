@@ -346,7 +346,7 @@ def product_options(product_id):
             "ok": True,
             "readOnly": True,
             "source": "catalog_admin_v2",
-            "product": {"id": p.get("id"), "name": p.get("name"), "price": p.get("price", 0)},
+            "product": {"id": p.get("id"), "name": p.get("name"), "price": p.get("price", 0), "description": p.get("description") or p.get("desc") or ""},
             "groups": groups,
             "updatedAt": updated_at,
         })
