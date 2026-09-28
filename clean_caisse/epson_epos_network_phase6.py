@@ -212,6 +212,26 @@ def _client_xml(order, identity=None):
     return "".join(parts)
 
 
+def _combined_xml(order, identity=None):
+    """Un seul travail Epson : cuisine + coupe, puis client + coupe."""
+    kitchen = _kitchen_xml(order)
+    client = _client_xml(order, identity)
+    declaration = '<?xml version="1.0" encoding="UTF-8"?>'
+    root = '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'
+
+    def body(xml):
+        x = xml
+        if x.startswith(declaration):
+            x = x[len(declaration):]
+        if x.startswith(root):
+            x = x[len(root):]
+        if x.endswith('</epos-print>'):
+            x = x[:-len('</epos-print>')]
+        return x
+
+    return declaration + root + body(kitchen) + body(client) + '</epos-print>'
+
+
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
     def _load_identity(conn):
         try:
@@ -324,6 +344,21 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
         except Exception as exc:
             return "Ticket Epson indisponible : " + str(exc), 500
 
+    @app.get("/api/epson/order-pack-xml/<order_id>")
+    def epson_order_pack_xml_phase6(order_id):
+        try:
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+                identity = _load_identity(conn)
+            xml = _combined_xml(order, identity)
+            response = Response(xml, content_type="text/xml; charset=utf-8")
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except Exception as exc:
+            return "Ticket Epson indisponible : " + str(exc), 500
+
     @app.after_request
     def inject_epson_network_phase6(response):
         if request.path != "/pos" or response.status_code != 200 or response.mimetype != "text/html":
@@ -376,6 +411,36 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    const xml=await xr.text();
    if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'client',orderId);
    window.location.href='/impression/client/'+encodeURIComponent(orderId);
+   return true;
+ }
+
+ async function printOrderPack(orderId){
+   if(!orderId)return true;
+   status('work','Epson : préparation cuisine + client…');
+   const xr=await nativeFetch('/api/epson/order-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
+   if(!xr.ok)throw new Error('Tickets cuisine/client introuvables');
+   const xml=await xr.text();
+
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'order-pack',orderId);
+
+   const c=await getConfig();
+   const ports=[8143,443];
+   let pr=null,usedPort=null,lastErr=null;
+   for(const port of ports){
+     const url='https://'+c.host+(port===443?'':':'+port)+'/cgi-bin/epos/service.cgi?devid='+encodeURIComponent(c.device_id||'local_printer')+'&timeout=10000';
+     try{
+       const candidate=await nativeFetch(url,{method:'POST',mode:'cors',cache:'no-store',headers:{'Content-Type':'text/xml; charset=utf-8'},body:xml});
+       const candidateBody=await candidate.text();
+       if(!candidate.ok)throw new Error('HTTP '+candidate.status+' sur port '+port);
+       if(/Welcome to Socket\\.IO/i.test(candidateBody))throw new Error('Port '+port+' réservé à Socket.IO');
+       if(/success\\s*=\\s*["']false["']/i.test(candidateBody))throw new Error('Epson a refusé les tickets sur port '+port);
+       pr=candidate;usedPort=port;break;
+     }catch(e){lastErr=e}
+   }
+   if(!pr)throw new Error('ePOS HTTPS inaccessible (8143/443)'+(lastErr?': '+(lastErr.message||lastErr):''));
+   printed.add('order-pack:'+String(orderId));
+   status('ok','Epson : cuisine + client imprimés • port '+usedPort);
+   setTimeout(()=>status('ok','Epson TM-m30II prête'),3500);
    return true;
  }
 
@@ -435,7 +500,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
      try{
        const d=await res.clone().json();
        if(res.ok && d && d.ok!==false && d.id){
-         setTimeout(()=>printKitchen(d.id).catch(e=>status('err','Epson : '+(e.message||'impression impossible'))),50);
+         setTimeout(()=>printOrderPack(d.id).catch(e=>status('err','Epson : '+(e.message||'impression impossible'))),50);
        }
      }catch(e){}
    }
@@ -448,7 +513,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    navigator.serviceWorker.addEventListener('message',e=>{
      const d=e.data||{};
      const ids=Array.isArray(d.print_order_ids)?d.print_order_ids:[];
-     ids.forEach(id=>printKitchen(id).catch(err=>status('err','Epson : '+(err.message||'impression impossible'))));
+     ids.forEach(id=>printOrderPack(id).catch(err=>status('err','Epson : '+(err.message||'impression impossible'))));
    });
  }
 
