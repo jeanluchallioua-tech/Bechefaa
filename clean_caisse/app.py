@@ -660,8 +660,27 @@ window.addEventListener('load',function(){
         src:sc.src||'(inline)',
         hit:/pos-ref-tablebar|data-ref-table/.test(sc.textContent||'')
       })).filter(x=>x.hit);
+      const printButtons=[...document.querySelectorAll('button,a')].filter(el=>{
+        const t=(el.textContent||'').trim().toLowerCase();
+        return t==='ticket client'||t==='ticket cuisine';
+      }).map(el=>({
+        text:(el.textContent||'').trim(),
+        cls:el.className||'(sans classe)',
+        parentId:el.parentElement?.id||'(sans id)',
+        parentClass:el.parentElement?.className||'(sans classe)'
+      }));
+      const printScripts=[...document.scripts].map((sc,i)=>({
+        i:i,
+        id:sc.id||'(sans id)',
+        src:sc.src||'(inline)',
+        buttons:/Ticket client|Ticket cuisine|data-print-client|data-print-kitchen/.test(sc.textContent||''),
+        kitchen:/printKitchen\s*\(|bechefaaPrintKitchen/.test(sc.textContent||''),
+        pack:/order-pack-xml|printOrderPack\s*\(/.test(sc.textContent||'')
+      })).filter(x=>x.buttons||x.kitchen||x.pack);
       box.innerHTML='<b>DIAG TABLES:</b> '+(groups.length?groups.map((g,i)=>'#'+(i+1)+' parent='+g.parentId+' / class='+g.parentClass+' / '+g.count+' boutons / '+g.firstAttr).join('<br>'):'aucun groupe')
-        +'<br><b>SCRIPT SOURCE:</b> '+(scripts.length?scripts.map(x=>'#'+x.i+' id='+x.id+' src='+x.src).join(' | '):'aucun script trouvé');
+        +'<br><b>SCRIPT SOURCE:</b> '+(scripts.length?scripts.map(x=>'#'+x.i+' id='+x.id+' src='+x.src).join(' | '):'aucun script trouvé')
+        +'<br><b>DIAG PRINT BUTTONS:</b> '+(printButtons.length?printButtons.map(x=>x.text+' / class='+x.cls+' / parent='+x.parentId+' '+x.parentClass).join(' | '):'aucun')
+        +'<br><b>DIAG PRINT SCRIPTS:</b> '+(printScripts.length?printScripts.map(x=>'#'+x.i+' id='+x.id+' buttons='+x.buttons+' kitchen='+x.kitchen+' pack='+x.pack).join(' | '):'aucun');
       document.body.appendChild(box);
     }catch(e){}
   },1200);
