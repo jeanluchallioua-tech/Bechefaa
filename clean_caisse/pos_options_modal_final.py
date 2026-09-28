@@ -53,7 +53,7 @@ html.bechefaa-tablet .cat{
 .pos-final-options-overlay.open{display:flex}
 .pos-final-options-panel{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border:1px solid #d9dde3;border-radius:16px;box-shadow:0 24px 70px #0004;overflow:hidden;color:#111827}
 .pos-final-options-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #e5e7eb;background:#fff}
-.pos-final-options-head h2{margin:0;font-size:24px;color:#111827;font-weight:900}.pos-final-options-titlewrap{flex:1;min-width:0}.pos-final-options-desc{display:none;margin:7px 0 0;color:#4b5563;font-size:15px;line-height:1.35;font-weight:600}.pos-final-options-desc.show{display:block}
+.pos-final-options-head h2{margin:0;font-size:24px;color:#111827;font-weight:900}.pos-final-options-titlewrap{flex:1;min-width:0}.pos-final-options-desc{display:none;margin:7px 0 0;color:#4b5563;font-size:15px;line-height:1.35;font-weight:600}.pos-final-options-desc.show{display:block}.pos-final-options-diag{margin:7px 0 0;padding:6px 8px;border:1px solid #fed7aa;border-radius:6px;background:#fff7ed;color:#9a3412;font-size:11px;line-height:1.35;word-break:break-word}
 .pos-final-options-close{width:42px;height:42px;border-radius:9px;border:1px solid #d1d5db;background:#f3f4f6;color:#111827;font-size:26px;font-weight:800;cursor:pointer}
 .pos-final-options-body{padding:14px;overflow:auto;min-height:0}
 .pos-final-options-overlay #options{display:block!important;margin:0!important;background:#fff!important;color:#111827!important;border:0!important;padding:0!important}
@@ -160,15 +160,28 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
    if(!options)return;
 
    const overlay=document.createElement('div');overlay.className='pos-final-options-overlay';
-   overlay.innerHTML='<div class="pos-final-options-panel"><div class="pos-final-options-head"><div class="pos-final-options-titlewrap"><h2 id="pos-final-options-title">Options produit</h2><p id="pos-final-options-desc" class="pos-final-options-desc"></p></div><button type="button" class="pos-final-options-close" aria-label="Fermer">×</button></div><div class="pos-final-options-body"></div></div>';
+   overlay.innerHTML='<div class="pos-final-options-panel"><div class="pos-final-options-head"><div class="pos-final-options-titlewrap"><h2 id="pos-final-options-title">Options produit</h2><p id="pos-final-options-desc" class="pos-final-options-desc"></p><div id="pos-final-options-diag" class="pos-final-options-diag">DIAG DESC: attente…</div></div><button type="button" class="pos-final-options-close" aria-label="Fermer">×</button></div><div class="pos-final-options-body"></div></div>';
    document.body.appendChild(overlay);
    overlay.querySelector('.pos-final-options-body').appendChild(options);
    const modalTitle=overlay.querySelector('#pos-final-options-title');
+   const modalDiag=overlay.querySelector('#pos-final-options-diag');
    const closeBtn=overlay.querySelector('.pos-final-options-close');
+   function updateDescriptionDiag(){
+     const p=(typeof currentProduct!=='undefined'&&currentProduct)?currentProduct:null;
+     if(!modalDiag)return;
+     if(!p){modalDiag.textContent='DIAG DESC: currentProduct absent';return}
+     const keys=Object.keys(p).sort().join(', ');
+     const description=(p.description===undefined?'(absent)':String(p.description));
+     const desc=(p.desc===undefined?'(absent)':String(p.desc));
+     modalDiag.textContent='DIAG DESC: keys=['+keys+'] | description='+description+' | desc='+desc;
+   }
 
    function openOptions(name){
      document.body.classList.remove('pos-ref-options-closed');
      modalTitle.textContent=name?'Options • '+name:'Options produit';
+     updateDescriptionDiag();
+     setTimeout(updateDescriptionDiag,120);
+     setTimeout(updateDescriptionDiag,400);
      overlay.classList.add('open');
    }
    function closeOptions(){overlay.classList.remove('open')}
