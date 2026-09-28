@@ -27,9 +27,9 @@ def register_order_notifications_phase33(app):
         page = "pos" if request.path == "/pos" else "kitchen"
         addon = r'''
 <style>
-#phase6-site-order-notice{display:none;align-items:center;white-space:nowrap;font-size:15px;font-weight:900;color:#ffd21f;text-transform:uppercase;letter-spacing:.4px;text-shadow:0 0 7px rgba(255,210,31,.75);pointer-events:none;margin-left:4px}
+#phase6-site-order-notice{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50000;align-items:center;white-space:nowrap;font-size:16px;font-weight:900;color:#111;background:#ffd21f;border:2px solid #fff3a6;border-radius:10px;padding:11px 16px;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 10px 30px rgba(0,0,0,.45);pointer-events:none}
 #phase6-site-order-notice.show{display:inline-flex;animation:phase6SiteTextPulse .8s ease-in-out 4}
-@keyframes phase6SiteTextPulse{0%,100%{color:#ffd21f;transform:scale(1)}50%{color:#ff5a36;transform:scale(1.04)}}
+@keyframes phase6SiteTextPulse{0%,100%{filter:none}50%{filter:brightness(1.18);box-shadow:0 0 0 5px rgba(255,90,54,.28),0 12px 34px rgba(0,0,0,.5)}}
 </style>
 <script>
 (function(){
@@ -128,8 +128,7 @@ def register_order_notifications_phase33(app):
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
-   const top=document.querySelector('.top');const spacer=top&&top.querySelector('.navspacer');if(!top||!spacer)return null;
-   el=document.createElement('span');el.id='phase6-site-order-notice';top.insertBefore(el,spacer);return el;
+   el=document.createElement('span');el.id='phase6-site-order-notice';document.body.appendChild(el);return el;
  }
  function showSiteNotice(order){
    if(PAGE!=='pos')return;
@@ -150,7 +149,14 @@ def register_order_notifications_phase33(app):
      if(!site.length)return;
      const maxSeen=Math.max.apply(null,site.map(o=>Number(o.num)));
      const storedRaw=localStorage.getItem(LAST_KEY);
-     if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxSeen));return}
+     if(storedRaw===null){
+       localStorage.setItem(LAST_KEY,String(maxSeen));
+       const newest=site.slice().sort((a,b)=>Number(a.num)-Number(b.num)).pop();
+       const ts=Number((newest&&newest.updated_at)||(newest&&newest.created_at)||0);
+       const recent=ts>0 && (Date.now()-ts)<10*60*1000;
+       if(recent){showSiteNotice(newest);beep();}
+       return;
+     }
      const last=Number(storedRaw);
      const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
      if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
