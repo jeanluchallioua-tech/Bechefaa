@@ -13,7 +13,46 @@ from flask import jsonify, request, Response
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
 
-def register_deliveroo_sandbox_phase6(app):
+def register_deliveroo_sandbox_phase6(app, db):
+    def _ensure_diag_table():
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS deliveroo_webhook_diag (
+                        kind TEXT PRIMARY KEY,
+                        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        accepted BOOLEAN,
+                        error TEXT,
+                        event TEXT,
+                        sequence_guid TEXT,
+                        payload_type TEXT,
+                        webhook_version TEXT
+                    )
+                ''')
+            conn.commit()
+
+    def _persist_diag(kind, accepted=None, error=None, event=None, guid=None, payload_type=None, version=None):
+        try:
+            _ensure_diag_table()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('''
+                        INSERT INTO deliveroo_webhook_diag
+                            (kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (kind) DO UPDATE SET
+                            received_at=EXCLUDED.received_at,
+                            accepted=EXCLUDED.accepted,
+                            error=EXCLUDED.error,
+                            event=EXCLUDED.event,
+                            sequence_guid=EXCLUDED.sequence_guid,
+                            payload_type=EXCLUDED.payload_type,
+                            webhook_version=EXCLUDED.webhook_version
+                    ''',(kind,accepted,error,event,guid,payload_type,version))
+                conn.commit()
+        except Exception as exc:
+            app.logger.exception('Deliveroo webhook diagnostic persistence failed: %s', exc)
+
     def _capture_webhook(kind):
         secret=(os.environ.get("BECHEFAA_DELIVEROO_WEBHOOK_SECRET") or "").strip()
         guid=(request.headers.get("X-Deliveroo-Sequence-Guid") or "").strip()
@@ -21,13 +60,16 @@ def register_deliveroo_sandbox_phase6(app):
         payload_type=(request.headers.get("X-Deliveroo-Payload-Type") or "").strip()
         version=(request.headers.get("X-Deliveroo-Webhook-Version") or "").strip()
         raw=request.get_data(cache=True)
+        _persist_diag(kind, accepted=None, error="received", guid=guid, payload_type=payload_type, version=version)
 
         if not secret:
             _last_webhooks["last_error"]={"kind":kind,"error":"webhook_secret_missing"}
+            _persist_diag(kind, accepted=False, error="webhook_secret_missing", guid=guid, payload_type=payload_type, version=version)
             app.logger.error("Deliveroo webhook secret is not configured")
             return Response(status=503)
         if not guid or not supplied:
             _last_webhooks["last_error"]={"kind":kind,"error":"signature_headers_missing"}
+            _persist_diag(kind, accepted=False, error="signature_headers_missing", guid=guid, payload_type=payload_type, version=version)
             app.logger.warning("Deliveroo webhook rejected: missing signature headers")
             return Response(status=401)
 
@@ -37,12 +79,14 @@ def register_deliveroo_sandbox_phase6(app):
         calculated=hmac.new(secret.encode("utf-8"),signed,hashlib.sha256).hexdigest().lower()
         if not hmac.compare_digest(calculated,supplied):
             _last_webhooks["last_error"]={"kind":kind,"error":"invalid_signature","sequence_guid":guid}
+            _persist_diag(kind, accepted=False, error="invalid_signature", guid=guid, payload_type=payload_type, version=version)
             app.logger.warning("Deliveroo webhook rejected: invalid HMAC kind=%s guid=%s",kind,guid)
             return Response(status=401)
 
         payload=request.get_json(silent=True) or {}
         event=str(payload.get("event") or "")
         _last_webhooks["last_error"]=None
+        _persist_diag(kind, accepted=True, error=None, event=event, guid=guid, payload_type=payload_type, version=version)
         _last_webhooks[kind]={
             "received":True,
             "signature_valid":True,
@@ -69,10 +113,29 @@ def register_deliveroo_sandbox_phase6(app):
 
     @app.get("/api/deliveroo/webhooks/status-phase6")
     def deliveroo_webhooks_status_phase6():
+        persisted={}
+        try:
+            _ensure_diag_table()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version FROM deliveroo_webhook_diag")
+                    for row in cur.fetchall():
+                        persisted[row["kind"]]={
+                            "received_at": row["received_at"].isoformat() if row.get("received_at") else None,
+                            "accepted": row.get("accepted"),
+                            "error": row.get("error"),
+                            "event": row.get("event"),
+                            "sequence_guid": row.get("sequence_guid"),
+                            "payload_type": row.get("payload_type"),
+                            "webhook_version": row.get("webhook_version"),
+                        }
+        except Exception as exc:
+            persisted={"diagnostic_error":str(exc)[:200]}
         return jsonify({
             "ok": True,
             "orders_url": "https://caisse.bechefaa.fr/api/deliveroo/webhooks/orders",
             "menu_url": "https://caisse.bechefaa.fr/api/deliveroo/webhooks/menu",
+            "persisted": persisted,
             "last_orders": _last_webhooks["orders"],
             "last_menu": _last_webhooks["menu"],
             "last_error": _last_webhooks["last_error"],
