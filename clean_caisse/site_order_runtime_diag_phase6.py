@@ -85,6 +85,28 @@ def register_site_order_runtime_diag_phase6(app, db, ensure_order_schema):
        el.innerHTML='<b>DIAG SITE/CUISINE :</b> aucune commande SITE trouvée';
        return;
      }
+     let alertDiag='';
+     try{
+       const br=await fetch('/api/kitchen/board',{cache:'no-store'});
+       const bd=await br.json();
+       const bo=(bd&&Array.isArray(bd.orders))?bd.orders:[];
+       const site=bo.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
+       const nums=site.map(o=>Number(o.num)).filter(Number.isFinite);
+       const maxSite=nums.length?Math.max.apply(null,nums):null;
+       const key='bechefaa_phase6_last_site_order_pos_v4';
+       const stored=localStorage.getItem(key);
+       const notice=document.getElementById('phase6-site-order-notice');
+       const notifScript=document.getElementById('site-order-runtime-diag') ? true : false;
+       let audio='inconnu';
+       try{audio=(window.AudioContext||window.webkitAudioContext)?'API OK':'API absente'}catch(e){}
+       alertDiag='<br><b>DIAG ALERTE POS :</b> board SITE='+(site.length)
+         +' · max='+esc(maxSite===null?'aucun':maxSite)
+         +' · localStorage='+esc(stored===null?'vide':stored)
+         +' · notice='+esc(notice?'présente':'absente')
+         +' · audio='+esc(audio);
+     }catch(e){
+       alertDiag='<br><b>DIAG ALERTE POS :</b> <span class="bad">'+esc(e.message)+'</span>';
+     }
      el.innerHTML='<b>DIAG SITE/CUISINE</b><br>'+d.orders.map(o=>{
        const kitchen=o.should_be_on_kitchen_board
          ? '<span class="good">CUISINE: OUI</span>'
@@ -97,7 +119,7 @@ def register_site_order_runtime_diag_phase6(app, db, ensure_order_schema):
          +' · source='+esc(o.source||'(vide)')
          +' · channel='+esc(o.sales_channel||'(vide)')
          +' · '+kitchen;
-     }).join('<br>');
+     }).join('<br>')+alertDiag;
    }catch(e){
      el.innerHTML='<b>DIAG SITE/CUISINE :</b> <span class="bad">'+esc(e.message)+'</span>';
    }
