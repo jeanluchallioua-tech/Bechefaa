@@ -363,6 +363,7 @@ def _send_paid_order_to_kitchen(app, order_id):
         f"/api/orders/{order_id}/send-kitchen",
         method="POST",
         json={},
+        environ_overrides={"bechefaa.internal_dispatch": "1"},
     ):
         response = app.full_dispatch_request()
     data = response.get_json(silent=True) or {}
