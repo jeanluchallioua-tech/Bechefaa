@@ -19,6 +19,7 @@ _PUBLIC_PREFIXES = (
     "/api/mollie/",
     "/api/edenred/",
     "/api/edenred-prod/",
+    "/api/deliveroo/webhooks/",
     "/static/pwa/",
 )
 
