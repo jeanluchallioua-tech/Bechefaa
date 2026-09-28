@@ -7,29 +7,51 @@ import os
 import urllib.parse
 import urllib.request
 import json
+import hmac
+import hashlib
 from flask import jsonify, request
 
 _last_webhooks = {"orders": None, "menu": None}
 
 def register_deliveroo_sandbox_phase6(app):
     def _capture_webhook(kind):
-        payload = request.get_json(silent=True) or {}
-        event = str(payload.get("event") or "")
-        guid = (request.headers.get("X-Deliveroo-Sequence-Guid") or "").strip()
-        payload_type = (request.headers.get("X-Deliveroo-Payload-Type") or "").strip()
-        version = (request.headers.get("X-Deliveroo-Webhook-Version") or "").strip()
-        _last_webhooks[kind] = {
-            "received": True,
-            "event": event,
-            "sequence_guid": guid,
-            "payload_type": payload_type,
-            "webhook_version": version,
+        secret=(os.environ.get("BECHEFAA_DELIVEROO_WEBHOOK_SECRET") or "").strip()
+        guid=(request.headers.get("X-Deliveroo-Sequence-Guid") or "").strip()
+        supplied=(request.headers.get("X-Deliveroo-Hmac-Sha256") or "").strip().lower()
+        payload_type=(request.headers.get("X-Deliveroo-Payload-Type") or "").strip()
+        version=(request.headers.get("X-Deliveroo-Webhook-Version") or "").strip()
+        raw=request.get_data(cache=True)
+
+        if not secret:
+            app.logger.error("Deliveroo webhook secret is not configured")
+            return jsonify({"ok":False,"error":"webhook_secret_missing"}),503
+        if not guid or not supplied:
+            app.logger.warning("Deliveroo webhook rejected: missing signature headers")
+            return jsonify({"ok":False,"error":"signature_headers_missing"}),401
+
+        # Current Order/Menu webhooks use: GUID + single blank space + raw body.
+        # Deliveroo requires the exact raw bytes, before JSON parsing.
+        signed=guid.encode("utf-8")+b" "+raw
+        calculated=hmac.new(secret.encode("utf-8"),signed,hashlib.sha256).hexdigest().lower()
+        if not hmac.compare_digest(calculated,supplied):
+            app.logger.warning("Deliveroo webhook rejected: invalid HMAC kind=%s guid=%s",kind,guid)
+            return jsonify({"ok":False,"error":"invalid_signature"}),401
+
+        payload=request.get_json(silent=True) or {}
+        event=str(payload.get("event") or "")
+        _last_webhooks[kind]={
+            "received":True,
+            "signature_valid":True,
+            "event":event,
+            "sequence_guid":guid,
+            "payload_type":payload_type,
+            "webhook_version":version,
         }
         app.logger.info(
-            "Deliveroo sandbox webhook kind=%s event=%s guid=%s payload_type=%s version=%s",
-            kind, event, guid, payload_type, version
+            "Deliveroo sandbox webhook verified kind=%s event=%s guid=%s payload_type=%s version=%s",
+            kind,event,guid,payload_type,version
         )
-        return jsonify({"ok": True}), 200
+        return jsonify({"ok":True}),200
 
     @app.post("/api/deliveroo/webhooks/orders")
     def deliveroo_orders_webhook_phase6():
@@ -62,6 +84,7 @@ def register_deliveroo_sandbox_phase6(app):
             "environment":"sandbox",
             "client_id_present":bool(client_id),
             "client_secret_present":bool(client_secret),
+            "webhook_secret_present":bool((os.environ.get("BECHEFAA_DELIVEROO_WEBHOOK_SECRET") or "").strip()),
             "auth_url":auth_url,
             "api_url":api_url,
         }
