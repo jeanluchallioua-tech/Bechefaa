@@ -35,7 +35,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                         sync_error TEXT
                     )
                 ''')
-            cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS order_id TEXT")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS order_id TEXT")
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS accepted_in_status_log BOOLEAN")
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_status TEXT")
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_http_status INTEGER")
