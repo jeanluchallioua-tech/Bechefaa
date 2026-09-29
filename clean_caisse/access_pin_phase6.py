@@ -221,9 +221,11 @@ def register_access_pin_phase6(app):
     def _protect_caisse():
         path = request.path or "/"
 
-        # Le raccourci tablette arrive toujours sur / et demande le PIN,
-        # même si une ancienne session navigateur existe encore.
+        # Si la session caisse est encore valide, l'ouverture de la PWA
+        # ne redemande pas inutilement le PIN.
         if path == "/":
+            if session.get("caisse_auth") is True:
+                return redirect("/pos", code=303)
             return Response(
                 _login_html(),
                 content_type="text/html; charset=utf-8",
