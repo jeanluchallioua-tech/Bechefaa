@@ -9,6 +9,7 @@ import urllib.request
 import json
 import hmac
 import hashlib
+from datetime import datetime, timezone
 from flask import jsonify, request, Response
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
@@ -26,9 +27,19 @@ def register_deliveroo_sandbox_phase6(app, db):
                         event TEXT,
                         sequence_guid TEXT,
                         payload_type TEXT,
-                        webhook_version TEXT
+                        webhook_version TEXT,
+                        order_id TEXT,
+                        accepted_in_status_log BOOLEAN,
+                        sync_status TEXT,
+                        sync_http_status INTEGER,
+                        sync_error TEXT
                     )
                 ''')
+            cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS order_id TEXT")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS accepted_in_status_log BOOLEAN")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_status TEXT")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_http_status INTEGER")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_error TEXT")
             conn.commit()
 
     def _persist_diag(kind, accepted=None, error=None, event=None, guid=None, payload_type=None, version=None):
@@ -52,6 +63,104 @@ def register_deliveroo_sandbox_phase6(app, db):
                 conn.commit()
         except Exception as exc:
             app.logger.exception('Deliveroo webhook diagnostic persistence failed: %s', exc)
+
+    def _oauth_token():
+        client_id=(os.environ.get("BECHEFAA_DELIVEROO_CLIENT_ID") or "").strip()
+        client_secret=(os.environ.get("BECHEFAA_DELIVEROO_CLIENT_SECRET") or "").strip()
+        auth_url=(os.environ.get("BECHEFAA_DELIVEROO_AUTH_URL") or "https://auth-sandbox.developers.deliveroo.com").rstrip("/")
+        if not client_id or not client_secret:
+            raise RuntimeError("Deliveroo credentials missing")
+        body=urllib.parse.urlencode({
+            "client_id":client_id,
+            "client_secret":client_secret,
+            "grant_type":"client_credentials",
+        }).encode("utf-8")
+        req=urllib.request.Request(
+            auth_url+"/oauth2/token",
+            data=body,
+            headers={"Content-Type":"application/x-www-form-urlencoded; charset=utf-8"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req,timeout=12) as resp:
+            data=json.loads(resp.read().decode("utf-8"))
+        token=str(data.get("access_token") or "").strip()
+        if not token:
+            raise RuntimeError("Deliveroo token missing")
+        return token
+
+    def _extract_order_id(payload):
+        body=payload.get("body") if isinstance(payload,dict) else {}
+        body=body if isinstance(body,dict) else {}
+        candidates=[
+            body.get("order_id"), body.get("id"),
+            (body.get("order") or {}).get("id") if isinstance(body.get("order"),dict) else None,
+            payload.get("order_id") if isinstance(payload,dict) else None,
+        ]
+        for value in candidates:
+            value=str(value or "").strip()
+            if value:
+                return value
+        return ""
+
+    def _accepted_in_status_log(payload):
+        body=payload.get("body") if isinstance(payload,dict) else {}
+        body=body if isinstance(body,dict) else {}
+        log=body.get("status_log")
+        if isinstance(log,list):
+            for row in log:
+                if isinstance(row,dict) and str(row.get("status") or "").strip().lower()=="accepted":
+                    return True
+                if isinstance(row,str) and row.strip().lower()=="accepted":
+                    return True
+        return str(body.get("status") or "").strip().lower()=="accepted"
+
+    def _persist_order_event(payload):
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""CREATE TABLE IF NOT EXISTS deliveroo_sandbox_events (
+                    sequence_guid TEXT PRIMARY KEY,
+                    event TEXT,
+                    order_id TEXT,
+                    accepted_in_status_log BOOLEAN NOT NULL DEFAULT FALSE,
+                    payload JSONB NOT NULL,
+                    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )""")
+                cur.execute("""
+                    INSERT INTO deliveroo_sandbox_events
+                        (sequence_guid,event,order_id,accepted_in_status_log,payload)
+                    VALUES (%s,%s,%s,%s,%s::jsonb)
+                    ON CONFLICT (sequence_guid) DO UPDATE SET
+                        event=EXCLUDED.event,
+                        order_id=EXCLUDED.order_id,
+                        accepted_in_status_log=EXCLUDED.accepted_in_status_log,
+                        payload=EXCLUDED.payload,
+                        received_at=NOW()
+                """,(
+                    str(request.headers.get("X-Deliveroo-Sequence-Guid") or ""),
+                    str(payload.get("event") or ""),
+                    _extract_order_id(payload),
+                    _accepted_in_status_log(payload),
+                    json.dumps(payload,ensure_ascii=False),
+                ))
+            conn.commit()
+
+    def _send_sync_status(order_id):
+        token=_oauth_token()
+        api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
+        url=api_url+"/order/v1/orders/"+urllib.parse.quote(order_id,safe=":")+"/sync_status"
+        payload=json.dumps({
+            "status":"succeeded",
+            "reason":None,
+            "notes":"BÉCHÉFAA sandbox order event ingested successfully",
+            "occurred_at":datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
+        }).encode("utf-8")
+        req=urllib.request.Request(
+            url,data=payload,
+            headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req,timeout=12) as resp:
+            return int(resp.status), resp.read().decode("utf-8","replace")[:300]
 
     def _capture_webhook(kind):
         secret=(os.environ.get("BECHEFAA_DELIVEROO_WEBHOOK_SECRET") or "").strip()
@@ -85,8 +194,47 @@ def register_deliveroo_sandbox_phase6(app, db):
 
         payload=request.get_json(silent=True) or {}
         event=str(payload.get("event") or "")
+        order_id=_extract_order_id(payload) if kind=="orders" else ""
+        accepted_log=_accepted_in_status_log(payload) if kind=="orders" else False
+        sync_status=None
+        sync_http_status=None
+        sync_error=None
+
+        if kind=="orders":
+            try:
+                _persist_order_event(payload)
+            except Exception as exc:
+                app.logger.exception("Deliveroo event persistence failed: %s", exc)
+                return Response(status=500)
+
+            if accepted_log and order_id:
+                try:
+                    sync_http_status,_sync_body=_send_sync_status(order_id)
+                    sync_status="succeeded" if sync_http_status==200 else "unexpected_response"
+                except Exception as exc:
+                    sync_status="failed"
+                    sync_http_status=getattr(exc,"code",None)
+                    try:
+                        sync_error=exc.read().decode("utf-8","replace")[:300]
+                    except Exception:
+                        sync_error=str(exc)[:300]
+                    app.logger.exception("Deliveroo sync status failed order=%s: %s", order_id, exc)
+
         _last_webhooks["last_error"]=None
         _persist_diag(kind, accepted=True, error=None, event=event, guid=guid, payload_type=payload_type, version=version)
+        if kind=="orders":
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""UPDATE deliveroo_webhook_diag
+                            SET order_id=%s,accepted_in_status_log=%s,sync_status=%s,
+                                sync_http_status=%s,sync_error=%s
+                            WHERE kind='orders'""",
+                            (order_id or None,accepted_log,sync_status,sync_http_status,sync_error))
+                    conn.commit()
+            except Exception as exc:
+                app.logger.exception("Deliveroo sync diagnostic persistence failed: %s", exc)
+
         _last_webhooks[kind]={
             "received":True,
             "signature_valid":True,
@@ -94,6 +242,11 @@ def register_deliveroo_sandbox_phase6(app, db):
             "sequence_guid":guid,
             "payload_type":payload_type,
             "webhook_version":version,
+            "order_id":order_id or None,
+            "accepted_in_status_log":accepted_log,
+            "sync_status":sync_status,
+            "sync_http_status":sync_http_status,
+            "sync_error":sync_error,
         }
         app.logger.info(
             "Deliveroo sandbox webhook verified kind=%s event=%s guid=%s payload_type=%s version=%s",
@@ -118,7 +271,7 @@ def register_deliveroo_sandbox_phase6(app, db):
             _ensure_diag_table()
             with db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version FROM deliveroo_webhook_diag")
+                    cur.execute("SELECT kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version, order_id, accepted_in_status_log, sync_status, sync_http_status, sync_error FROM deliveroo_webhook_diag")
                     for row in cur.fetchall():
                         persisted[row["kind"]]={
                             "received_at": row["received_at"].isoformat() if row.get("received_at") else None,
@@ -128,6 +281,11 @@ def register_deliveroo_sandbox_phase6(app, db):
                             "sequence_guid": row.get("sequence_guid"),
                             "payload_type": row.get("payload_type"),
                             "webhook_version": row.get("webhook_version"),
+                            "order_id": row.get("order_id"),
+                            "accepted_in_status_log": row.get("accepted_in_status_log"),
+                            "sync_status": row.get("sync_status"),
+                            "sync_http_status": row.get("sync_http_status"),
+                            "sync_error": row.get("sync_error"),
                         }
         except Exception as exc:
             persisted={"diagnostic_error":str(exc)[:200]}
