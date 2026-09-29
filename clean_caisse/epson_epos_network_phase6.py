@@ -15,7 +15,7 @@ from xml.sax.saxutils import escape
 from flask import Response, jsonify, request
 
 
-DEFAULT_HOST = "192.168.250.175"
+DEFAULT_HOST = "192.168.10.112"
 DEFAULT_DEVICE_ID = "local_printer"
 
 
