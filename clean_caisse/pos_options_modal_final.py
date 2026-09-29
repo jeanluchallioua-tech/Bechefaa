@@ -169,7 +169,6 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
    overlay.querySelector('.pos-final-options-body').appendChild(options);
    const modalTitle=overlay.querySelector('#pos-final-options-title');
    const modalDesc=overlay.querySelector('#pos-final-options-desc');
-   const modalDiag=overlay.querySelector('#pos-final-options-diag');
    const closeBtn=overlay.querySelector('.pos-final-options-close');
    function refreshProductDescription(){
      const p=(typeof currentProduct!=='undefined'&&currentProduct)?currentProduct:null;
@@ -179,18 +178,9 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
        modalDesc.classList.toggle('show',!!desc);
      }
    }
-      function updateDescriptionDiag(){
-     const p=(typeof currentProduct!=='undefined'&&currentProduct)?currentProduct:null;
-     if(!modalDiag)return;
-     if(!p){modalDiag.textContent='DIAG DESC: currentProduct absent';return}
-     const keys=Object.keys(p).sort().join(', ');
-     const description=(p.description===undefined?'(absent)':String(p.description));
-     const desc=(p.desc===undefined?'(absent)':String(p.desc));
-     modalDiag.textContent='DIAG DESC: keys=['+keys+'] | description='+description+' | desc='+desc;
-   }
    const descDiagObserver=new MutationObserver(function(){
-     setTimeout(()=>{refreshProductDescription();updateDescriptionDiag()},0);
-     setTimeout(()=>{refreshProductDescription();updateDescriptionDiag()},80);
+     setTimeout(()=>{refreshProductDescription()},0);
+     setTimeout(()=>{refreshProductDescription()},80);
    });
    descDiagObserver.observe(options,{childList:true,subtree:true,characterData:true});
 
@@ -198,9 +188,9 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      document.body.classList.remove('pos-ref-options-closed');
      modalTitle.textContent=name?'Options • '+name:'Options produit';
      refreshProductDescription();
-     updateDescriptionDiag();
-     setTimeout(()=>{refreshProductDescription();updateDescriptionDiag()},120);
-     setTimeout(()=>{refreshProductDescription();updateDescriptionDiag()},400);
+     
+     setTimeout(()=>{refreshProductDescription()},120);
+     setTimeout(()=>{refreshProductDescription()},400);
      overlay.classList.add('open');
    }
    function closeOptions(){overlay.classList.remove('open')}
