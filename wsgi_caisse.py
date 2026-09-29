@@ -127,6 +127,7 @@ from clean_caisse.site_edenred_prod_checkout_isolated_phase6 import register_sit
 from clean_caisse.edenred_uat_cleanup_phase6 import register_edenred_uat_cleanup_phase6
 from clean_caisse.access_pin_phase6 import register_access_pin_phase6
 from clean_caisse.go_live_reset_phase6 import register_go_live_reset_phase6
+from clean_caisse.selective_reset_phase6 import register_selective_reset_phase6
 from clean_caisse.deliveroo_sandbox_phase6 import register_deliveroo_sandbox_phase6
 
 register_catalog_summary_fast_phase32(app, load_catalog)
@@ -253,3 +254,4 @@ register_site_edenred_prod_checkout_isolated_phase6(app)
 register_edenred_uat_cleanup_phase6(app, db, ensure_order_schema)
 register_access_pin_phase6(app)
 register_go_live_reset_phase6(app, db)
+register_selective_reset_phase6(app, db)
