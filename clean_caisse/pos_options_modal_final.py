@@ -164,7 +164,7 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
    if(!options)return;
 
    const overlay=document.createElement('div');overlay.className='pos-final-options-overlay';
-   overlay.innerHTML='<div class="pos-final-options-panel"><div class="pos-final-options-head"><div class="pos-final-options-titlewrap"><h2 id="pos-final-options-title">Options produit</h2><p id="pos-final-options-desc" class="pos-final-options-desc"></p><div id="pos-final-options-diag" class="pos-final-options-diag">DIAG DESC: attente…</div></div><button type="button" class="pos-final-options-close" aria-label="Fermer">×</button></div><div class="pos-final-options-body"></div></div>';
+   overlay.innerHTML='<div class="pos-final-options-panel"><div class="pos-final-options-head"><div class="pos-final-options-titlewrap"><h2 id="pos-final-options-title">Options produit</h2><p id="pos-final-options-desc" class="pos-final-options-desc"></p></div><button type="button" class="pos-final-options-close" aria-label="Fermer">×</button></div><div class="pos-final-options-body"></div></div>';
    document.body.appendChild(overlay);
    overlay.querySelector('.pos-final-options-body').appendChild(options);
    const modalTitle=overlay.querySelector('#pos-final-options-title');
