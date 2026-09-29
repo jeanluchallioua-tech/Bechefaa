@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import os
 import time
+from datetime import timedelta
 from collections import defaultdict, deque
 
 from flask import Response, jsonify, redirect, request, session
@@ -162,6 +163,7 @@ def register_access_pin_phase6(app):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=180),
     )
 
     @app.after_request
@@ -209,7 +211,8 @@ def register_access_pin_phase6(app):
         failures.clear()
         session.clear()
         session["caisse_auth"] = True
-        session.permanent = False
+        session.permanent = True
+        session["caisse_auth_at"] = int(time.time())
         return redirect("/pos", code=303)
 
     @app.get("/caisse-fermee")
@@ -244,6 +247,7 @@ small{display:block;margin-top:18px;color:#777}
   <p>La caisse est fermée sur cet écran.<br>Votre accès reste mémorisé sur cette tablette.</p>
   <a href="/pos">ROUVRIR LA CAISSE</a>
   <small>Le code PIN ne sera pas redemandé.</small>
+  <small style="margin-top:8px;color:#5f8f68">DIAG PIN : session mémorisée = OUI</small>
 </main>
 </body>
 </html>"""
