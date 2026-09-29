@@ -26,6 +26,8 @@ _PUBLIC_PREFIXES = (
 
 _PUBLIC_EXACT = {
     "/api/health",
+    "/api/deliveroo/status-phase6",
+    "/api/deliveroo/webhooks/status-phase6",
     "/favicon.ico",
     "/robots.txt",
     "/auth/pin",
