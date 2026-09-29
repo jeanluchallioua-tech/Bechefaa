@@ -289,10 +289,11 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
                        WHEN caisse_hardware_config.config_value='' THEN EXCLUDED.config_value
                        WHEN %s='printer_mode' AND caisse_hardware_config.config_value='USB' THEN EXCLUDED.config_value
                        WHEN %s='printer_model' AND caisse_hardware_config.config_value='TM-m30' THEN EXCLUDED.config_value
+                       WHEN %s='printer_host' AND caisse_hardware_config.config_value='192.168.250.175' THEN EXCLUDED.config_value
                        ELSE caisse_hardware_config.config_value
                    END,
                    updated_at=NOW()""",
-                (key, value, key, key),
+                (key, value, key, key, key),
             )
 
     @app.get("/api/epson/config-phase6")
