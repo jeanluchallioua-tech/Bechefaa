@@ -264,7 +264,7 @@ html.bechefaa-tablet .pos-v2-upsell{margin:0 10px 8px!important;padding:8px!impo
    // Rail gauche
    if(!document.querySelector('.pos-v3-rail')){
      const rail=document.createElement('aside');rail.className='pos-v3-rail';
-     rail.innerHTML='<div class="pos-v3-brand">B</div><a class="pos-v3-nav active" href="/pos"><span>＋</span>Nouvelle commande</a><a class="pos-v3-nav" href="/cuisine"><span>♨</span>Cuisine</a><a class="pos-v3-nav" href="/historique"><span>≡</span>Historique</a><div class="pos-v3-rail-spacer"></div><a class="pos-v3-nav" href="/administration"><span>⚙</span>Réglages</a><a class="pos-v3-nav pos-v3-logout" href="/auth/logout"><span>⏻</span>Quitter la caisse</a>';
+     rail.innerHTML='<div class="pos-v3-brand">B</div><a class="pos-v3-nav active" href="/pos"><span>＋</span>Nouvelle commande</a><a class="pos-v3-nav" href="/cuisine"><span>♨</span>Cuisine</a><a class="pos-v3-nav" href="/historique"><span>≡</span>Historique</a><div class="pos-v3-rail-spacer"></div><a class="pos-v3-nav" href="/administration"><span>⚙</span>Réglages</a><a class="pos-v3-nav pos-v3-logout" href="/caisse-fermee"><span>⏻</span>Quitter la caisse</a>';
      layout.insertBefore(rail,layout.firstChild);
    }
 
