@@ -45,19 +45,12 @@ def _protected_order_ids(conn):
     ).fetchone()
     tx_card = "FALSE"
     if tx_exists:
+        # Sécurité maximale : dès qu'une transaction financière existe pour
+        # une commande (paiement ou remboursement, réussi ou en attente),
+        # la commande et tout son historique sont conservés.
         tx_card = """EXISTS (
             SELECT 1 FROM caisse_payment_transactions t
             WHERE t.order_id=o.id
-              AND t.transaction_type='PAYMENT'
-              AND t.status='SUCCEEDED'
-              AND (
-                UPPER(COALESCE(t.method,'')) LIKE '%CB%'
-                OR UPPER(COALESCE(t.method,'')) LIKE '%CARTE%'
-                OR UPPER(COALESCE(t.method,'')) LIKE '%CARD%'
-                OR UPPER(COALESCE(t.method,'')) LIKE '%VISA%'
-                OR UPPER(COALESCE(t.method,'')) LIKE '%MASTERCARD%'
-                OR UPPER(COALESCE(t.provider,'')) IN ('SUMUP','STRIPE','MOLLIE')
-              )
         )"""
 
     rows = conn.execute(
