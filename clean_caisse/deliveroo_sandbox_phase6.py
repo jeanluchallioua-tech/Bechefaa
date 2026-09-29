@@ -228,9 +228,9 @@ def register_deliveroo_sandbox_phase6(app, db):
                 app.logger.exception("Deliveroo event persistence failed: %s", exc)
                 return Response(status=500)
 
-            # Deliveroo expects sync_status as acknowledgement that an order.new
-            # webhook has been successfully ingested by the in-store system.
-            should_sync=(event.strip().lower()=="order.new" and bool(order_id))
+            # Deliveroo Sandbox expects sync_status only after a webhook
+            # confirms that the order has reached accepted in its status log.
+            should_sync=(event.strip().lower()=="order.status_update" and accepted_log and bool(order_id))
             if should_sync:
                 try:
                     sync_http_status,_sync_body=_send_sync_status(order_id)
