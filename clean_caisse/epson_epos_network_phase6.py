@@ -381,6 +381,16 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  let cfg=null, nativeFetch=window.fetch.bind(window), printed=new Set();
 
  function status(kind,msg){box.className=kind||'';box.textContent=msg}
+ function epsonDiag(stage){
+   try{
+     const standalone=window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches;
+     const navStandalone=window.navigator.standalone===true;
+     sessionStorage.setItem('bechefaa_epson_diag',JSON.stringify({
+       stage:stage||'',href:window.location.href,standalone:!!standalone,navStandalone:!!navStandalone,
+       ua:String(navigator.userAgent||'').slice(0,180),ts:Date.now()
+     }));
+   }catch(e){}
+ }
 
  async function getConfig(){
    if(cfg)return cfg;
@@ -401,7 +411,8 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
      +'&timeout=30000'
      +'&error-dialog=yes';
    if(orderId)printed.add(String(label)+':'+String(orderId));
-   status('work','Epson : ouverture de TM Print Assistant…');
+   epsonDiag('before-assistant');
+   status('work','Epson : ouverture TM Print Assistant • retour='+((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)?'PWA':'navigateur'));
    window.location.href=assistantUrl;
    return true;
  }
@@ -524,6 +535,12 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  window.bechefaaPrintKitchen=printKitchen;
  window.bechefaaPrintClient=printClient;
+ if(new URLSearchParams(window.location.search).get('epson')==='success'){
+   epsonDiag('success-return');
+   let d=null;try{d=JSON.parse(sessionStorage.getItem('bechefaa_epson_diag')||'null')}catch(e){}
+   const standalone=window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches;
+   status(standalone?'ok':'err','DIAG EPSON : retour '+(standalone?'dans la PWA':'dans le navigateur'));
+ }
  testConnection();
 })();
 </script>'''
