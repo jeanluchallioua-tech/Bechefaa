@@ -251,8 +251,11 @@ def register_deliveroo_sandbox_phase6(app, db):
                 with db() as conn:
                     with conn.cursor() as cur:
                         cur.execute("""UPDATE deliveroo_webhook_diag
-                            SET order_id=%s,accepted_in_status_log=%s,sync_status=%s,
-                                sync_http_status=%s,sync_error=%s
+                            SET order_id=%s,
+                                accepted_in_status_log=%s,
+                                sync_status=COALESCE(%s,sync_status),
+                                sync_http_status=COALESCE(%s,sync_http_status),
+                                sync_error=COALESCE(%s,sync_error)
                             WHERE kind='orders'""",
                             (order_id or None,accepted_log,sync_status,sync_http_status,sync_error))
                     conn.commit()
