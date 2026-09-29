@@ -392,8 +392,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function openPrintAssistant(xml,label,orderId){
    if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
+   const successUrl=window.location.origin+'/pos?epson=success';
    const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
-     +'ver=1'
+     +'success='+encodeURIComponent(successUrl)
+     +'&ver=1'
      +'&data-type=eposprintxml'
      +'&data='+encodeURIComponent(xml)
      +'&timeout=30000'
