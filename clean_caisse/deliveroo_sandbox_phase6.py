@@ -78,7 +78,11 @@ def register_deliveroo_sandbox_phase6(app, db):
         req=urllib.request.Request(
             auth_url+"/oauth2/token",
             data=body,
-            headers={"Content-Type":"application/x-www-form-urlencoded; charset=utf-8"},
+            headers={
+                "Content-Type":"application/x-www-form-urlencoded; charset=utf-8",
+                "Accept":"application/json",
+                "User-Agent":"Bechefaa-Deliveroo-Integration/1.0",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req,timeout=12) as resp:
@@ -168,7 +172,12 @@ def register_deliveroo_sandbox_phase6(app, db):
         }).encode("utf-8")
         req=urllib.request.Request(
             url,data=payload,
-            headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+            headers={
+                "Authorization":"Bearer "+token,
+                "Content-Type":"application/json",
+                "Accept":"application/json",
+                "User-Agent":"Bechefaa-Deliveroo-Integration/1.0",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req,timeout=12) as resp:
