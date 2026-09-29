@@ -212,6 +212,43 @@ def register_access_pin_phase6(app):
         session.permanent = False
         return redirect("/pos", code=303)
 
+    @app.get("/caisse-fermee")
+    def _caisse_fermee():
+        if session.get("caisse_auth") is not True:
+            return redirect("/", code=303)
+        html = """<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>BÉCHÉFAA Caisse</title>
+<meta name="theme-color" content="#090909">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Arial,sans-serif;background:#090909;color:#fff}
+body{min-height:100vh;display:grid;place-items:center;padding:24px}
+.card{width:min(430px,100%);background:#121212;border:1px solid #c9a44d;border-radius:22px;padding:30px 26px;box-shadow:0 22px 70px #0008;text-align:center}
+.logo{width:82px;height:82px;margin:0 auto 16px;border-radius:22px;border:2px solid #d7b35a;display:grid;place-items:center;overflow:hidden}
+.logo img{width:100%;height:100%;object-fit:contain}
+h1{margin:0;font-size:28px;letter-spacing:.5px}.gold{color:#d7b35a}
+p{color:#bbb;margin:10px 0 22px;line-height:1.45}
+a{display:block;width:100%;padding:15px;border-radius:12px;background:#d7b35a;color:#111;text-decoration:none;font-weight:900;font-size:16px}
+small{display:block;margin-top:18px;color:#777}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="logo"><img src="/static/pwa/icon-192.png?v=10" alt="BÉCHÉFAA Caisse"></div>
+  <h1>BÉCHÉFAA <span class="gold">CAISSE</span></h1>
+  <p>La caisse est fermée sur cet écran.<br>Votre accès reste mémorisé sur cette tablette.</p>
+  <a href="/pos">ROUVRIR LA CAISSE</a>
+  <small>Le code PIN ne sera pas redemandé.</small>
+</main>
+</body>
+</html>"""
+        return Response(html, content_type="text/html; charset=utf-8")
+
     @app.get("/auth/logout")
     def _auth_logout():
         session.clear()
