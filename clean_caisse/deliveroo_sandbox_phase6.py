@@ -103,16 +103,28 @@ def register_deliveroo_sandbox_phase6(app, db):
         return ""
 
     def _accepted_in_status_log(payload):
-        body=payload.get("body") if isinstance(payload,dict) else {}
-        body=body if isinstance(body,dict) else {}
-        log=body.get("status_log")
-        if isinstance(log,list):
-            for row in log:
-                if isinstance(row,dict) and str(row.get("status") or "").strip().lower()=="accepted":
-                    return True
-                if isinstance(row,str) and row.strip().lower()=="accepted":
-                    return True
-        return str(body.get("status") or "").strip().lower()=="accepted"
+        # Deliveroo may nest the status log differently between sandbox event
+        # payloads. Only consider an accepted status on a status-update event.
+        if not isinstance(payload,dict) or str(payload.get("event") or "").strip().lower()!="order.status_update":
+            return False
+
+        def _walk(value):
+            if isinstance(value,dict):
+                for key,item in value.items():
+                    k=str(key or "").strip().lower()
+                    if k in {"status","order_status","state"} and str(item or "").strip().lower()=="accepted":
+                        return True
+                    if _walk(item):
+                        return True
+            elif isinstance(value,list):
+                for item in value:
+                    if _walk(item):
+                        return True
+            elif isinstance(value,str) and value.strip().lower()=="accepted":
+                return True
+            return False
+
+        return _walk(payload)
 
     def _persist_order_event(payload):
         with db() as conn:
