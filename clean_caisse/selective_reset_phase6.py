@@ -1,7 +1,7 @@
 """Nettoyage sélectif avant mise en service réelle.
 
 Conserve:
-- toute commande avec paiement CB/carte confirmé;
+- les commandes réelles confirmées #38, #39, #40, #41, #42, #51 et #55;
 - toute commande déjà rattachée à une clôture Z;
 - toutes les transactions liées aux commandes conservées.
 
@@ -24,39 +24,23 @@ def _has_column(conn, table, column):
 
 
 def _protected_order_ids(conn):
-    payment_method_exists = _has_column(conn, "caisse_orders", "payment_method")
+    """Conserve uniquement les commandes réelles identifiées + toute commande déjà clôturée Z.
+
+    Commandes réelles confirmées par l'utilisateur:
+    - #38 = 38,50 EUR
+    - #39 à #42 = 1,00 EUR
+    - #51 et #55 = 0,50 EUR
+
+    Toutes les transactions financières de ces commandes restent conservées.
+    """
+    real_nums = {38, 39, 40, 41, 42, 51, 55}
     z_exists = _has_column(conn, "caisse_orders", "z_closure_id")
-    method_expr = "COALESCE(o.payment_method,'')" if payment_method_exists else "''"
-    z_expr = "o.z_closure_id IS NOT NULL" if z_exists else "FALSE"
-
-    params = []
-    clauses = []
-    for word in CARD_WORDS:
-        clauses.append(
-            "(UPPER(COALESCE(o.payment,'')) LIKE %s OR "
-            f"UPPER({method_expr}) LIKE %s)"
-        )
-        params.extend([f"%{word}%", f"%{word}%"])
-    card_text = " OR ".join(clauses) if clauses else "FALSE"
-
-    tx_exists = conn.execute(
-        """SELECT 1 FROM information_schema.tables
-           WHERE table_schema='public' AND table_name='caisse_payment_transactions'"""
-    ).fetchone()
-    tx_card = "FALSE"
-    if tx_exists:
-        # Sécurité maximale : dès qu'une transaction financière existe pour
-        # une commande (paiement ou remboursement, réussi ou en attente),
-        # la commande et tout son historique sont conservés.
-        tx_card = """EXISTS (
-            SELECT 1 FROM caisse_payment_transactions t
-            WHERE t.order_id=o.id
-        )"""
-
+    z_clause = "OR z_closure_id IS NOT NULL" if z_exists else ""
     rows = conn.execute(
-        f"""SELECT o.id FROM caisse_orders o
-            WHERE ({z_expr}) OR ({tx_card}) OR ({card_text})""",
-        tuple(params),
+        f"""SELECT id
+            FROM caisse_orders
+            WHERE num = ANY(%s) {z_clause}""",
+        (list(real_nums),),
     ).fetchall()
     return {str(r["id"]) for r in rows}
 
