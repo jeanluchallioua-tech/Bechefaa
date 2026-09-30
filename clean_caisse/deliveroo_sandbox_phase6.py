@@ -255,9 +255,13 @@ def register_deliveroo_sandbox_phase6(app, db):
                                 accepted_in_status_log=%s,
                                 sync_status=COALESCE(%s,sync_status),
                                 sync_http_status=COALESCE(%s,sync_http_status),
-                                sync_error=COALESCE(%s,sync_error)
+                                sync_error=CASE
+                                    WHEN %s IS NOT NULL THEN %s
+                                    WHEN %s='succeeded' THEN NULL
+                                    ELSE sync_error
+                                END
                             WHERE kind='orders'""",
-                            (order_id or None,accepted_log,sync_status,sync_http_status,sync_error))
+                            (order_id or None,accepted_log,sync_status,sync_http_status,sync_error,sync_error,sync_status))
                     conn.commit()
             except Exception as exc:
                 app.logger.exception("Deliveroo sync diagnostic persistence failed: %s", exc)
