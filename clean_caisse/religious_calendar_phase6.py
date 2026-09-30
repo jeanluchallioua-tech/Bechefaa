@@ -171,19 +171,17 @@ def register_religious_calendar_phase6(app, db):
         return local.replace(minute=minute)
 
     def _pre_shabbat_closure(start_dt):
-        # Règle BÉCHÉFAA : fermeture 30 min avant l'entrée,
+        # Règle BÉCHÉFAA : fermeture 2h30 avant l'entrée,
         # puis arrondi à la demi-heure inférieure.
-        cfg = _site_hours_config() or {}
-        cutoff = int(cfg.get("cutoff_minutes", 30) or 30)
         local_start = start_dt.astimezone(TZ)
-        close_dt = _floor_half_hour(local_start - timedelta(minutes=30))
-        last_order_dt = close_dt - timedelta(minutes=cutoff)
+        close_dt = _floor_half_hour(local_start - timedelta(hours=2, minutes=30))
+        last_order_dt = close_dt - timedelta(minutes=30)
         return {
             "restaurant_closes": close_dt.strftime("%H:%M"),
             "last_order": last_order_dt.strftime("%H:%M"),
-            "cutoff_minutes": cutoff,
+            "cutoff_minutes": 30,
             "holiday_entry": local_start.strftime("%H:%M"),
-            "rule": "ENTRY_MINUS_30_FLOOR_HALF_HOUR",
+            "rule": "ENTRY_MINUS_2H30_FLOOR_HALF_HOUR",
         }
 
     def _service_rule_preview(event_row):
@@ -197,6 +195,11 @@ def register_religious_calendar_phase6(app, db):
             f"{preview['restaurant_closes']}, dernière commande à {preview['last_order']}."
         )
         return preview
+
+    def _fold_text(value):
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        return text.lower()
 
     def _simplify_holiday_title(title):
         raw = str(title or "").strip()
