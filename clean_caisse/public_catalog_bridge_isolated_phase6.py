@@ -8,8 +8,11 @@ lecture seule pour éviter les valeurs codées en dur côté Site.
 """
 
 import base64
+import hashlib
+from io import BytesIO
 from urllib.parse import quote
 
+from PIL import Image, ImageOps
 from flask import Response, jsonify, request
 from .google_reviews_phase6 import read_google_reviews
 
@@ -117,6 +120,69 @@ def register_public_catalog_bridge_isolated_phase6(app, load_catalog):
         payload["updatedAt"] = updated_at
         payload["source"] = "catalog_admin_v2"
         return _public_catalog_response(payload, 200)
+
+    def _marketplace_photo(product_id, channel):
+        data, updated_at = load_catalog()
+        if not isinstance(data, dict):
+            return Response(status=404)
+        product = next(
+            (
+                p for p in (data.get("products") or [])
+                if isinstance(p, dict) and str(p.get("id")) == str(product_id)
+            ),
+            None,
+        )
+        if not product:
+            return Response(status=404)
+        parsed = _split_data_uri(product.get("photo"))
+        if not parsed:
+            return Response(status=404)
+        _mime, encoded = parsed
+        try:
+            raw = base64.b64decode(encoded, validate=False)
+            source = Image.open(BytesIO(raw))
+            source.load()
+            source = source.convert("RGB")
+        except Exception:
+            return Response(status=404)
+
+        channel = str(channel or "").strip().lower()
+        if channel == "deliveroo":
+            # Menu API: normalisation stricte 16:9 / 1920x1080, sans découper le plat.
+            target = (1920, 1080)
+        elif channel in {"uber", "uber-eats", "ubereats"}:
+            # Uber Eats accepte notamment le 4:3; nos sources BÉCHÉFAA sont 1200x900.
+            target = (1200, 900)
+        else:
+            return Response(status=404)
+
+        fitted = ImageOps.contain(source, target, method=Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", target, (245, 245, 245))
+        x = (target[0] - fitted.width) // 2
+        y = (target[1] - fitted.height) // 2
+        canvas.paste(fitted, (x, y))
+
+        out = BytesIO()
+        canvas.save(out, format="JPEG", quality=92, optimize=True)
+        body = out.getvalue()
+        etag = hashlib.sha256(
+            (channel + ":" + str(product_id) + ":").encode("utf-8") + raw
+        ).hexdigest()
+
+        response = Response(body, status=200, mimetype="image/jpeg")
+        response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.set_etag(etag)
+        if updated_at:
+            try:
+                response.last_modified = updated_at
+            except Exception:
+                pass
+        return response
+
+    @app.get("/api/public/catalog/photo-marketplace/<channel>/<path:product_id>")
+    def public_catalog_photo_marketplace_phase6(channel, product_id):
+        return _marketplace_photo(product_id, channel)
 
     @app.get("/api/public/catalog/photo/<path:product_id>")
     def public_catalog_photo_phase6(product_id):
