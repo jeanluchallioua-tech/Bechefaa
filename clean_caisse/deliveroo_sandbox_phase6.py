@@ -256,8 +256,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                                 sync_status=COALESCE(%s,sync_status),
                                 sync_http_status=COALESCE(%s,sync_http_status),
                                 sync_error=CASE
-                                    WHEN %s IS NOT NULL THEN %s
-                                    WHEN %s='succeeded' THEN NULL
+                                    WHEN %s::text IS NOT NULL THEN %s::text
+                                    WHEN %s::text='succeeded' THEN NULL
                                     ELSE sync_error
                                 END
                             WHERE kind='orders'""",
