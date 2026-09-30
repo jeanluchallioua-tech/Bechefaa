@@ -9,7 +9,7 @@ Le flux historique POST /api/public/orders reste inchangé.
 from flask import jsonify, request
 
 from clean_caisse.mollie_payments_isolated_phase6 import _site_enabled
-from clean_caisse.site_coupons_phase6 import apply_coupon_to_order
+from clean_caisse.site_coupons_phase6 import apply_coupon_to_order, quote_coupon
 from clean_caisse.site_orders_bridge_isolated_phase6 import (
     map_site_order_payload,
     _apply_server_catalog_prices,
@@ -55,6 +55,17 @@ def register_site_mollie_checkout_isolated_phase6(app):
                 "error": "Calcul du prix catalogue impossible",
                 "detail": str(exc),
             }), 503
+
+        if coupon_code:
+            subtotal=sum(float(i.get("unit_price") or 0)*int(i.get("qty") or 1) for i in (internal.get("items") or []))
+            try:
+                from clean_caisse.app import db
+                with db() as conn:
+                    quote,error=quote_coupon(conn,coupon_code,subtotal)
+                if error:
+                    return jsonify({"ok":False,"error":error}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Validation du coupon impossible","detail":str(exc)}),500
 
         created = _dispatch_internal(app, "/api/orders", internal)
         if created.status_code < 200 or created.status_code >= 300:
