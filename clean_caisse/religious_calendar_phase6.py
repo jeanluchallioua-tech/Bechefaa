@@ -165,6 +165,49 @@ def register_religious_calendar_phase6(app, db):
         except Exception:
             return None
 
+    def _pre_shabbat_closure(start_dt):
+        cfg = _site_hours_config() or {}
+        day_keys = ("monday","tuesday","wednesday","thursday","friday","saturday","sunday")
+        local_start = start_dt.astimezone(TZ)
+        day_key = day_keys[local_start.weekday()]
+        day_cfg = (cfg.get("days") or {}).get(day_key) or {}
+        slots = day_cfg.get("slots") or []
+        cutoff = int(cfg.get("cutoff_minutes", 30) or 30)
+        if not slots:
+            return None
+        try:
+            # Le vendredi, la fermeture avant Chabbat se cale sur la fin du dernier
+            # service réellement autorisé avant l'entrée de Chabbat.
+            valid = []
+            event_minutes = local_start.hour * 60 + local_start.minute
+            for pair in slots:
+                if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                    continue
+                a, b = str(pair[0]), str(pair[1])
+                ah, am = map(int, a.split(":"))
+                bh, bm = map(int, b.split(":"))
+                start_m = ah * 60 + am
+                end_m = bh * 60 + bm
+                if start_m < event_minutes:
+                    valid.append((start_m, end_m, a, b))
+            if not valid:
+                return None
+            # Si un service du soir chevauche/approche l'entrée de Chabbat,
+            # on garde le dernier service terminé avant celui-ci (souvent le midi).
+            safe = [x for x in valid if x[1] <= event_minutes]
+            chosen = safe[-1] if safe else valid[0]
+            close_hm = chosen[3]
+            ch, cm = map(int, close_hm.split(":"))
+            close_dt = local_start.replace(hour=ch, minute=cm, second=0, microsecond=0)
+            last_order_dt = close_dt - timedelta(minutes=cutoff)
+            return {
+                "restaurant_closes": close_dt.strftime("%H:%M"),
+                "last_order": last_order_dt.strftime("%H:%M"),
+                "cutoff_minutes": cutoff,
+            }
+        except Exception:
+            return None
+
     def _service_rule_preview(event_row):
         starts_at = event_row.get("starts_at")
         category = str(event_row.get("category") or "")
@@ -347,6 +390,8 @@ def register_religious_calendar_phase6(app, db):
                 name = "Chabbat"
 
             preview = _service_rule_preview(candle)
+            if not preview:
+                preview = _pre_shabbat_closure(start)
             shabbat_reopen = _shabbat_reopening(end) if not is_holiday else None
             resume = shabbat_reopen or _next_order_resume(end)
             periods.append({
