@@ -7,6 +7,7 @@ Edenred confirmée côté serveur.
 from flask import jsonify, request
 
 from clean_caisse.edenred_prod_isolated_phase6 import _enabled
+from clean_caisse.site_coupons_phase6 import apply_coupon_to_order, quote_coupon
 from clean_caisse.site_orders_bridge_isolated_phase6 import (
     map_site_order_payload,
     _apply_server_catalog_prices,
@@ -53,6 +54,18 @@ def register_site_edenred_prod_checkout_isolated_phase6(app):
                 "detail": str(exc),
             }), 503
 
+        coupon_code=str(external.get("coupon_code") or "").strip()
+        if coupon_code:
+            subtotal=sum(float(i.get("unit_price") or 0)*int(i.get("qty") or 1) for i in (internal.get("items") or []))
+            try:
+                from clean_caisse.app import db
+                with db() as conn:
+                    quote,error=quote_coupon(conn,coupon_code,subtotal,"EDENRED_PROD")
+                if error:
+                    return jsonify({"ok":False,"error":error}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Validation du coupon impossible","detail":str(exc)}),500
+
         created = _dispatch_internal(app, "/api/orders", internal)
         if created.status_code < 200 or created.status_code >= 300:
             return created
@@ -71,6 +84,17 @@ def register_site_edenred_prod_checkout_isolated_phase6(app):
             _persist_site_options_text(order_id, internal.get("items") or [])
         except Exception as exc:
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
+
+        if coupon_code:
+            try:
+                from clean_caisse.app import db
+                quote=apply_coupon_to_order(db,order_id,coupon_code,"EDENRED_PROD")
+                data["coupon"]=quote
+                data["total"]=quote["total"]
+            except ValueError as exc:
+                return jsonify({"ok":False,"error":str(exc)}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Application du coupon impossible","detail":str(exc)}),500
 
         data["ok"] = True
         data["status"] = data.get("status") or "Enregistrée"
