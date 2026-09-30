@@ -220,7 +220,8 @@ def register_religious_calendar_phase6(app, db):
 
         hidden_titles = (
             "Rosh Chodesh", "Roch H", "Hanukkah", "Chanukah", "Hanoucca", "H̲anoucca",
-            "Yom HaAliyah", "Yom Ha’Alyah", "Yom Ha'Aliyah", "Yom ha’Alyah", "Yom ha'Aliyah"
+            "Yom HaAliyah", "Yom Ha’Alyah", "Yom Ha'Aliyah", "Yom ha’Alyah", "Yom ha'Aliyah",
+            "Selichot", "Selihot", "Seli'hot", "Selihoth"
         )
         candles = [x for x in rows if str(x.get("category") or "") == "candles" and x.get("starts_at")]
         havdalahs = [x for x in rows if str(x.get("category") or "") == "havdalah" and x.get("starts_at")]
