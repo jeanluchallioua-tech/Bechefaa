@@ -366,7 +366,7 @@ def build_deliveroo_menu_preview(db):
             main_item["image"] = {"url": photo}
         elif photo:
             main_item["image"] = {
-                "url": "https://caisse.bechefaa.fr/api/public/catalog/photo/" + quote(pos_id, safe="")
+                "url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/" + quote(pos_id, safe="")
             }
         items.append(main_item)
 
@@ -472,7 +472,7 @@ def build_deliveroo_menu_preview(db):
                 "id": "all-day",
                 "name": {"fr": "Toute la journée"},
                 "description": {"fr": "Menu BÉCHÉFAA"},
-                "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo/1"},
+                "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
                 "category_ids": [cat["id"] for cat in categories],
                 "schedule": [],
             }],
