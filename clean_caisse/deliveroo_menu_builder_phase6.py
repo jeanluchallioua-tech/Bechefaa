@@ -83,6 +83,31 @@ def _choice(raw, index):
     return {"name": name, "price": price, "source_id": choice_id, "index": index}
 
 
+def _deliveroo_required_group(name, source_required=False):
+    """Règles de composition obligatoires pour le menu Deliveroo.
+
+    On conserve toute obligation déjà définie dans la caisse et on complète
+    uniquement les groupes qui constituent clairement le produit vendu.
+    Les personnalisations (retraits, suppléments, sauces, ingrédients libres)
+    restent facultatives.
+    """
+    if source_required:
+        return True
+    n = str(name or "").strip().lower()
+    required_exact = {
+        "boisson",
+        "type de tender",
+        "nombre de tender",
+        "oignons rings",
+        "choix du poulet",
+        "accompagnement",
+        "type assiette de poulet",
+        "choix du pain",
+        "choix des viandes",
+    }
+    return n in required_exact
+
+
 def _modifier_type(name):
     n = str(name or "").lower()
     if any(x in n for x in ("cuisson", "cooking")):
@@ -267,7 +292,8 @@ def build_deliveroo_menu_preview(db):
                     "deliveroo_extra": float(choice_price),
                 }
 
-            required = bool(group.get("required", False))
+            source_required = bool(group.get("required", False))
+            required = _deliveroo_required_group(group_name, source_required)
             raw_max = (
                 group.get("max")
                 or group.get("maxChoices")
@@ -384,6 +410,7 @@ def build_deliveroo_menu_preview(db):
             "main_items": sum(1 for x in items if x.get("type") == "ITEM"),
             "choice_items": sum(1 for x in items if x.get("type") == "CHOICE"),
             "modifiers": len(modifiers),
+            "required_modifiers": sum(1 for x in modifiers if int(x.get("min_selection") or 0) > 0),
             "warnings": len(warnings),
         },
         "warnings": warnings,
