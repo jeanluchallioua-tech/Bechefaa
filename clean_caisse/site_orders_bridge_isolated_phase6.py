@@ -250,7 +250,7 @@ def register_site_orders_bridge_isolated_phase6(app):
             # La commande reste valide : on signale uniquement l'affichage des options.
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
 
-                if coupon_code:
+        if coupon_code:
             try:
                 quote=apply_coupon_to_order(db,order_id,coupon_code)
                 data["coupon"]=quote
