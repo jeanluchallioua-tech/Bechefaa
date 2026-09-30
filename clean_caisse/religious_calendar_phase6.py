@@ -19,6 +19,13 @@ from flask import Response, jsonify, request
 TZ = ZoneInfo("Europe/Paris")
 HEBCAL_GEONAME_ID = "2988507"  # Paris
 DEFAULT_HEBREW_YEAR = 5787
+FRENCH_WEEKDAYS = ("lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche")
+FRENCH_MONTHS = ("janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre")
+
+def _fr_date(dt):
+    local = dt.astimezone(TZ)
+    return f"{FRENCH_WEEKDAYS[local.weekday()]} {local.day} {FRENCH_MONTHS[local.month-1]} {local.year}"
+
 
 
 def register_religious_calendar_phase6(app, db):
@@ -289,9 +296,9 @@ def register_religious_calendar_phase6(app, db):
                 "name": name,
                 "entry_at": start.isoformat(),
                 "exit_at": end.isoformat(),
-                "entry_date": start.astimezone(TZ).strftime("%d/%m/%Y"),
+                "entry_date": _fr_date(start),
                 "entry_time": start.astimezone(TZ).strftime("%H:%M"),
-                "exit_date": end.astimezone(TZ).strftime("%d/%m/%Y"),
+                "exit_date": _fr_date(end),
                 "exit_time": end.astimezone(TZ).strftime("%H:%M"),
                 "closure_time": preview.get("restaurant_closes") if preview else None,
                 "last_order": preview.get("last_order") if preview else None,
