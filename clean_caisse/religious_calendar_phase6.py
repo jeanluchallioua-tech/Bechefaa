@@ -226,6 +226,37 @@ def register_religious_calendar_phase6(app, db):
             return "Pessa’h 1"
         return raw
 
+    def _next_order_resume(after_dt):
+        cfg = _site_hours_config() or {}
+        days = cfg.get("days") or {}
+        day_keys = ("monday","tuesday","wednesday","thursday","friday","saturday","sunday")
+        local = after_dt.astimezone(TZ)
+        for offset in range(0, 8):
+            candidate_date = local.date() + timedelta(days=offset)
+            day_key = day_keys[candidate_date.weekday()]
+            day_cfg = days.get(day_key) or {}
+            if not day_cfg.get("enabled"):
+                continue
+            slots = day_cfg.get("slots") or []
+            for pair in slots:
+                if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                    continue
+                try:
+                    hh, mm = map(int, str(pair[0]).split(":"))
+                    candidate = datetime(
+                        candidate_date.year, candidate_date.month, candidate_date.day,
+                        hh, mm, tzinfo=TZ
+                    )
+                except Exception:
+                    continue
+                if candidate > local:
+                    return {
+                        "at": candidate.isoformat(),
+                        "date": _fr_date(candidate),
+                        "time": candidate.strftime("%H:%M"),
+                    }
+        return None
+
     def _operational_periods(events):
         """Transforme les événements Hebcal en périodes lisibles pour le restaurant."""
         rows = [dict(x) for x in events]
@@ -291,6 +322,7 @@ def register_religious_calendar_phase6(app, db):
                 name = "Chabbat"
 
             preview = _service_rule_preview(candle)
+            resume = _next_order_resume(end)
             periods.append({
                 "type": "holiday" if is_holiday else "shabbat",
                 "name": name,
@@ -302,6 +334,11 @@ def register_religious_calendar_phase6(app, db):
                 "exit_time": end.astimezone(TZ).strftime("%H:%M"),
                 "closure_time": preview.get("restaurant_closes") if preview else None,
                 "last_order": preview.get("last_order") if preview else None,
+                "resume_at": resume.get("at") if resume else None,
+                "resume_date": resume.get("date") if resume else None,
+                "resume_time": resume.get("time") if resume else None,
+                "deliveroo_rule": "Fermé chaque Chabbat" if not is_holiday else "Fermeture exceptionnelle",
+                "uber_rule": "Fermé chaque Chabbat" if not is_holiday else "Fermeture exceptionnelle",
             })
             if end_index is not None:
                 used_havdalah.add(end_index)
@@ -435,16 +472,16 @@ def register_religious_calendar_phase6(app, db):
     def religious_calendar_page():
         return Response("""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Calendrier religieux</title>
-<style>*{box-sizing:border-box}body{margin:0;background:#f4f5f7;font-family:Arial;color:#111827}.top{background:#111827;color:#fff;padding:16px 22px}.w{max-width:1100px;margin:28px auto;padding:18px}.box{background:#fff;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 5px 20px #0001}button,input{min-height:44px;border-radius:9px;border:1px solid #ccd2da;padding:8px}button{background:#111827;color:#fff;font-weight:800;cursor:pointer}.row{padding:9px 0;border-bottom:1px solid #eee}.muted{color:#667085}</style></head>
+<style>*{box-sizing:border-box}body{margin:0;background:#f4f5f7;font-family:Arial;color:#111827}.top{background:#111827;color:#fff;padding:16px 22px}.w{max-width:1500px;margin:28px auto;padding:18px}.box{background:#fff;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 5px 20px #0001}button,input{min-height:44px;border-radius:9px;border:1px solid #ccd2da;padding:8px}button{background:#111827;color:#fff;font-weight:800;cursor:pointer}.row{padding:9px 0;border-bottom:1px solid #eee}.muted{color:#667085}.planning-head,.planning-row{display:grid;grid-template-columns:1.45fr 1fr 1fr;gap:18px;align-items:stretch}.planning-head{font-weight:900;background:#111827;color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:6px}.planning-row{padding:14px;border-bottom:1px solid #e5e7eb}.planning-cell{padding:4px 6px}.planning-title{font-size:18px;font-weight:900;margin-bottom:6px}.badge{display:inline-block;margin-top:6px;margin-right:6px;padding:4px 7px;border-radius:999px;background:#eef2f7;font-size:12px;font-weight:800}@media(max-width:900px){.planning-head{display:none}.planning-row{grid-template-columns:1fr}.planning-cell{padding:8px 0}.planning-cell:before{display:block;font-weight:900;margin-bottom:4px}.planning-cell:nth-child(1):before{content:'Chabbat / fête'}.planning-cell:nth-child(2):before{content:'Fermeture BÉCHÉFAA'}.planning-cell:nth-child(3):before{content:'Reprise des commandes'}}</style></head>
 <body><div class="top"><b>BÉCHÉFAA • Calendrier religieux & fermetures</b></div><div class="w">
 <div class="box"><h1>Calendrier hébraïque</h1><p class="muted">Paris • diaspora • import Hebcal. L'import ne ferme jamais automatiquement le restaurant.</p>
 <label>Année hébraïque <input id="year" type="number" value="5787"></label>
 <button onclick="imp()">Importer / actualiser Hebcal</button> <button onclick="load()">Afficher</button><div id="msg"></div></div>
-<div class="box"><h2>Planning des fermetures</h2><p class="muted">Affichage simplifié : uniquement Chabbat et fêtes entraînant une fermeture. Roch Hodech et Hanoucca sont masqués.</p><div id="periods"></div></div>
+<div class="box"><h2>Planning des fermetures</h2><p class="muted">Uniquement Chabbat et fêtes entraînant une fermeture.</p><div class="planning-head"><div>Chabbat / fêtes</div><div>Fermeture BÉCHÉFAA</div><div>Reprise des commandes</div></div><div id="periods"></div></div>
 <div class="box"><h2>Fermetures validées</h2><div id="closures"></div></div>
 </div><script>
 const $=id=>document.getElementById(id);
-async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let close=(x.closure_time&&x.last_order)?('<div><b>Fermeture BÉCHÉFAA :</b> '+x.closure_time+' &nbsp; • &nbsp; <b>Dernière commande :</b> '+x.last_order+'</div>'):'';return '<div class="row"><div style="font-size:18px;font-weight:900">'+x.name+'</div><div><b>Entrée :</b> '+x.entry_date+' à '+x.entry_time+' &nbsp; • &nbsp; <b>Sortie :</b> '+x.exit_date+' à '+x.exit_time+'</div>'+close+'</div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
+async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let close=(x.closure_time&&x.last_order)?('<b>Fermeture :</b> '+x.closure_time+'<br><b>Dernière commande :</b> '+x.last_order):'Selon horaires enregistrés';let resume=(x.resume_date&&x.resume_time)?('<b>'+x.resume_date+'</b><br>à '+x.resume_time):'À définir';return '<div class="planning-row"><div class="planning-cell"><div class="planning-title">'+x.name+'</div><div><b>Entrée :</b> '+x.entry_date+' à '+x.entry_time+'</div><div><b>Sortie :</b> '+x.exit_date+' à '+x.exit_time+'</div><span class="badge">Deliveroo : '+x.deliveroo_rule+'</span><span class="badge">Uber Eats : '+x.uber_rule+'</span></div><div class="planning-cell">'+close+'</div><div class="planning-cell">'+resume+'</div></div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
 
