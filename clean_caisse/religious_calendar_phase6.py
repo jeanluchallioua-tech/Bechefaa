@@ -198,6 +198,80 @@ def register_religious_calendar_phase6(app, db):
                 return None
         return None
 
+    def _operational_periods(events):
+        """Transforme les événements Hebcal en périodes lisibles pour le restaurant."""
+        rows = [dict(x) for x in events]
+        rows.sort(key=lambda x: x.get("starts_at") or datetime.max.replace(tzinfo=TZ))
+
+        hidden_titles = ("Rosh Chodesh", "Roch H", "Hanukkah", "Chanukah", "Hanoucca", "H̲anoucca")
+        candles = [x for x in rows if str(x.get("category") or "") == "candles" and x.get("starts_at")]
+        havdalahs = [x for x in rows if str(x.get("category") or "") == "havdalah" and x.get("starts_at")]
+        holidays = [
+            x for x in rows
+            if str(x.get("category") or "") == "holiday"
+            and x.get("starts_at")
+            and not any(h.lower() in str(x.get("title") or "").lower() for h in hidden_titles)
+        ]
+
+        periods = []
+        used_havdalah = set()
+        for candle in candles:
+            start = candle["starts_at"]
+            end = None
+            end_index = None
+            for idx, hv in enumerate(havdalahs):
+                if idx in used_havdalah:
+                    continue
+                if hv["starts_at"] > start:
+                    end = hv["starts_at"]
+                    end_index = idx
+                    break
+            if not end:
+                continue
+
+            in_window = []
+            for h in holidays:
+                hs = h["starts_at"]
+                # Fête datée pendant la période, ou le jour civil suivant l'entrée.
+                if start.date() <= hs.astimezone(TZ).date() <= end.astimezone(TZ).date():
+                    title = str(h.get("title") or "").strip()
+                    if title and title not in in_window:
+                        in_window.append(title)
+
+            # Écarter les libellés de Hol Hamoed / Hoshana Rabba du titre opérationnel.
+            significant = [
+                t for t in in_window
+                if "CH" not in t.upper()
+                and "HOSHANA" not in t.upper()
+                and "HOCHAN" not in t.upper()
+                and "SUKKOT VII" not in t.upper()
+                and "SOUKKOT VII" not in t.upper()
+            ]
+            is_holiday = bool(significant)
+            if is_holiday:
+                # Les deux jours diaspora consécutifs restent une seule fermeture.
+                name = " / ".join(significant)
+            else:
+                name = "Chabbat"
+
+            preview = _service_rule_preview(candle)
+            periods.append({
+                "type": "holiday" if is_holiday else "shabbat",
+                "name": name,
+                "entry_at": start.isoformat(),
+                "exit_at": end.isoformat(),
+                "entry_date": start.astimezone(TZ).strftime("%d/%m/%Y"),
+                "entry_time": start.astimezone(TZ).strftime("%H:%M"),
+                "exit_date": end.astimezone(TZ).strftime("%d/%m/%Y"),
+                "exit_time": end.astimezone(TZ).strftime("%H:%M"),
+                "closure_time": preview.get("restaurant_closes") if preview else None,
+                "last_order": preview.get("last_order") if preview else None,
+            })
+            if end_index is not None:
+                used_havdalah.add(end_index)
+
+        return periods
+
     def active_site_closure(now=None):
         now = now or datetime.now(TZ)
         try:
@@ -253,6 +327,7 @@ def register_religious_calendar_phase6(app, db):
             "timezone": "Europe/Paris",
             "location": "Paris, France",
             "hebrew_year": year,
+            "periods": _operational_periods(events),
             "events": [{
                 **dict(x),
                 "starts_at": x["starts_at"].isoformat() if x.get("starts_at") else None,
@@ -323,11 +398,11 @@ def register_religious_calendar_phase6(app, db):
 <div class="box"><h1>Calendrier hébraïque</h1><p class="muted">Paris • diaspora • import Hebcal. L'import ne ferme jamais automatiquement le restaurant.</p>
 <label>Année hébraïque <input id="year" type="number" value="5787"></label>
 <button onclick="imp()">Importer / actualiser Hebcal</button> <button onclick="load()">Afficher</button><div id="msg"></div></div>
-<div class="box"><h2>Événements importés</h2><div id="events"></div></div>
+<div class="box"><h2>Planning des fermetures</h2><p class="muted">Affichage simplifié : uniquement Chabbat et fêtes entraînant une fermeture. Roch Hodech et Hanoucca sont masqués.</p><div id="periods"></div></div>
 <div class="box"><h2>Fermetures validées</h2><div id="closures"></div></div>
 </div><script>
 const $=id=>document.getElementById(id);
-async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('events').innerHTML=(d.events||[]).map(x=>{let p=x.service_rule_preview;let rule=p?('<br><b>Décision auto :</b> service du soir supprimé • fermeture '+p.restaurant_closes+' • dernière commande '+p.last_order):'';return '<div class="row"><b>'+x.title+'</b> — '+(x.starts_at||'date entière')+' <span class="muted">'+x.category+'</span>'+rule+'</div>'}).join('')||'Aucun événement importé.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • Uber '+x.uber_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
+async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let close=(x.closure_time&&x.last_order)?('<div><b>Fermeture BÉCHÉFAA :</b> '+x.closure_time+' &nbsp; • &nbsp; <b>Dernière commande :</b> '+x.last_order+'</div>'):'';return '<div class="row"><div style="font-size:18px;font-weight:900">'+x.name+'</div><div><b>Entrée :</b> '+x.entry_date+' à '+x.entry_time+' &nbsp; • &nbsp; <b>Sortie :</b> '+x.exit_date+' à '+x.exit_time+'</div>'+close+'</div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
 
