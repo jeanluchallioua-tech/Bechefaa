@@ -979,7 +979,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
         payload=request.get_json(silent=True) or {}
         site_id=str(payload.get("site_id") or "").strip()
         menu_id=str(payload.get("menu_id") or "bechefaa-menu-01").strip()
-        explicit_job_id=str(payload.get("job_id") or "").strip()
         if not site_id or not menu_id:
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
@@ -1008,30 +1007,44 @@ def register_deliveroo_menu_upload_phase6(app, db):
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
-            job_id=explicit_job_id
-            menu_lookup=None
-            if not job_id:
-                menu_url=(
-                    api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
-                    +"/menus/"+urllib.parse.quote(menu_id,safe="")
-                    +"?include_all_versions=true"
-                )
-                menu_status,menu_lookup=_api_json(menu_url,token,method="GET")
-                if not 200 <= menu_status < 300:
-                    return jsonify({
-                        "ok":False,"stage":"menu_lookup","http_status":menu_status,
-                        "response":menu_lookup
-                    }),502
-                job_id=_find_job_id(menu_lookup)
+            # Scenario 16 valide GET /jobs/{job_id}. Pour disposer d'un job_id
+            # certain, on crée un nouveau job V3 à partir du menu déjà uploadé
+            # au même menu_id, puis on interroge immédiatement son statut.
+            jobs_url=(
+                api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
+            )
+            job_payload={
+                "action":"publish_menu_to_live",
+                "params":{"menu_id":menu_id},
+            }
+            create_status,create_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+            fallback_used=False
+            if create_status==400:
+                fallback_used=True
+                job_payload={"action":"publish_menu_to_live"}
+                create_status,create_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
 
+            if not 200 <= create_status < 300:
+                return jsonify({
+                    "ok":False,
+                    "stage":"create_job",
+                    "brand_id":brand_id,
+                    "menu_id":menu_id,
+                    "http_status":create_status,
+                    "response":create_response,
+                    "fallback_used":fallback_used,
+                }),502
+
+            job_id=_find_job_id(create_response)
             if not job_id:
                 return jsonify({
                     "ok":False,
-                    "stage":"job_lookup",
-                    "error":"job_id introuvable pour ce menu",
+                    "stage":"job_id",
+                    "error":"job_id absent de la réponse de création du job",
+                    "brand_id":brand_id,
                     "menu_id":menu_id,
-                    "menu_lookup":menu_lookup
-                }),409
+                    "create_response":create_response,
+                }),502
 
             job_url=(
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
@@ -1046,8 +1059,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "brand_id":brand_id,
                 "menu_id":menu_id,
                 "job_id":job_id,
-                "http_status":status,
-                "response":response
+                "create_job_http_status":create_status,
+                "job_status_http_status":status,
+                "response":response,
+                "fallback_used":fallback_used,
             }),200 if ok else 502
         except Exception as exc:
             return jsonify({
