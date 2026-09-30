@@ -11,6 +11,7 @@ import re
 from flask import jsonify, request
 from clean_caisse.app import db
 from clean_caisse.order_price_guard_phase26 import _canonical_price, _catalog_products
+from clean_caisse.site_coupons_phase6 import apply_coupon_to_order
 
 
 def _digits(value):
@@ -236,6 +237,17 @@ def register_site_orders_bridge_isolated_phase6(app):
         except Exception as exc:
             # La commande reste valide : on signale uniquement l'affichage des options.
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
+
+        coupon_code=str(external.get("coupon_code") or "").strip()
+        if coupon_code:
+            try:
+                quote=apply_coupon_to_order(db,order_id,coupon_code)
+                data["coupon"]=quote
+                data["total"]=quote["total"]
+            except ValueError as exc:
+                return jsonify({"ok":False,"error":str(exc)}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Application du coupon impossible","detail":str(exc)}),500
 
         kitchen = _dispatch_internal(app, f"/api/orders/{order_id}/send-kitchen", {})
         kitchen_data = kitchen.get_json(silent=True) or {}
