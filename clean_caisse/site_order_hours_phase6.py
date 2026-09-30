@@ -48,6 +48,8 @@ def register_site_order_hours_phase6(app,db):
                 return r["config_json"] if isinstance(r["config_json"],dict) else json.loads(r["config_json"])
     def state(cfg=None):
         cfg=cfg or read(); now=datetime.now(TZ); day=DAYS[now.weekday()]; cur=now.hour*60+now.minute
+        closure_fn=app.config.get("BECHEFAA_ACTIVE_SITE_CLOSURE")
+        closure=closure_fn(now) if callable(closure_fn) else None
         d=cfg["days"].get(day,{"enabled":False,"slots":[]}); cutoff=int(cfg.get("cutoff_minutes",30))
         open_now=False; next_close=None
         if d.get("enabled"):
@@ -77,8 +79,13 @@ def register_site_order_hours_phase6(app,db):
                     break
                 if next_open_time: break
 
+        if closure:
+            open_now=False
+            next_close=None
+
         return {
             "open":open_now,
+            "exceptional_closure":closure,
             "day":day,
             "day_label":LABELS[day],
             "now":now.strftime("%H:%M"),
