@@ -7,6 +7,7 @@ avant tout upload Sandbox.
 import hashlib
 import json
 import re
+from urllib.parse import quote
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import jsonify
@@ -244,6 +245,7 @@ def build_deliveroo_menu_preview(db):
                     },
                     "modifier_ids": [],
                     "contains_alcohol": False,
+                    "tax_rate": "10.0",
                     "allergies": [],
                     "diets": [],
                     "classifications": [],
@@ -324,6 +326,7 @@ def build_deliveroo_menu_preview(db):
             },
             "modifier_ids": modifier_ids,
             "contains_alcohol": False,
+            "tax_rate": "10.0",
             "allergies": [],
             "diets": [],
             "classifications": [],
@@ -335,6 +338,10 @@ def build_deliveroo_menu_preview(db):
         }
         if photo.startswith("http://") or photo.startswith("https://"):
             main_item["image"] = {"url": photo}
+        elif photo:
+            main_item["image"] = {
+                "url": "https://caisse.bechefaa.fr/api/public/catalog/photo/" + quote(pos_id, safe="")
+            }
         items.append(main_item)
 
         category_id = category_map.get(category_name)
