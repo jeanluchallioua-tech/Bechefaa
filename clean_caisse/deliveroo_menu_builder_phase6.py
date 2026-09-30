@@ -381,6 +381,80 @@ def build_deliveroo_menu_preview(db):
                 "category": category_name,
             })
 
+    # Scenario Deliveroo Bundles: la Formule Falafel (POS 2) devient un vrai BUNDLE
+    # composé d'ITEMs déjà présents dans le menu. Cette transformation ne modifie
+    # jamais le catalogue caisse.
+    by_id = {x.get("id"): x for x in items if isinstance(x, dict)}
+    bundle = by_id.get("item_2")
+    if bundle:
+        bundle_main_mod = "bundle_2_main"
+        bundle_side_mod = "bundle_2_side"
+        bundle_drink_mod = "bundle_2_drink"
+
+        bundle["type"] = "BUNDLE"
+        bundle["modifier_ids"] = [bundle_main_mod, bundle_side_mod, bundle_drink_mod]
+
+        bundle_sections = [
+            {
+                "id": bundle_main_mod,
+                "name": {"fr": "Sandwich"},
+                "description": {"fr": ""},
+                "item_ids": ["item_42"],
+                "min_selection": 1,
+                "max_selection": 1,
+                "repeatable": False,
+                "type": "bundle-item",
+            },
+            {
+                "id": bundle_side_mod,
+                "name": {"fr": "Accompagnement"},
+                "description": {"fr": ""},
+                "item_ids": ["item_63"],
+                "min_selection": 1,
+                "max_selection": 1,
+                "repeatable": False,
+                "type": "bundle-item",
+            },
+            {
+                "id": bundle_drink_mod,
+                "name": {"fr": "Boisson"},
+                "description": {"fr": ""},
+                "item_ids": [
+                    x for x in (
+                        "item_68", "item_70", "item_71", "item_72",
+                        "item_73", "item_74", "item_75", "item_76"
+                    ) if x in by_id
+                ],
+                "min_selection": 1,
+                "max_selection": 1,
+                "repeatable": False,
+                "type": "bundle-item",
+            },
+        ]
+
+        def add_bundle_zero_price(child_id, modifier_id):
+            child = by_id.get(child_id)
+            if not child:
+                warnings.append({
+                    "type": "bundle_item_missing",
+                    "bundle_id": "item_2",
+                    "item_id": child_id,
+                })
+                return
+            child.setdefault("price_info", {}).setdefault("overrides", []).append({
+                "type": "ITEM",
+                "id": "item_2",
+                "context_id": modifier_id,
+                "price": 0,
+            })
+
+        add_bundle_zero_price("item_42", bundle_main_mod)
+        add_bundle_zero_price("item_63", bundle_side_mod)
+        for drink_id in bundle_sections[2]["item_ids"]:
+            add_bundle_zero_price(drink_id, bundle_drink_mod)
+
+        modifiers.extend(bundle_sections)
+
     categories = [
         {k: v for k, v in c.items() if k != "_order"}
         for c in categories if c["item_ids"]
@@ -415,6 +489,7 @@ def build_deliveroo_menu_preview(db):
             "categories": len(categories),
             "main_items": sum(1 for x in items if x.get("type") == "ITEM"),
             "choice_items": sum(1 for x in items if x.get("type") == "CHOICE"),
+            "bundles": sum(1 for x in items if x.get("type") == "BUNDLE"),
             "modifiers": len(modifiers),
             "required_modifiers": sum(1 for x in modifiers if int(x.get("min_selection") or 0) > 0),
             "mealtimes": 1,
