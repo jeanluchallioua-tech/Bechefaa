@@ -11,7 +11,7 @@ import re
 from flask import jsonify, request
 from clean_caisse.app import db
 from clean_caisse.order_price_guard_phase26 import _canonical_price, _catalog_products
-from clean_caisse.site_coupons_phase6 import apply_coupon_to_order
+from clean_caisse.site_coupons_phase6 import apply_coupon_to_order, quote_coupon
 
 
 def _digits(value):
@@ -217,6 +217,16 @@ def register_site_orders_bridge_isolated_phase6(app):
             return jsonify({"ok": False, "error": str(exc)}), 409
         except Exception as exc:
             return jsonify({"ok": False, "error": "Calcul du prix catalogue impossible", "detail": str(exc)}), 503
+
+        if coupon_code:
+            subtotal=sum(float(i.get("unit_price") or 0)*int(i.get("qty") or 1) for i in (internal.get("items") or []))
+            try:
+                with db() as conn:
+                    quote,error=quote_coupon(conn,coupon_code,subtotal)
+                if error:
+                    return jsonify({"ok":False,"error":error}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Validation du coupon impossible","detail":str(exc)}),500
 
         created = _dispatch_internal(app, "/api/orders", internal)
         if created.status_code < 200 or created.status_code >= 300:
