@@ -17,6 +17,7 @@ from clean_caisse.client_import_cleaned_20260922 import import_cleaned_clients_o
 from clean_caisse.clients_management_isolated_phase6 import register_clients_management_isolated_phase6
 from clean_caisse.site_orders_bridge_isolated_phase6 import register_site_orders_bridge_isolated_phase6
 from clean_caisse.site_order_hours_phase6 import register_site_order_hours_phase6
+from clean_caisse.religious_calendar_phase6 import register_religious_calendar_phase6
 from clean_caisse.public_catalog_bridge_isolated_phase6 import register_public_catalog_bridge_isolated_phase6
 from clean_caisse.delivery_zones import register_delivery_zones
 from clean_caisse.pos_quick_add import register_pos_quick_add
@@ -151,6 +152,7 @@ register_deliveroo_menu_builder_phase6(app, db)
 register_deliveroo_menu_upload_phase6(app, db)
 register_marketplace_markup_phase6(app, db)
 register_site_coupons_phase6(app, db)
+register_religious_calendar_phase6(app, db)
 register_site_order_hours_phase6(app, db)
 register_public_catalog_bridge_isolated_phase6(app, load_catalog)
 register_delivery_zones(app, db)
