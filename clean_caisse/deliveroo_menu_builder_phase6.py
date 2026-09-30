@@ -394,7 +394,13 @@ def build_deliveroo_menu_preview(db):
             "is_pos_integrated": True,
             "items": items,
             "modifiers": modifiers,
-            "mealtimes": [],
+            "mealtimes": [{
+                "id": "all-day",
+                "name": {"fr": "Toute la journée"},
+                "description": {"fr": "Menu BÉCHÉFAA"},
+                "category_ids": [cat["id"] for cat in categories],
+                "schedule": [],
+            }],
         },
         "site_ids": [],
     }
@@ -411,6 +417,7 @@ def build_deliveroo_menu_preview(db):
             "choice_items": sum(1 for x in items if x.get("type") == "CHOICE"),
             "modifiers": len(modifiers),
             "required_modifiers": sum(1 for x in modifiers if int(x.get("min_selection") or 0) > 0),
+            "mealtimes": 1,
             "warnings": len(warnings),
         },
         "warnings": warnings,
