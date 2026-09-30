@@ -6,6 +6,68 @@ pas aux commandes tant que le site ne transmet pas un coupon validé.
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from flask import jsonify, request, Response
 
+def _coupon_row(conn, code):
+    code=str(code or "").strip().upper().replace(" ","")
+    if not code:
+        return None
+    return conn.execute("""SELECT * FROM site_coupons WHERE code=%s AND active=TRUE
+        AND (starts_at IS NULL OR starts_at<=NOW())
+        AND (ends_at IS NULL OR ends_at>=NOW()) LIMIT 1""",(code,)).fetchone()
+
+
+def quote_coupon(conn, code, subtotal):
+    subtotal=Decimal(str(subtotal or 0)).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    row=_coupon_row(conn,code)
+    if not row:
+        return None,"Coupon invalide ou expiré"
+    minimum=Decimal(str(row["minimum_order"]))
+    if subtotal < minimum:
+        return None,f"Minimum de commande : {minimum:.2f} €"
+    value=Decimal(str(row["discount_value"]))
+    if row["discount_type"]=="PERCENT":
+        discount=(subtotal*value/Decimal("100")).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    else:
+        discount=min(subtotal,value)
+    total=max(Decimal("0.00"),subtotal-discount)
+    return {
+        "code":row["code"],
+        "label":row["label"],
+        "discount_type":row["discount_type"],
+        "discount_value":float(value),
+        "subtotal":float(subtotal),
+        "discount":float(discount),
+        "total":float(total),
+    },None
+
+
+def apply_coupon_to_order(db, order_id, code):
+    code=str(code or "").strip().upper().replace(" ","")
+    if not code:
+        return None
+    with db() as conn:
+        with conn.transaction():
+            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS coupon_code TEXT NULL")
+            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+            conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS subtotal_before_discount NUMERIC(12,2) NULL")
+            row=conn.execute("SELECT total FROM caisse_orders WHERE id=%s FOR UPDATE",(order_id,)).fetchone()
+            if not row:
+                raise ValueError("Commande introuvable pour coupon")
+            quote,error=quote_coupon(conn,code,row["total"])
+            if error:
+                raise ValueError(error)
+            subtotal=Decimal(str(quote["subtotal"])).quantize(Decimal("0.01"))
+            discount=Decimal(str(quote["discount"])).quantize(Decimal("0.01"))
+            total=Decimal(str(quote["total"])).quantize(Decimal("0.01"))
+            ht=(total/Decimal("1.10")).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+            tax=(total-ht).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+            conn.execute("""UPDATE caisse_orders
+                SET subtotal_before_discount=%s,discount_amount=%s,coupon_code=%s,total=%s,
+                    total_ht=%s,tax_rate=10.00,tax_amount=%s,total_ttc=%s
+                WHERE id=%s""",
+                (subtotal,discount,quote["code"],total,ht,tax,total,order_id))
+    return quote
+
+
 def register_site_coupons_phase6(app, db):
     def ensure(conn):
         conn.execute("""CREATE TABLE IF NOT EXISTS site_coupons(
@@ -100,19 +162,10 @@ def register_site_coupons_phase6(app, db):
         try:
             with db() as conn:
                 ensure(conn);conn.commit()
-                row=conn.execute("""SELECT * FROM site_coupons WHERE code=%s AND active=TRUE
-                    AND (starts_at IS NULL OR starts_at<=NOW())
-                    AND (ends_at IS NULL OR ends_at>=NOW()) LIMIT 1""",(code,)).fetchone()
-            if not row:return jsonify({"ok":True,"valid":False,"error":"Coupon invalide ou expiré"})
-            minimum=Decimal(str(row["minimum_order"]))
-            if subtotal<minimum:return jsonify({"ok":True,"valid":False,"error":f"Minimum de commande : {minimum:.2f} €"})
-            value=Decimal(str(row["discount_value"]))
-            if row["discount_type"]=="PERCENT":
-                discount=(subtotal*value/Decimal("100")).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
-            else:
-                discount=min(subtotal,value)
-            total=max(Decimal("0.00"),subtotal-discount)
-            return jsonify({"ok":True,"valid":True,"coupon":{"code":row["code"],"label":row["label"],"discount_type":row["discount_type"],"discount_value":float(value)},"subtotal":float(subtotal),"discount":float(discount),"total":float(total)})
+                quote,error=quote_coupon(conn,code,subtotal)
+            if error:
+                return jsonify({"ok":True,"valid":False,"error":error})
+            return jsonify({"ok":True,"valid":True,"coupon":{"code":quote["code"],"label":quote["label"],"discount_type":quote["discount_type"],"discount_value":quote["discount_value"]},"subtotal":quote["subtotal"],"discount":quote["discount"],"total":quote["total"]})
         except Exception as exc:
             return jsonify({"ok":False,"valid":False,"error":"Validation coupon indisponible","detail":str(exc)}),500
 
