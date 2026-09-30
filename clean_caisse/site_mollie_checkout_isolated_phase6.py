@@ -45,6 +45,8 @@ def register_site_mollie_checkout_isolated_phase6(app):
         if error:
             return jsonify({"ok": False, "error": error}), 400
 
+        coupon_code=str(external.get("coupon_code") or "").strip()
+
         try:
             _apply_server_catalog_prices(internal)
         except ValueError as exc:
@@ -86,8 +88,7 @@ def register_site_mollie_checkout_isolated_phase6(app):
         except Exception as exc:
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
 
-        coupon_code=str(external.get("coupon_code") or "").strip()
-        if coupon_code:
+                if coupon_code:
             try:
                 quote=apply_coupon_to_order(__import__("clean_caisse.app",fromlist=["db"]).db,order_id,coupon_code)
                 data["coupon"]=quote
