@@ -759,6 +759,197 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "detail":str(exc)
             }),500
 
+    def _find_presigned_url(value):
+        if isinstance(value,str):
+            text=value.strip()
+            if text.startswith("http://") or text.startswith("https://"):
+                if "amazonaws.com" in text or "X-Amz-" in text or "s3" in text.lower():
+                    return text
+            return None
+        if isinstance(value,dict):
+            for key in ("upload_url","presigned_url","s3_url","url"):
+                found=_find_presigned_url(value.get(key))
+                if found:
+                    return found
+            for child in value.values():
+                found=_find_presigned_url(child)
+                if found:
+                    return found
+        if isinstance(value,list):
+            for child in value:
+                found=_find_presigned_url(child)
+                if found:
+                    return found
+        return None
+
+    def _put_json_to_presigned_url(url, payload):
+        raw=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+        req=urllib.request.Request(
+            url,
+            data=raw,
+            headers={"Content-Type":"application/json"},
+            method="PUT",
+        )
+        try:
+            with urllib.request.urlopen(req,timeout=35) as resp:
+                body=resp.read().decode("utf-8","replace")
+                return int(resp.status),body[:1000]
+        except HTTPError as exc:
+            body=exc.read().decode("utf-8","replace")
+            return int(exc.code),body[:1000]
+
+    @app.post("/api/deliveroo/scenario15-v3-async-upload-phase6")
+    def deliveroo_scenario15_v3_async_upload_phase6():
+        payload=request.get_json(silent=True) or {}
+        site_id=str(payload.get("site_id") or "").strip()
+        menu_id=str(payload.get("menu_id") or "bechefaa-menu-01").strip()
+        if not site_id or not menu_id:
+            return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
+        try:
+            preview=build_deliveroo_menu_preview(db)
+            menu=preview["payload"]["menu"]
+
+            # Prévalidation minimale exigée par le Scenario 15.
+            mealtimes=menu.get("mealtimes") or []
+            categories=menu.get("categories") or []
+            items=menu.get("items") or []
+            valid_mealtime=any(
+                isinstance(x,dict)
+                and isinstance(x.get("name"),dict) and bool(x.get("name"))
+                and isinstance(x.get("description"),dict) and bool(x.get("description"))
+                and isinstance(x.get("image"),dict) and bool(x.get("image",{}).get("url"))
+                for x in mealtimes
+            )
+            valid_category=any(
+                isinstance(x,dict) and isinstance(x.get("name"),dict) and bool(x.get("name"))
+                for x in categories
+            )
+            categorized_ids=set()
+            for cat in categories:
+                if isinstance(cat,dict):
+                    categorized_ids.update(str(x) for x in (cat.get("item_ids") or []))
+            valid_item=any(
+                isinstance(x,dict)
+                and x.get("id") in categorized_ids
+                and isinstance(x.get("name"),dict) and bool(x.get("name"))
+                and bool(str(x.get("operational_name") or "").strip())
+                and bool(str(x.get("plu") or "").strip())
+                and isinstance(x.get("description"),dict) and bool(x.get("description"))
+                for x in items
+            )
+            if not (valid_mealtime and valid_category and valid_item):
+                return jsonify({
+                    "ok":False,
+                    "stage":"prevalidation",
+                    "valid_mealtime":valid_mealtime,
+                    "valid_category":valid_category,
+                    "valid_item":valid_item,
+                }),400
+
+            token=_oauth_token()
+            api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
+
+            brand_status,brand_data=_api_json(
+                api_url+"/site/v1/restaurant_locations/"+urllib.parse.quote(site_id,safe=""),
+                token,
+            )
+            if not 200 <= brand_status < 300:
+                return jsonify({
+                    "ok":False,"stage":"brand_lookup","http_status":brand_status,
+                    "response":brand_data
+                }),502
+
+            raw_brand_id=(
+                brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
+                or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
+                or ""
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
+            if not brand_id:
+                return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
+
+            # 1) Générer une URL S3 fraîche (expiration ~5 secondes dans le scénario).
+            create_url=(
+                api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
+                +"/menus/"+urllib.parse.quote(menu_id,safe="")
+            )
+            s3_status,s3_response=_api_json(create_url,token,method="PUT",payload=None)
+            if not 200 <= s3_status < 300:
+                return jsonify({
+                    "ok":False,"stage":"generate_s3","http_status":s3_status,
+                    "response":s3_response
+                }),502
+
+            presigned_url=_find_presigned_url(s3_response)
+            if not presigned_url:
+                return jsonify({
+                    "ok":False,"stage":"generate_s3",
+                    "error":"URL S3 introuvable dans la réponse Deliveroo",
+                    "response":s3_response
+                }),502
+
+            # 2) Upload immédiat du document JSON vers S3.
+            document={
+                "site_ids":[site_id],
+                "menu":menu,
+                "pos_name":"BÉCHÉFAA Caisse",
+            }
+            upload_status,upload_body=_put_json_to_presigned_url(presigned_url,document)
+            if not 200 <= upload_status < 300:
+                return jsonify({
+                    "ok":False,"stage":"s3_upload","http_status":upload_status,
+                    "response":upload_body
+                }),502
+
+            # 3) Déclencher le traitement asynchrone.
+            jobs_url=(
+                api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
+            )
+            job_payload={
+                "action":"publish_menu_to_live",
+                "params":{"menu_id":menu_id},
+            }
+            job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+
+            # Certaines versions Sandbox infèrent le menu depuis le dernier upload S3
+            # et n'acceptent pas params.menu_id : retenter uniquement si le premier appel
+            # a été rejeté avant création du job.
+            fallback_used=False
+            if job_status==400:
+                fallback_used=True
+                job_payload={"action":"publish_menu_to_live"}
+                job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+
+            ok=200 <= job_status < 300
+            job_id=None
+            if isinstance(job_response,dict):
+                job_id=job_response.get("job_id") or job_response.get("id")
+
+            return jsonify({
+                "ok":ok,
+                "site_id":site_id,
+                "brand_id":brand_id,
+                "menu_id":menu_id,
+                "s3_url_generated":True,
+                "s3_http_status":upload_status,
+                "job_http_status":job_status,
+                "job_id":job_id,
+                "job_payload":job_payload,
+                "job_response":job_response,
+                "fallback_used":fallback_used,
+                "webhook_expected":"menu.upload_result",
+                "next":"Attendre le webhook de résultat Deliveroo"
+            }),200 if ok else 502
+        except Exception as exc:
+            return jsonify({
+                "ok":False,"stage":"scenario15",
+                "error":"Scenario 15 Deliveroo impossible",
+                "detail":str(exc)
+            }),500
+
     @app.get("/administration/deliveroo-upload")
     def deliveroo_upload_page_phase6():
-        return Response("""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Deliveroo Sandbox</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0}.w{max-width:760px;margin:32px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:18px;padding:24px;box-shadow:0 8px 24px #25466e12}h1{margin-top:0}label{display:block;font-weight:900;margin:16px 0 6px}input,button{width:100%;min-height:48px;border-radius:10px;border:1px solid #ccd5e2;padding:10px;font-size:16px}button{margin-top:20px;background:#111827;color:#fff;font-weight:900;cursor:pointer}.m{color:#667085}.out{white-space:pre-wrap;background:#0b1220;color:#dce6f4;padding:16px;border-radius:12px;margin-top:18px;min-height:90px}</style></head><body><div class="w"><div class="b"><h1>Upload Deliveroo Sandbox</h1><p class="m">Envoie réellement le menu BÉCHÉFAA validé vers le site Sandbox indiqué.</p><label>Site ID Sandbox</label><input id="site" placeholder="Collez le Site ID Deliveroo"><label>Menu ID</label><input id="menu" value="bechefaa-menu-01"><button id="send">ENVOYER LE MENU SANDBOX</button><button id="s8">SCENARIO 8 • ENVOYER LES 2 POST INDISPONIBILITÉS</button><button id="s9">SCENARIO 9 • GET + PUT INDISPONIBILITÉS</button><button id="s10">SCENARIO 10 • RÉINITIALISER LE STOCK</button><button id="s11">SCENARIO 11 • ÉTAT AVANT RESET MATINAL</button><button id="s12">SCENARIO 12 • BLOQUER LE RESET MATINAL</button><button id="s13u">SCENARIO 13 • 1/2 UPLOAD 100+ ITEMS</button><button id="s13s">SCENARIO 13 • 2/2 STOCK APRÈS WEBHOOK</button><button id="s14">SCENARIO 14 • GÉNÉRER URL S3</button><div id="out" class="out">Prêt.</div></div></div><script>const out=document.getElementById('out'),btn=document.getElementById('send'),s8=document.getElementById('s8'),s9=document.getElementById('s9'),s10=document.getElementById('s10'),s11=document.getElementById('s11'),s12=document.getElementById('s12'),s13u=document.getElementById('s13u'),s13s=document.getElementById('s13s'),s14=document.getElementById('s14');btn.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site){out.textContent='Site ID requis.';return}btn.disabled=true;out.textContent='Upload en cours…';try{const r=await fetch('/api/deliveroo/menu-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{btn.disabled=false}};s8.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s8.disabled=true;out.textContent='Scenario 8 : envoi des 2 POST…';try{const r=await fetch('/api/deliveroo/scenario8-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s8.disabled=false}};s9.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s9.disabled=true;out.textContent='Scenario 9 : GET puis PUT…';try{const r=await fetch('/api/deliveroo/scenario9-replace-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s9.disabled=false}};s10.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s10.disabled=true;out.textContent='Scenario 10 : réinitialisation du stock…';try{const r=await fetch('/api/deliveroo/scenario10-reset-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s10.disabled=false}};s11.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s11.disabled=true;out.textContent='Scenario 11 : état initial avant reset matinal…';try{const r=await fetch('/api/deliveroo/scenario11-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s11.disabled=false}};s12.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12.disabled=true;out.textContent='Scenario 12 : changement après minuit…';try{const r=await fetch('/api/deliveroo/scenario12-ignore-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12.disabled=false}};s13u.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13u.disabled=true;out.textContent='Scenario 13 : upload 100+ items…';try{const r=await fetch('/api/deliveroo/scenario13-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13u.disabled=false}};s13s.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13s.disabled=true;out.textContent='Scenario 13 : vérification webhook puis stock…';try{const r=await fetch('/api/deliveroo/scenario13-stock-after-webhook-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13s.disabled=false}};s14.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s14.disabled=true;out.textContent='Scenario 14 : génération URL S3…';try{const r=await fetch('/api/deliveroo/scenario14-generate-s3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s14.disabled=false}};</script></body></html>""",content_type="text/html; charset=utf-8")
+        return Response("""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Deliveroo Sandbox</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0}.w{max-width:760px;margin:32px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:18px;padding:24px;box-shadow:0 8px 24px #25466e12}h1{margin-top:0}label{display:block;font-weight:900;margin:16px 0 6px}input,button{width:100%;min-height:48px;border-radius:10px;border:1px solid #ccd5e2;padding:10px;font-size:16px}button{margin-top:20px;background:#111827;color:#fff;font-weight:900;cursor:pointer}.m{color:#667085}.out{white-space:pre-wrap;background:#0b1220;color:#dce6f4;padding:16px;border-radius:12px;margin-top:18px;min-height:90px}</style></head><body><div class="w"><div class="b"><h1>Upload Deliveroo Sandbox</h1><p class="m">Envoie réellement le menu BÉCHÉFAA validé vers le site Sandbox indiqué.</p><label>Site ID Sandbox</label><input id="site" placeholder="Collez le Site ID Deliveroo"><label>Menu ID</label><input id="menu" value="bechefaa-menu-01"><button id="send">ENVOYER LE MENU SANDBOX</button><button id="s8">SCENARIO 8 • ENVOYER LES 2 POST INDISPONIBILITÉS</button><button id="s9">SCENARIO 9 • GET + PUT INDISPONIBILITÉS</button><button id="s10">SCENARIO 10 • RÉINITIALISER LE STOCK</button><button id="s11">SCENARIO 11 • ÉTAT AVANT RESET MATINAL</button><button id="s12">SCENARIO 12 • BLOQUER LE RESET MATINAL</button><button id="s13u">SCENARIO 13 • 1/2 UPLOAD 100+ ITEMS</button><button id="s13s">SCENARIO 13 • 2/2 STOCK APRÈS WEBHOOK</button><button id="s14">SCENARIO 14 • GÉNÉRER URL S3</button><button id="s15">SCENARIO 15 • V3 UPLOAD S3 + JOB</button><div id="out" class="out">Prêt.</div></div></div><script>const out=document.getElementById('out'),btn=document.getElementById('send'),s8=document.getElementById('s8'),s9=document.getElementById('s9'),s10=document.getElementById('s10'),s11=document.getElementById('s11'),s12=document.getElementById('s12'),s13u=document.getElementById('s13u'),s13s=document.getElementById('s13s'),s14=document.getElementById('s14'),s15=document.getElementById('s15');btn.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site){out.textContent='Site ID requis.';return}btn.disabled=true;out.textContent='Upload en cours…';try{const r=await fetch('/api/deliveroo/menu-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{btn.disabled=false}};s8.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s8.disabled=true;out.textContent='Scenario 8 : envoi des 2 POST…';try{const r=await fetch('/api/deliveroo/scenario8-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s8.disabled=false}};s9.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s9.disabled=true;out.textContent='Scenario 9 : GET puis PUT…';try{const r=await fetch('/api/deliveroo/scenario9-replace-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s9.disabled=false}};s10.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s10.disabled=true;out.textContent='Scenario 10 : réinitialisation du stock…';try{const r=await fetch('/api/deliveroo/scenario10-reset-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s10.disabled=false}};s11.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s11.disabled=true;out.textContent='Scenario 11 : état initial avant reset matinal…';try{const r=await fetch('/api/deliveroo/scenario11-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s11.disabled=false}};s12.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12.disabled=true;out.textContent='Scenario 12 : changement après minuit…';try{const r=await fetch('/api/deliveroo/scenario12-ignore-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12.disabled=false}};s13u.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13u.disabled=true;out.textContent='Scenario 13 : upload 100+ items…';try{const r=await fetch('/api/deliveroo/scenario13-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13u.disabled=false}};s13s.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13s.disabled=true;out.textContent='Scenario 13 : vérification webhook puis stock…';try{const r=await fetch('/api/deliveroo/scenario13-stock-after-webhook-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13s.disabled=false}};s14.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s14.disabled=true;out.textContent='Scenario 14 : génération URL S3…';try{const r=await fetch('/api/deliveroo/scenario14-generate-s3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s14.disabled=false}};s15.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s15.disabled=true;out.textContent='Scenario 15 : S3 + job V3…';try{const r=await fetch('/api/deliveroo/scenario15-v3-async-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s15.disabled=false}};</script></body></html>""",content_type="text/html; charset=utf-8")
