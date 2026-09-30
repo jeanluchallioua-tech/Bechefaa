@@ -55,12 +55,16 @@ def register_religious_calendar_phase6(app, db):
         params = {
             "v": "1",
             "cfg": "json",
-            "yto": "on",
             "year": str(int(year)),
             "yt": "H",
             "i": "off",          # diaspora
-            "c": "on",          # candle lighting
-            "M": "on",          # havdalah / nightfall
+            "maj": "on",        # fêtes majeures
+            "min": "on",        # fêtes mineures
+            "mf": "on",         # jeûnes mineurs
+            "mod": "on",        # fêtes modernes
+            "nx": "on",         # Roch Hodech
+            "c": "on",          # allumage des bougies
+            "M": "on",          # havdalah / tombée de la nuit
             "geo": "geoname",
             "geonameid": HEBCAL_GEONAME_ID,
             "lg": "fr",
@@ -134,7 +138,7 @@ def register_religious_calendar_phase6(app, db):
                         starts_at,
                         json.dumps(item, ensure_ascii=False),
                     ))
-        return len(kept), data.get("location") if isinstance(data, dict) else None
+        return len(kept), data.get("location") if isinstance(data, dict) else None, len(items)
 
     def _site_hours_config():
         try:
@@ -266,10 +270,11 @@ def register_religious_calendar_phase6(app, db):
         body = request.get_json(silent=True) or {}
         year = int(body.get("hebrew_year") or DEFAULT_HEBREW_YEAR)
         try:
-            count, location = import_year(year)
+            count, location, received = import_year(year)
             return jsonify({
                 "ok": True,
                 "hebrew_year": year,
+                "events_received": received,
                 "events_imported": count,
                 "location": location,
                 "message": "Événements Hebcal importés sans activer de fermeture automatiquement.",
