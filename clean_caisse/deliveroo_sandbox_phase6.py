@@ -305,7 +305,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                                 sample.append({
                                     k:x.get(k) for k in x.keys()
                                     if str(k).lower() in {
-                                        "id","item_id","product_id","plu","name","item_name","product_name",
+                                        "id","item_id","product_id","pos_item_id","menu_item_id","plu","name","item_name","product_name",
                                         "quantity","qty","price","unit_price","total_price","options",
                                         "modifiers","extras","sub_items"
                                     }
