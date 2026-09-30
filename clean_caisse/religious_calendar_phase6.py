@@ -226,6 +226,31 @@ def register_religious_calendar_phase6(app, db):
             return "Pessa’h 1"
         return raw
 
+    def _ceil_quarter(dt):
+        local = dt.astimezone(TZ).replace(second=0, microsecond=0)
+        remainder = local.minute % 15
+        if remainder:
+            local += timedelta(minutes=15 - remainder)
+        return local
+
+    def _shabbat_reopening(exit_dt):
+        # Règle BÉCHÉFAA : sortie + 30 min, arrondie au quart d'heure supérieur.
+        opening = _ceil_quarter(exit_dt + timedelta(minutes=30))
+        ordering = opening + timedelta(minutes=15)
+        service_end = opening.replace(hour=23, minute=0, second=0, microsecond=0)
+        if service_end <= opening:
+            service_end = opening + timedelta(hours=2, minutes=45)
+        return {
+            "opening_at": opening.isoformat(),
+            "opening_date": _fr_date(opening),
+            "opening_time": opening.strftime("%H:%M"),
+            "ordering_at": ordering.isoformat(),
+            "ordering_date": _fr_date(ordering),
+            "ordering_time": ordering.strftime("%H:%M"),
+            "service_end_at": service_end.isoformat(),
+            "service_end_time": service_end.strftime("%H:%M"),
+        }
+
     def _next_order_resume(after_dt):
         cfg = _site_hours_config() or {}
         days = cfg.get("days") or {}
@@ -322,7 +347,8 @@ def register_religious_calendar_phase6(app, db):
                 name = "Chabbat"
 
             preview = _service_rule_preview(candle)
-            resume = _next_order_resume(end)
+            shabbat_reopen = _shabbat_reopening(end) if not is_holiday else None
+            resume = shabbat_reopen or _next_order_resume(end)
             periods.append({
                 "type": "holiday" if is_holiday else "shabbat",
                 "name": name,
@@ -334,9 +360,12 @@ def register_religious_calendar_phase6(app, db):
                 "exit_time": end.astimezone(TZ).strftime("%H:%M"),
                 "closure_time": preview.get("restaurant_closes") if preview else None,
                 "last_order": preview.get("last_order") if preview else None,
-                "resume_at": resume.get("at") if resume else None,
-                "resume_date": resume.get("date") if resume else None,
-                "resume_time": resume.get("time") if resume else None,
+                "resume_at": (resume.get("ordering_at") if shabbat_reopen else resume.get("at")) if resume else None,
+                "resume_date": (resume.get("ordering_date") if shabbat_reopen else resume.get("date")) if resume else None,
+                "resume_time": (resume.get("ordering_time") if shabbat_reopen else resume.get("time")) if resume else None,
+                "restaurant_reopen_date": shabbat_reopen.get("opening_date") if shabbat_reopen else None,
+                "restaurant_reopen_time": shabbat_reopen.get("opening_time") if shabbat_reopen else None,
+                "service_end_time": shabbat_reopen.get("service_end_time") if shabbat_reopen else None,
                 "deliveroo_rule": "Fermé chaque Chabbat" if not is_holiday else "Fermeture exceptionnelle",
                 "uber_rule": "Fermé chaque Chabbat" if not is_holiday else "Fermeture exceptionnelle",
             })
@@ -481,7 +510,7 @@ def register_religious_calendar_phase6(app, db):
 <div class="box"><h2>Fermetures validées</h2><div id="closures"></div></div>
 </div><script>
 const $=id=>document.getElementById(id);
-async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let close=(x.closure_time&&x.last_order)?('<b>Fermeture :</b> '+x.closure_time+'<br><b>Dernière commande :</b> '+x.last_order):'Selon horaires enregistrés';let resume=(x.resume_date&&x.resume_time)?('<b>'+x.resume_date+'</b><br>à '+x.resume_time):'À définir';return '<div class="planning-row"><div class="planning-cell"><div class="planning-title">'+x.name+'</div><div><b>Entrée :</b> '+x.entry_date+' à '+x.entry_time+'</div><div><b>Sortie :</b> '+x.exit_date+' à '+x.exit_time+'</div><span class="badge">Deliveroo : '+x.deliveroo_rule+'</span><span class="badge">Uber Eats : '+x.uber_rule+'</span></div><div class="planning-cell">'+close+'</div><div class="planning-cell">'+resume+'</div></div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
+async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let close=(x.closure_time&&x.last_order)?('<b>Fermeture :</b> '+x.closure_time+'<br><b>Dernière commande :</b> '+x.last_order):'Selon horaires enregistrés';let resume=(x.resume_date&&x.resume_time)?((x.restaurant_reopen_time?('<b>Réouverture restaurant :</b> '+x.restaurant_reopen_time+'<br>'):'')+'<b>Commandes :</b> '+x.resume_date+' à '+x.resume_time+(x.service_end_time?('<br><b>Fin service :</b> '+x.service_end_time):'')):'À définir';return '<div class="planning-row"><div class="planning-cell"><div class="planning-title">'+x.name+'</div><div><b>Entrée :</b> '+x.entry_date+' à '+x.entry_time+'</div><div><b>Sortie :</b> '+x.exit_date+' à '+x.exit_time+'</div><span class="badge">Deliveroo : '+x.deliveroo_rule+'</span><span class="badge">Uber Eats : '+x.uber_rule+'</span></div><div class="planning-cell">'+close+'</div><div class="planning-cell">'+resume+'</div></div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
 
