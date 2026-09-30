@@ -300,10 +300,10 @@ def register_religious_calendar_phase6(app, db):
                 used_havdalah.add(end_index)
             covered_until = end
 
-        now = datetime.now(TZ)
+        today = datetime.now(TZ).date()
         periods = [
             p for p in periods
-            if datetime.fromisoformat(p["exit_at"]).astimezone(TZ) >= now
+            if datetime.fromisoformat(p["exit_at"]).astimezone(TZ).date() >= today
         ]
         return periods
 
