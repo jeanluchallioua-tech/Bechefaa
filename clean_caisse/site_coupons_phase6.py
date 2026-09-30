@@ -57,6 +57,8 @@ def register_site_coupons_phase6(app, db):
         if value<=0 or minimum<0:return jsonify({"ok":False,"error":"Valeurs invalides"}),400
         if dtype=="PERCENT" and value>100:return jsonify({"ok":False,"error":"La remise en pourcentage ne peut pas dépasser 100 %"}),400
         starts_at=p.get("starts_at") or None;ends_at=p.get("ends_at") or None;active=bool(p.get("active",True))
+        if starts_at and ends_at and str(ends_at) <= str(starts_at):
+            return jsonify({"ok":False,"error":"La date de fin doit être postérieure à la date de début"}),400
         cid=p.get("id")
         try:
             with db() as conn:
