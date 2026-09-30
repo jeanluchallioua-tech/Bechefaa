@@ -283,6 +283,49 @@ def register_deliveroo_sandbox_phase6(app, db):
             "Deliveroo sandbox webhook verified kind=%s event=%s guid=%s payload_type=%s version=%s",
             kind,event,guid,payload_type,version
         )
+
+        if kind=="orders" and event.strip().lower()=="order.new":
+            try:
+                body=payload.get("body") if isinstance(payload,dict) else {}
+                body=body if isinstance(body,dict) else {}
+                safe_summary={
+                    "top_keys": sorted(list(payload.keys())) if isinstance(payload,dict) else [],
+                    "body_keys": sorted(list(body.keys())),
+                }
+
+                def _collect(node, path="body", depth=0):
+                    found=[]
+                    if depth>5:
+                        return found
+                    if isinstance(node,list):
+                        if node and all(isinstance(x,dict) for x in node[:5]):
+                            sample=[]
+                            for x in node[:5]:
+                                sample.append({
+                                    k:x.get(k) for k in x.keys()
+                                    if str(k).lower() in {
+                                        "id","item_id","product_id","plu","name","item_name","product_name",
+                                        "quantity","qty","price","unit_price","total_price","options",
+                                        "modifiers","extras","sub_items"
+                                    }
+                                })
+                            if sample:
+                                found.append({"path":path,"sample":sample})
+                        for i,x in enumerate(node[:3]):
+                            found.extend(_collect(x,path+"["+str(i)+"]",depth+1))
+                    elif isinstance(node,dict):
+                        for k,v in node.items():
+                            found.extend(_collect(v,path+"."+str(k),depth+1))
+                    return found
+
+                safe_summary["item_like_nodes"]=_collect(body)
+                app.logger.info(
+                    "DELIVEROO_ORDER_NEW_SAFE %s",
+                    json.dumps(safe_summary,ensure_ascii=False)[:12000]
+                )
+            except Exception as exc:
+                app.logger.exception("Deliveroo safe payload summary failed: %s",exc)
+
         return Response(status=200)
 
     @app.post("/api/deliveroo/webhooks/orders")
