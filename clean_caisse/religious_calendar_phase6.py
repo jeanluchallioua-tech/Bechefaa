@@ -202,12 +202,26 @@ def register_religious_calendar_phase6(app, db):
                 return None
         return None
 
+    def _simplify_holiday_title(title):
+        raw = str(title or "").strip()
+        low = raw.lower()
+        if "pesach" in low or "pessa" in low or "pessah" in low:
+            # Hebcal distingue plusieurs jours; pour l'exploitation on garde
+            # uniquement les deux blocs de fermeture de Pessa'h.
+            if any(token in low for token in ("vii", "viii", "7", "8", "seventh", "eighth")):
+                return "Pessa’h 2"
+            return "Pessa’h 1"
+        return raw
+
     def _operational_periods(events):
         """Transforme les événements Hebcal en périodes lisibles pour le restaurant."""
         rows = [dict(x) for x in events]
         rows.sort(key=lambda x: x.get("starts_at") or datetime.max.replace(tzinfo=TZ))
 
-        hidden_titles = ("Rosh Chodesh", "Roch H", "Hanukkah", "Chanukah", "Hanoucca", "H̲anoucca")
+        hidden_titles = (
+            "Rosh Chodesh", "Roch H", "Hanukkah", "Chanukah", "Hanoucca", "H̲anoucca",
+            "Yom HaAliyah", "Yom Ha’Alyah", "Yom Ha'Aliyah", "Yom ha’Alyah", "Yom ha'Aliyah"
+        )
         candles = [x for x in rows if str(x.get("category") or "") == "candles" and x.get("starts_at")]
         havdalahs = [x for x in rows if str(x.get("category") or "") == "havdalah" and x.get("starts_at")]
         holidays = [
@@ -241,7 +255,7 @@ def register_religious_calendar_phase6(app, db):
                 hs = h["starts_at"]
                 # Fête datée pendant la période, ou le jour civil suivant l'entrée.
                 if start.date() <= hs.astimezone(TZ).date() <= end.astimezone(TZ).date():
-                    title = str(h.get("title") or "").strip()
+                    title = _simplify_holiday_title(h.get("title"))
                     if title and title not in in_window:
                         in_window.append(title)
 
@@ -278,6 +292,11 @@ def register_religious_calendar_phase6(app, db):
                 used_havdalah.add(end_index)
             covered_until = end
 
+        now = datetime.now(TZ)
+        periods = [
+            p for p in periods
+            if datetime.fromisoformat(p["exit_at"]).astimezone(TZ) >= now
+        ]
         return periods
 
     def active_site_closure(now=None):
