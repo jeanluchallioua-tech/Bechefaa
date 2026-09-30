@@ -171,17 +171,48 @@ def register_religious_calendar_phase6(app, db):
         return local.replace(minute=minute)
 
     def _pre_shabbat_closure(start_dt):
-        # Règle BÉCHÉFAA : fermeture 2h30 avant l'entrée,
-        # puis arrondi à la demi-heure inférieure.
+        # Règle BÉCHÉFAA :
+        # 1) calcul religieux = entrée - 2h30, arrondi à la demi-heure inférieure ;
+        # 2) ne jamais dépasser la fermeture habituelle du dernier service avant l'entrée ;
+        # 3) dernière commande = 30 min avant la fermeture retenue.
         local_start = start_dt.astimezone(TZ)
-        close_dt = _floor_half_hour(local_start - timedelta(hours=2, minutes=30))
+        special_close = _floor_half_hour(local_start - timedelta(hours=2, minutes=30))
+
+        cfg = _site_hours_config() or {}
+        days = cfg.get("days") or {}
+        day_keys = ("monday","tuesday","wednesday","thursday","friday","saturday","sunday")
+        day_cfg = days.get(day_keys[local_start.weekday()]) or {}
+        normal_close = None
+
+        event_minutes = local_start.hour * 60 + local_start.minute
+        for pair in (day_cfg.get("slots") or []):
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            try:
+                sh, sm = map(int, str(pair[0]).split(":"))
+                eh, em = map(int, str(pair[1]).split(":"))
+            except Exception:
+                continue
+            start_minutes = sh * 60 + sm
+            end_minutes = eh * 60 + em
+            if start_minutes < event_minutes and end_minutes <= event_minutes:
+                candidate = local_start.replace(hour=eh, minute=em, second=0, microsecond=0)
+                if normal_close is None or candidate > normal_close:
+                    normal_close = candidate
+
+        close_dt = special_close
+        if normal_close is not None and normal_close < close_dt:
+            close_dt = normal_close
+
         last_order_dt = close_dt - timedelta(minutes=30)
         return {
             "restaurant_closes": close_dt.strftime("%H:%M"),
             "last_order": last_order_dt.strftime("%H:%M"),
             "cutoff_minutes": 30,
             "holiday_entry": local_start.strftime("%H:%M"),
-            "rule": "ENTRY_MINUS_2H30_FLOOR_HALF_HOUR",
+            "normal_close": normal_close.strftime("%H:%M") if normal_close else None,
+            "special_close": special_close.strftime("%H:%M"),
+            "rule": "EARLIEST_OF_NORMAL_OR_ENTRY_MINUS_2H30",
         }
 
     def _service_rule_preview(event_row):
