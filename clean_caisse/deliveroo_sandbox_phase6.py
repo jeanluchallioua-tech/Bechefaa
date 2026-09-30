@@ -40,6 +40,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_status TEXT")
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_http_status INTEGER")
                 cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS sync_error TEXT")
+                cur.execute("ALTER TABLE deliveroo_webhook_diag ADD COLUMN IF NOT EXISTS safe_summary JSONB")
             conn.commit()
 
     def _persist_diag(kind, accepted=None, error=None, event=None, guid=None, payload_type=None, version=None):
@@ -323,6 +324,16 @@ def register_deliveroo_sandbox_phase6(app, db):
                     "DELIVEROO_ORDER_NEW_SAFE %s",
                     json.dumps(safe_summary,ensure_ascii=False)[:12000]
                 )
+                try:
+                    with db() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE deliveroo_webhook_diag SET safe_summary=%s::jsonb WHERE kind='orders'",
+                                (json.dumps(safe_summary,ensure_ascii=False),)
+                            )
+                        conn.commit()
+                except Exception as exc:
+                    app.logger.exception("Deliveroo safe summary persistence failed: %s",exc)
             except Exception as exc:
                 app.logger.exception("Deliveroo safe payload summary failed: %s",exc)
 
@@ -345,7 +356,7 @@ def register_deliveroo_sandbox_phase6(app, db):
             _ensure_diag_table()
             with db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version, order_id, accepted_in_status_log, sync_status, sync_http_status, sync_error FROM deliveroo_webhook_diag")
+                    cur.execute("SELECT kind, received_at, accepted, error, event, sequence_guid, payload_type, webhook_version, order_id, accepted_in_status_log, sync_status, sync_http_status, sync_error, safe_summary FROM deliveroo_webhook_diag")
                     for row in cur.fetchall():
                         persisted[row["kind"]]={
                             "received_at": row["received_at"].isoformat() if row.get("received_at") else None,
@@ -360,6 +371,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                             "sync_status": row.get("sync_status"),
                             "sync_http_status": row.get("sync_http_status"),
                             "sync_error": row.get("sync_error"),
+                            "safe_summary": row.get("safe_summary"),
                         }
         except Exception as exc:
             persisted={"diagnostic_error":str(exc)[:200]}
