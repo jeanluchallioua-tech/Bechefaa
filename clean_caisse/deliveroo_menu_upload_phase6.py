@@ -101,11 +101,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "response":brand_data,
                 }),502
 
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({
                     "ok":False,
@@ -166,11 +170,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
@@ -238,11 +246,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
@@ -312,11 +324,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
@@ -369,11 +385,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
@@ -431,11 +451,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
@@ -528,11 +552,15 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"brand_lookup","http_status":brand_status,
                     "response":brand_data
                 }),502
-            brand_id=str(
+            raw_brand_id=(
                 brand_data.get("brand_id")
+                or brand_data.get("brand_ids")
                 or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
                 or ""
-            ).strip()
+            )
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            brand_id=str(raw_brand_id or "").strip()
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
