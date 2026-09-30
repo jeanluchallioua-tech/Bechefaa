@@ -472,6 +472,7 @@ def build_deliveroo_menu_preview(db):
                 "id": "all-day",
                 "name": {"fr": "Toute la journée"},
                 "description": {"fr": "Menu BÉCHÉFAA"},
+                "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo/1"},
                 "category_ids": [cat["id"] for cat in categories],
                 "schedule": [],
             }],
