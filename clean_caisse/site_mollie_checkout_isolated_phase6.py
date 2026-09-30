@@ -9,6 +9,7 @@ Le flux historique POST /api/public/orders reste inchangé.
 from flask import jsonify, request
 
 from clean_caisse.mollie_payments_isolated_phase6 import _site_enabled
+from clean_caisse.site_coupons_phase6 import apply_coupon_to_order
 from clean_caisse.site_orders_bridge_isolated_phase6 import (
     map_site_order_payload,
     _apply_server_catalog_prices,
@@ -73,6 +74,17 @@ def register_site_mollie_checkout_isolated_phase6(app):
             _persist_site_options_text(order_id, internal.get("items") or [])
         except Exception as exc:
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
+
+        coupon_code=str(external.get("coupon_code") or "").strip()
+        if coupon_code:
+            try:
+                quote=apply_coupon_to_order(__import__("clean_caisse.app",fromlist=["db"]).db,order_id,coupon_code)
+                data["coupon"]=quote
+                data["total"]=quote["total"]
+            except ValueError as exc:
+                return jsonify({"ok":False,"error":str(exc)}),409
+            except Exception as exc:
+                return jsonify({"ok":False,"error":"Application du coupon impossible","detail":str(exc)}),500
 
         # Important : aucun envoi cuisine ici. La commande reste Enregistrée tant
         # que Mollie n'a pas confirmé le paiement côté serveur.
