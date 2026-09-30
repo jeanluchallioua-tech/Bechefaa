@@ -10,6 +10,7 @@ Aucune fermeture n'est activée automatiquement lors d'un import Hebcal.
 import json
 import urllib.parse
 import urllib.request
+import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -202,6 +203,11 @@ def register_religious_calendar_phase6(app, db):
                 return None
         return None
 
+    def _fold_text(value):
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        return text.lower()
+
     def _simplify_holiday_title(title):
         raw = str(title or "").strip()
         low = raw.lower()
@@ -229,7 +235,8 @@ def register_religious_calendar_phase6(app, db):
             x for x in rows
             if str(x.get("category") or "") == "holiday"
             and x.get("starts_at")
-            and not any(h.lower() in str(x.get("title") or "").lower() for h in hidden_titles)
+            and not any(_fold_text(h) in _fold_text(x.get("title") or "") for h in hidden_titles)
+            and not any(token in _fold_text(x.get("title") or "") for token in ("hanoukah","hanukkah","chanukah","hanoucca"))
         ]
 
         periods = []
