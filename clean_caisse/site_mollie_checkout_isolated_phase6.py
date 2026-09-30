@@ -88,7 +88,7 @@ def register_site_mollie_checkout_isolated_phase6(app):
         except Exception as exc:
             data["options_warning"] = "Affichage des options à vérifier : " + str(exc)
 
-                if coupon_code:
+        if coupon_code:
             try:
                 quote=apply_coupon_to_order(__import__("clean_caisse.app",fromlist=["db"]).db,order_id,coupon_code)
                 data["coupon"]=quote
