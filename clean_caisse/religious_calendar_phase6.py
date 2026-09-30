@@ -10,7 +10,7 @@ Aucune fermeture n'est activée automatiquement lors d'un import Hebcal.
 import json
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from flask import Response, jsonify, request
@@ -136,6 +136,64 @@ def register_religious_calendar_phase6(app, db):
                     ))
         return len(kept), data.get("location") if isinstance(data, dict) else None
 
+    def _site_hours_config():
+        try:
+            with db() as conn:
+                row = conn.execute(
+                    "SELECT config_json FROM caisse_site_order_hours WHERE id=1"
+                ).fetchone()
+            if not row:
+                return None
+            raw = row["config_json"]
+            return raw if isinstance(raw, dict) else json.loads(raw)
+        except Exception:
+            return None
+
+    def _service_rule_preview(event_row):
+        starts_at = event_row.get("starts_at")
+        category = str(event_row.get("category") or "")
+        if category != "candles" or not starts_at:
+            return None
+
+        local_start = starts_at.astimezone(TZ)
+        cfg = _site_hours_config() or {}
+        day_keys = ("monday","tuesday","wednesday","thursday","friday","saturday","sunday")
+        day_key = day_keys[local_start.weekday()]
+        day_cfg = (cfg.get("days") or {}).get(day_key) or {}
+        slots = day_cfg.get("slots") or []
+        cutoff = int(cfg.get("cutoff_minutes", 30) or 30)
+
+        if len(slots) >= 2:
+            lunch_end = str(slots[0][1])
+            evening_start = str(slots[1][0])
+            evening_end = str(slots[1][1])
+            try:
+                eh, em = map(int, evening_end.split(":"))
+                event_minutes = local_start.hour * 60 + local_start.minute
+                evening_end_minutes = eh * 60 + em
+                if event_minutes <= evening_end_minutes:
+                    close_dt = local_start.replace(
+                        hour=int(lunch_end[:2]), minute=int(lunch_end[3:5]),
+                        second=0, microsecond=0
+                    )
+                    last_order_dt = close_dt - timedelta(minutes=cutoff)
+                    return {
+                        "rule": "SUPPRESS_EVENING_SERVICE",
+                        "holiday_entry": local_start.strftime("%H:%M"),
+                        "usual_evening_service": f"{evening_start}–{evening_end}",
+                        "restaurant_closes": close_dt.strftime("%H:%M"),
+                        "last_order": last_order_dt.strftime("%H:%M"),
+                        "cutoff_minutes": cutoff,
+                        "explanation": (
+                            f"Entrée de fête à {local_start.strftime('%H:%M')} : "
+                            f"service du soir supprimé. Fermeture à {close_dt.strftime('%H:%M')}, "
+                            f"dernière commande à {last_order_dt.strftime('%H:%M')}."
+                        ),
+                    }
+            except Exception:
+                return None
+        return None
+
     def active_site_closure(now=None):
         now = now or datetime.now(TZ)
         try:
@@ -194,6 +252,7 @@ def register_religious_calendar_phase6(app, db):
             "events": [{
                 **dict(x),
                 "starts_at": x["starts_at"].isoformat() if x.get("starts_at") else None,
+                "service_rule_preview": _service_rule_preview(dict(x)),
             } for x in events],
             "closures": [{
                 **dict(x),
@@ -263,7 +322,7 @@ def register_religious_calendar_phase6(app, db):
 <div class="box"><h2>Fermetures validées</h2><div id="closures"></div></div>
 </div><script>
 const $=id=>document.getElementById(id);
-async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('events').innerHTML=(d.events||[]).map(x=>'<div class="row"><b>'+x.title+'</b> — '+(x.starts_at||'date entière')+' <span class="muted">'+x.category+'</span></div>').join('')||'Aucun événement importé.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • Uber '+x.uber_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
+async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('events').innerHTML=(d.events||[]).map(x=>{let p=x.service_rule_preview;let rule=p?('<br><b>Décision auto :</b> service du soir supprimé • fermeture '+p.restaurant_closes+' • dernière commande '+p.last_order):'';return '<div class="row"><b>'+x.title+'</b> — '+(x.starts_at||'date entière')+' <span class="muted">'+x.category+'</span>'+rule+'</div>'}).join('')||'Aucun événement importé.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • Uber '+x.uber_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
 
