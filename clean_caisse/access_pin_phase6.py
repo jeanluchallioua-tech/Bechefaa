@@ -28,6 +28,7 @@ _PUBLIC_EXACT = {
     "/api/health",
     "/api/deliveroo/status-phase6",
     "/api/deliveroo/webhooks/status-phase6",
+    "/api/deliveroo/menu-preview-phase6",
     "/favicon.ico",
     "/robots.txt",
     "/auth/pin",
