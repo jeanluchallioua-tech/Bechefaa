@@ -82,10 +82,14 @@ def register_religious_calendar_phase6(app, db):
 
     def parse_dt(value):
         text = str(value or "").strip()
-        if not text or "T" not in text:
+        if not text:
             return None
         try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if "T" in text:
+                return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            # Les fêtes Hebcal peuvent être renvoyées comme simple date YYYY-MM-DD.
+            # On les positionne à midi local pour préserver correctement le jour civil.
+            return datetime.fromisoformat(text).replace(hour=12, tzinfo=TZ)
         except Exception:
             return None
 
@@ -215,8 +219,11 @@ def register_religious_calendar_phase6(app, db):
 
         periods = []
         used_havdalah = set()
+        covered_until = None
         for candle in candles:
             start = candle["starts_at"]
+            if covered_until and start <= covered_until:
+                continue
             end = None
             end_index = None
             for idx, hv in enumerate(havdalahs):
@@ -269,6 +276,7 @@ def register_religious_calendar_phase6(app, db):
             })
             if end_index is not None:
                 used_havdalah.add(end_index)
+            covered_until = end
 
         return periods
 
