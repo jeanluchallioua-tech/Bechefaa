@@ -344,15 +344,12 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "response":current
                 }),502
 
-            unavailable=list(current.get("unavailable_ids") or []) if isinstance(current,dict) else []
-            hidden=list(current.get("hidden_ids") or []) if isinstance(current,dict) else []
-
-            if "whole_milk" not in unavailable:
-                unavailable.append("whole_milk")
-
+            # Scenario 9 attend exactement le remplacement complet suivant.
+            # Le GET est conservé car Deliveroo recommande de lire l'état courant
+            # avant un PUT de remplacement global.
             put_payload={
-                "unavailable_ids":unavailable,
-                "hidden_ids":hidden,
+                "unavailable_ids":["orange_juice","granola"],
+                "hidden_ids":["whole_milk"],
             }
             put_status,put_response=_api_json(url,token,method="PUT",payload=put_payload)
             ok=200 <= put_status < 300
