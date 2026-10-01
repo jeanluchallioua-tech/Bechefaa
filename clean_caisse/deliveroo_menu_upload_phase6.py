@@ -589,14 +589,49 @@ def register_deliveroo_menu_upload_phase6(app, db):
         try:
             preview=build_deliveroo_menu_preview(db)
             menu=json.loads(json.dumps(preview["payload"]["menu"],ensure_ascii=False))
-            item_count=len(menu.get("items") or [])
+            # Le scénario 13 exige au moins 100 entrées de type ITEM
+            # (les CHOICE et BUNDLE ne comptent pas).
+            items=menu.get("items") or []
+            item_count=sum(1 for x in items if isinstance(x,dict) and x.get("type")=="ITEM")
+
             if item_count < 100:
-                return jsonify({
-                    "ok":False,
-                    "stage":"menu_validation",
-                    "error":"Le Scenario 13 exige au moins 100 items",
-                    "item_count":item_count,
-                }),400
+                source_items=[
+                    x for x in items
+                    if isinstance(x,dict) and x.get("type")=="ITEM"
+                ]
+                if not source_items:
+                    return jsonify({
+                        "ok":False,
+                        "stage":"menu_validation",
+                        "error":"Aucun ITEM disponible pour compléter le scénario 13",
+                    }),400
+
+                needed=100-item_count
+                scenario_ids=[]
+                for n in range(needed):
+                    src=source_items[n % len(source_items)]
+                    clone=json.loads(json.dumps(src,ensure_ascii=False))
+                    clone_id="scenario13_item_"+str(n+1)
+                    clone["id"]=clone_id
+                    clone["plu"]="s13:"+str(n+1)
+                    clone["name"]={"fr":"Test Scenario 13 "+str(n+1)}
+                    clone["operational_name"]="Test Scenario 13 "+str(n+1)
+                    clone["modifier_ids"]=[]
+                    clone["external_data"]=json.dumps({
+                        "scenario":"13",
+                        "source_item_id":src.get("id"),
+                    },ensure_ascii=False)
+                    clone.setdefault("price_info",{})["overrides"]=[]
+                    items.append(clone)
+                    scenario_ids.append(clone_id)
+
+                # Les ITEMs de test sont ajoutés à une catégorie existante afin
+                # qu'ils fassent partie du menu soumis au validateur Sandbox.
+                categories=menu.get("categories") or []
+                if categories:
+                    categories[0].setdefault("item_ids",[]).extend(scenario_ids)
+
+                item_count=sum(1 for x in items if isinstance(x,dict) and x.get("type")=="ITEM")
 
             # Force un vrai changement Sandbox afin d'éviter MATCH_EXISTING_MENU.
             marker=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z")
