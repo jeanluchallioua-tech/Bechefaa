@@ -344,12 +344,11 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "response":current
                 }),502
 
-            # Scenario 9 attend exactement le remplacement complet suivant.
-            # Le GET est conservé car Deliveroo recommande de lire l'état courant
-            # avant un PUT de remplacement global.
+            # Scenario 9 : remplacement complet attendu par le test.
+            # orange_juice et whole_milk sont indisponibles ; granola est masqué.
             put_payload={
-                "unavailable_ids":["orange_juice","granola"],
-                "hidden_ids":["whole_milk"],
+                "unavailable_ids":["orange_juice","whole_milk"],
+                "hidden_ids":["granola"],
             }
             put_status,put_response=_api_json(url,token,method="PUT",payload=put_payload)
             ok=200 <= put_status < 300
