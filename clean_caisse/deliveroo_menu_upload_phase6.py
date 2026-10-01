@@ -1206,7 +1206,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "job_status_http_status":status,
                 "response":response,
                 "poll_attempts":attempts,
-                "fallback_used":fallback_used,
             }),200 if ok else 502
         except Exception as exc:
             return jsonify({
