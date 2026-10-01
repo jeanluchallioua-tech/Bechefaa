@@ -1156,8 +1156,24 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
                 +"/jobs/"+urllib.parse.quote(job_id,safe="")
             )
-            status,response=_api_json(job_url,token,method="GET")
-            ok=200 <= status < 300
+            # Le job peut être renvoyé immédiatement avec status="new".
+            # Poller le même job jusqu'à un état terminal ou jusqu'au timeout,
+            # conformément au flux V3 Deliveroo.
+            status=None
+            response={}
+            attempts=[]
+            terminal_statuses={"completed","complete","succeeded","success","failed","error","cancelled","canceled"}
+            for attempt in range(12):
+                status,response=_api_json(job_url,token,method="GET")
+                job_state=str((response or {}).get("status") or "").strip().lower() if isinstance(response,dict) else ""
+                attempts.append({"attempt":attempt+1,"http_status":status,"status":job_state})
+                if not 200 <= status < 300:
+                    break
+                if job_state in terminal_statuses:
+                    break
+                time.sleep(5)
+
+            ok=bool(status is not None and 200 <= status < 300)
 
             return jsonify({
                 "ok":ok,
@@ -1168,6 +1184,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "create_job_http_status":create_status,
                 "job_status_http_status":status,
                 "response":response,
+                "poll_attempts":attempts,
                 "fallback_used":fallback_used,
             }),200 if ok else 502
         except Exception as exc:
