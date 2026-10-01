@@ -1609,6 +1609,8 @@ def register_deliveroo_menu_upload_phase6(app, db):
             # déduit du dernier upload S3 associé au brand/menu.
             job_payload={"action":"publish_menu_to_live"}
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+            primary_job_status=job_status
+            primary_job_response=job_response
 
             # Compatibilité défensive : si une variante Sandbox exige explicitement
             # params.menu_id, ne l'utiliser qu'en secours après rejet 400.
@@ -1651,6 +1653,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "job_id":job_id,
                 "job_payload":job_payload,
                 "job_response":job_response,
+                "fallback_used":fallback_used,
+                "primary_job_http_status":primary_job_status,
+                "primary_job_response":primary_job_response,
                 "webhook_expected":"menu.upload_result",
                 "next":"Attendre le webhook de résultat Deliveroo"
             }),200 if ok else 502
