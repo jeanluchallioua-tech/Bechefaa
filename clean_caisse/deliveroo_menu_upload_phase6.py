@@ -254,7 +254,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "error":"Scenario 5 Deliveroo impossible","detail":str(exc)
             }),500
 
-        @app.post("/api/deliveroo/scenario8-unavailabilities-phase6")
+    @app.post("/api/deliveroo/scenario8-unavailabilities-phase6")
     def deliveroo_scenario8_unavailabilities_phase6():
         payload=request.get_json(silent=True) or {}
         site_id=str(payload.get("site_id") or "").strip()
