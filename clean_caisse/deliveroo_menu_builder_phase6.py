@@ -417,7 +417,7 @@ def build_deliveroo_menu_preview(db):
             {
                 "id": bundle_main_mod,
                 "name": {"fr": "Sandwich"},
-                "description": {"fr": ""},
+                "description": {"fr": "Choisissez le sandwich de la formule."},
                 "item_ids": ["item_42"],
                 "min_selection": 1,
                 "max_selection": 1,
@@ -427,7 +427,7 @@ def build_deliveroo_menu_preview(db):
             {
                 "id": bundle_side_mod,
                 "name": {"fr": "Accompagnement"},
-                "description": {"fr": ""},
+                "description": {"fr": "Choisissez l’accompagnement de la formule."},
                 "item_ids": ["item_63"],
                 "min_selection": 1,
                 "max_selection": 1,
@@ -437,7 +437,7 @@ def build_deliveroo_menu_preview(db):
             {
                 "id": bundle_drink_mod,
                 "name": {"fr": "Boisson"},
-                "description": {"fr": ""},
+                "description": {"fr": "Choisissez la boisson de la formule."},
                 "item_ids": [
                     x for x in (
                         "item_68", "item_70", "item_71", "item_72",
