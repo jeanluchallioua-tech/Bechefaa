@@ -669,20 +669,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
         if not site_id or not menu_id:
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
-            preview=build_deliveroo_menu_preview(db)
-            real_items=[
-                x for x in (preview.get("payload",{}).get("menu",{}).get("items") or [])
-                if isinstance(x,dict)
-                and x.get("id")
-                and x.get("type") in ("ITEM","BUNDLE")
-            ]
-            if not real_items:
-                return jsonify({"ok":False,"stage":"scenario12","error":"Aucun item réel dans le menu Deliveroo"}),500
-            # Utilise un ID réellement présent dans le menu BÉCHÉFAA.
-            # Le POST Deliveroo échoue intégralement si l'item_id n'existe pas.
-            target_item_id=str(real_items[0]["id"])
-            target_item_name=str(((real_items[0].get("name") or {}).get("fr")) or target_item_id)
-
             token=_oauth_token()
             api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
             brand_status,brand_data=_api_json(
@@ -712,7 +698,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
             )
             post_payload={"item_unavailabilities":[
-                {"item_id":target_item_id,"status":"unavailable"},
+                {"item_id":"whole_milk","status":"unavailable"},
             ]}
             post_status,post_response=_api_json(url,token,method="POST",payload=post_payload)
             ok=200 <= post_status < 300
@@ -722,10 +708,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "site_id":site_id,
                 "menu_id":menu_id,
                 "post":{"http_status":post_status,"payload":post_payload,"response":post_response},
-                "target_item":{"id":target_item_id,"name":target_item_name},
-                "purpose":"POST valide après minuit afin d'empêcher le morning stock reset",
                 "expected_final_state":{
-                    target_item_id:"unavailable"
+                    "orange_juice":"unavailable",
+                    "whole_milk":"unavailable",
+                    "granola":"available"
                 }
             }),200 if ok else 502
         except Exception as exc:
@@ -755,7 +741,27 @@ def register_deliveroo_menu_upload_phase6(app, db):
             brand_id=str(raw_brand_id or "").strip()
             url=api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")+"/menus/"+urllib.parse.quote(menu_id,safe="")+"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
             status,response=_api_json(url,token,method="GET")
-            return jsonify({"ok":200 <= status < 300,"read_only":True,"http_status":status,"state":response}),200 if 200 <= status < 300 else 502
+
+            menu_url=api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")+"/menus/"+urllib.parse.quote(menu_id,safe="")
+            menu_status,menu_response=_api_json(menu_url,token,method="GET")
+            items=[]
+            if isinstance(menu_response,dict):
+                items=((menu_response.get("menu") or {}).get("items") or [])
+            item_ids={
+                str(x.get("id")) for x in items
+                if isinstance(x,dict) and x.get("id") is not None
+            }
+            test_ids=["orange_juice","granola","whole_milk"]
+            return jsonify({
+                "ok":200 <= status < 300 and 200 <= menu_status < 300,
+                "read_only":True,
+                "http_status":status,
+                "state":response,
+                "menu_http_status":menu_status,
+                "menu_item_count":len(items),
+                "test_menu_presence":{item_id:(item_id in item_ids) for item_id in test_ids},
+                "test_menu_ready":all(item_id in item_ids for item_id in test_ids)
+            }),200 if (200 <= status < 300 and 200 <= menu_status < 300) else 502
         except Exception as exc:
             return jsonify({"ok":False,"stage":"scenario12_state","detail":str(exc)}),500
 
