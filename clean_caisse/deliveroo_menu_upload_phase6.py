@@ -904,6 +904,21 @@ def register_deliveroo_menu_upload_phase6(app, db):
             body=exc.read().decode("utf-8","replace")
             return int(exc.code),body[:1000]
 
+    def _scenario15_state_table():
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS deliveroo_scenario15_state (
+                        site_id TEXT NOT NULL,
+                        menu_id TEXT NOT NULL,
+                        brand_id TEXT NOT NULL,
+                        job_id TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY(site_id, menu_id)
+                    )
+                """)
+            conn.commit()
+
     @app.post("/api/deliveroo/scenario15-v3-async-upload-phase6")
     def deliveroo_scenario15_v3_async_upload_phase6():
         payload=request.get_json(silent=True) or {}
@@ -1034,6 +1049,20 @@ def register_deliveroo_menu_upload_phase6(app, db):
             if isinstance(job_response,dict):
                 job_id=job_response.get("job_id") or job_response.get("id")
 
+            if 200 <= job_status < 300 and job_id:
+                _scenario15_state_table()
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO deliveroo_scenario15_state(site_id,menu_id,brand_id,job_id)
+                            VALUES (%s,%s,%s,%s)
+                            ON CONFLICT(site_id,menu_id) DO UPDATE SET
+                                brand_id=EXCLUDED.brand_id,
+                                job_id=EXCLUDED.job_id,
+                                created_at=NOW()
+                        """,(site_id,menu_id,brand_id,str(job_id)))
+                    conn.commit()
+
             return jsonify({
                 "ok":ok,
                 "site_id":site_id,
@@ -1045,7 +1074,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "job_id":job_id,
                 "job_payload":job_payload,
                 "job_response":job_response,
-                "fallback_used":fallback_used,
                 "webhook_expected":"menu.upload_result",
                 "next":"Attendre le webhook de résultat Deliveroo"
             }),200 if ok else 502
@@ -1113,44 +1141,38 @@ def register_deliveroo_menu_upload_phase6(app, db):
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
-            # Scenario 16 valide GET /jobs/{job_id}. Pour disposer d'un job_id
-            # certain, on crée un nouveau job V3 à partir du menu déjà uploadé
-            # au même menu_id, puis on interroge immédiatement son statut.
-            jobs_url=(
-                api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
-            )
-            job_payload={
-                "action":"publish_menu_to_live",
-                "params":{"menu_id":menu_id},
-            }
-            create_status,create_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
-            fallback_used=False
-            if create_status==400:
-                fallback_used=True
-                job_payload={"action":"publish_menu_to_live"}
-                create_status,create_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+            # Scenario 16 doit interroger le job réellement créé au scénario 15.
+            # Ne pas créer un nouveau job ici, sinon le validateur du portail voit
+            # une séquence différente de celle qu'il attend.
+            _scenario15_state_table()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT brand_id, job_id, created_at
+                        FROM deliveroo_scenario15_state
+                        WHERE site_id=%s AND menu_id=%s
+                    """,(site_id,menu_id))
+                    state=cur.fetchone()
 
-            if not 200 <= create_status < 300:
+            if not state:
                 return jsonify({
                     "ok":False,
-                    "stage":"create_job",
-                    "brand_id":brand_id,
-                    "menu_id":menu_id,
-                    "http_status":create_status,
-                    "response":create_response,
-                    "fallback_used":fallback_used,
-                }),502
+                    "stage":"job_id",
+                    "error":"Aucun job Scenario 15 enregistré pour ce site/menu"
+                }),409
 
-            job_id=_find_job_id(create_response)
+            stored_brand_id=str(state.get("brand_id") or "").strip()
+            job_id=str(state.get("job_id") or "").strip()
             if not job_id:
                 return jsonify({
                     "ok":False,
                     "stage":"job_id",
-                    "error":"job_id absent de la réponse de création du job",
-                    "brand_id":brand_id,
-                    "menu_id":menu_id,
-                    "create_response":create_response,
-                }),502
+                    "error":"job_id Scenario 15 absent"
+                }),409
+
+            # Le brand_id relu du scénario 15 doit correspondre à celui du site.
+            if stored_brand_id:
+                brand_id=stored_brand_id
 
             job_url=(
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
@@ -1181,7 +1203,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "brand_id":brand_id,
                 "menu_id":menu_id,
                 "job_id":job_id,
-                "create_job_http_status":create_status,
                 "job_status_http_status":status,
                 "response":response,
                 "poll_attempts":attempts,
