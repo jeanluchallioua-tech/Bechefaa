@@ -669,6 +669,20 @@ def register_deliveroo_menu_upload_phase6(app, db):
         if not site_id or not menu_id:
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
+            preview=build_deliveroo_menu_preview(db)
+            real_items=[
+                x for x in (preview.get("payload",{}).get("menu",{}).get("items") or [])
+                if isinstance(x,dict)
+                and x.get("id")
+                and x.get("type") in ("ITEM","BUNDLE")
+            ]
+            if not real_items:
+                return jsonify({"ok":False,"stage":"scenario12","error":"Aucun item réel dans le menu Deliveroo"}),500
+            # Utilise un ID réellement présent dans le menu BÉCHÉFAA.
+            # Le POST Deliveroo échoue intégralement si l'item_id n'existe pas.
+            target_item_id=str(real_items[0]["id"])
+            target_item_name=str(((real_items[0].get("name") or {}).get("fr")) or target_item_id)
+
             token=_oauth_token()
             api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
             brand_status,brand_data=_api_json(
@@ -698,7 +712,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
             )
             post_payload={"item_unavailabilities":[
-                {"item_id":"whole_milk","status":"unavailable"},
+                {"item_id":target_item_id,"status":"unavailable"},
             ]}
             post_status,post_response=_api_json(url,token,method="POST",payload=post_payload)
             ok=200 <= post_status < 300
@@ -708,10 +722,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "site_id":site_id,
                 "menu_id":menu_id,
                 "post":{"http_status":post_status,"payload":post_payload,"response":post_response},
+                "target_item":{"id":target_item_id,"name":target_item_name},
+                "purpose":"POST valide après minuit afin d'empêcher le morning stock reset",
                 "expected_final_state":{
-                    "orange_juice":"unavailable",
-                    "whole_milk":"unavailable",
-                    "granola":"available"
+                    target_item_id:"unavailable"
                 }
             }),200 if ok else 502
         except Exception as exc:
