@@ -114,6 +114,91 @@ def _deliveroo_deep_diff(expected, actual, path="$", limit=200):
     return diffs
 
 
+def _deliveroo_compare_by_id(local_menu, remote_menu, limit=300):
+    """Compare les collections Deliveroo par id au lieu de leur position."""
+    result={
+        "items":{"only_bechefaa":[],"only_deliveroo":[],"changed":[]},
+        "modifiers":{"only_bechefaa":[],"only_deliveroo":[],"changed":[]},
+        "categories":{"only_bechefaa":[],"only_deliveroo":[],"changed":[]},
+        "mealtimes":{"only_bechefaa":[],"only_deliveroo":[],"changed":[]},
+        "menu_level":[],
+    }
+
+    def scalar_norm(path, value):
+        if path.endswith(".tax_rate"):
+            try:
+                return str(float(str(value))).rstrip("0").rstrip(".")
+            except Exception:
+                return value
+        return value
+
+    remote_defaults={
+        "highlights","ian","is_eligible_as_replacement",
+        "is_eligible_for_substitution","is_meal_card_not_eligible",
+        "max_quantity","nutritional_info","barcodes","drn_id",
+    }
+
+    def project_remote_to_local(local, remote, path):
+        if isinstance(local,dict) and isinstance(remote,dict):
+            out={}
+            for k,v in local.items():
+                if k in remote:
+                    out[k]=project_remote_to_local(v,remote[k],path+"."+k)
+                else:
+                    out[k]=None
+            return out
+        if isinstance(local,list) and isinstance(remote,list):
+            # Sous-listes d'objets identifiables: comparer par id.
+            if all(isinstance(x,dict) and x.get("id") is not None for x in local+remote if isinstance(x,dict)):
+                rmap={str(x.get("id")):x for x in remote if isinstance(x,dict)}
+                return [
+                    project_remote_to_local(x,rmap.get(str(x.get("id")),{}),path+"["+str(x.get("id"))+"]")
+                    for x in local
+                ]
+            return [project_remote_to_local(a,b,path+"[]") for a,b in zip(local,remote)]
+        return scalar_norm(path,remote)
+
+    def clean_local(value,path):
+        if isinstance(value,dict):
+            return {k:clean_local(v,path+"."+k) for k,v in value.items()}
+        if isinstance(value,list):
+            return [clean_local(v,path+"[]") for v in value]
+        return scalar_norm(path,value)
+
+    for coll in ("items","modifiers","categories","mealtimes"):
+        llist=local_menu.get(coll) or []
+        rlist=remote_menu.get(coll) or []
+        lmap={str(x.get("id")):x for x in llist if isinstance(x,dict) and x.get("id") is not None}
+        rmap={str(x.get("id")):x for x in rlist if isinstance(x,dict) and x.get("id") is not None}
+        result[coll]["only_bechefaa"]=sorted(set(lmap)-set(rmap))
+        result[coll]["only_deliveroo"]=sorted(set(rmap)-set(lmap))
+        for ident in sorted(set(lmap)&set(rmap)):
+            local_obj=clean_local(lmap[ident],"$."+coll+"."+ident)
+            remote_obj=project_remote_to_local(lmap[ident],rmap[ident],"$."+coll+"."+ident)
+            if local_obj != remote_obj:
+                diffs=_deliveroo_deep_diff(local_obj,remote_obj,"$."+coll+"."+ident,limit=40)
+                result[coll]["changed"].append({"id":ident,"differences":diffs})
+                if sum(len(result[c]["changed"]) for c in ("items","modifiers","categories","mealtimes")) >= limit:
+                    break
+
+    for key in ("currency_code","is_pos_integrated"):
+        lv=clean_local(local_menu.get(key),"$.menu."+key)
+        rv=scalar_norm("$.menu."+key,remote_menu.get(key))
+        if lv != rv:
+            result["menu_level"].append({"path":"$.menu."+key,"bechefaa":lv,"deliveroo":rv})
+
+    result["summary"]={
+        coll:{
+            "bechefaa_count":len(local_menu.get(coll) or []),
+            "deliveroo_count":len(remote_menu.get(coll) or []),
+            "only_bechefaa_count":len(result[coll]["only_bechefaa"]),
+            "only_deliveroo_count":len(result[coll]["only_deliveroo"]),
+            "changed_same_id_count":len(result[coll]["changed"]),
+        } for coll in ("items","modifiers","categories","mealtimes")
+    }
+    return result
+
+
 def register_deliveroo_menu_upload_phase6(app, db):
     @app.post("/api/deliveroo/scenario1-fetch-brand-phase6")
     def deliveroo_scenario1_fetch_brand_phase6():
@@ -1366,6 +1451,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "difference_count_returned":len(diffs),
                 "difference_limit":200,
                 "differences":diffs,
+                "semantic_compare_by_id":_deliveroo_compare_by_id(
+                    local_body.get("menu") or {},
+                    remote_compare.get("menu") or {}
+                ),
                 "bechefaa_summary":preview.get("summary"),
                 "remote_top_level_keys":sorted(remote_body.keys()),
                 "note":"Aucun PUT envoyé. GET v1 Deliveroo comparé au payload BÉCHÉFAA sans pos_name."
