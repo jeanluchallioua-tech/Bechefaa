@@ -270,7 +270,7 @@ def build_deliveroo_menu_preview(db):
                     },
                     "modifier_ids": [],
                     "contains_alcohol": False,
-                    "tax_rate": "10.0",
+                    "tax_rate": "10",
                     "allergies": [],
                     "diets": [],
                     "classifications": [],
@@ -352,7 +352,7 @@ def build_deliveroo_menu_preview(db):
             or product.get("description")
             or product.get("desc")
             or ""
-        ).strip()
+        ).strip().replace("\r", "").replace("\n", "")
         photo = str(product.get("photo") or "").strip()
 
         main_item = {
@@ -368,7 +368,7 @@ def build_deliveroo_menu_preview(db):
             },
             "modifier_ids": modifier_ids,
             "contains_alcohol": False,
-            "tax_rate": "10.0",
+            "tax_rate": "10",
             "allergies": [],
             "diets": (
                 ["dairy_free", "vegetarian"] if pos_id in {"21", "23"}
@@ -463,7 +463,6 @@ def build_deliveroo_menu_preview(db):
             child.setdefault("price_info", {}).setdefault("overrides", []).append({
                 "type": "ITEM",
                 "id": "item_2",
-                "context_id": modifier_id,
                 "price": 0,
             })
 
@@ -477,9 +476,16 @@ def build_deliveroo_menu_preview(db):
         # Au moins une option payante dans le bundle, tout en gardant des boissons incluses à 0 €.
         premium_drink = by_id.get("item_70")
         if premium_drink:
-            premium_drink.setdefault("price_info", {}).setdefault("overrides", []).append({
-                "type": "ITEM", "id": "item_2", "context_id": bundle_drink_mod, "price": 100
-            })
+            overrides=premium_drink.setdefault("price_info", {}).setdefault("overrides", [])
+            replaced=False
+            for override in overrides:
+                if override.get("type")=="ITEM" and override.get("id")=="item_2":
+                    override.pop("context_id", None)
+                    override["price"]=100
+                    replaced=True
+                    break
+            if not replaced:
+                overrides.append({"type":"ITEM","id":"item_2","price":100})
 
     second_bundle = by_id.get("item_4")
     if second_bundle:
@@ -494,8 +500,41 @@ def build_deliveroo_menu_preview(db):
         for child_id, mod_id in (("item_8","bundle_4_main"),("item_63","bundle_4_side"),("item_76","bundle_4_drink"),("item_68","bundle_4_drink"),("item_70","bundle_4_drink")):
             child=by_id.get(child_id)
             if child:
-                child.setdefault("price_info",{}).setdefault("overrides",[]).append({"type":"ITEM","id":"item_4","context_id":mod_id,"price":0})
+                child.setdefault("price_info",{}).setdefault("overrides",[]).append({"type":"ITEM","id":"item_4","price":0})
         modifiers.extend(second_sections)
+
+
+    # Deliveroo normalise le menu en supprimant les noeuds non référencés.
+    # Après conversion d'un produit en BUNDLE, ses anciens modifiers/choices
+    # ne doivent donc plus être envoyés, sinon le même PUT ne peut jamais
+    # correspondre au menu stocké.
+    modifier_by_id={m.get("id"):m for m in modifiers if isinstance(m,dict) and m.get("id")}
+    item_by_id={i.get("id"):i for i in items if isinstance(i,dict) and i.get("id")}
+    reachable_items=set()
+    reachable_modifiers=set()
+    queue_items=[]
+    for cat in categories:
+        for item_id in cat.get("item_ids") or []:
+            if item_id in item_by_id and item_id not in reachable_items:
+                reachable_items.add(item_id)
+                queue_items.append(item_id)
+
+    idx=0
+    while idx < len(queue_items):
+        item_id=queue_items[idx]
+        idx+=1
+        item=item_by_id.get(item_id) or {}
+        for modifier_id in item.get("modifier_ids") or []:
+            if modifier_id in modifier_by_id and modifier_id not in reachable_modifiers:
+                reachable_modifiers.add(modifier_id)
+                modifier=modifier_by_id[modifier_id]
+                for child_id in modifier.get("item_ids") or []:
+                    if child_id in item_by_id and child_id not in reachable_items:
+                        reachable_items.add(child_id)
+                        queue_items.append(child_id)
+
+    items=[i for i in items if i.get("id") in reachable_items]
+    modifiers=[m for m in modifiers if m.get("id") in reachable_modifiers]
 
     categories = [
         {k: v for k, v in c.items() if k != "_order"}
@@ -507,7 +546,6 @@ def build_deliveroo_menu_preview(db):
         "menu": {
             "categories": categories,
             "currency_code": "EUR",
-            "is_pos_integrated": True,
             "items": items,
             "modifiers": modifiers,
             "mealtimes": [
