@@ -1505,6 +1505,17 @@ def register_deliveroo_menu_upload_phase6(app, db):
             preview=build_deliveroo_menu_preview(db)
             menu=preview["payload"]["menu"]
 
+            # Scenario 15 Sandbox : Deliveroo refuse un catalogue strictement identique.
+            # Faire varier uniquement un operational_name (non visible aux clients)
+            # dans la copie du payload envoyée au Sandbox, sans modifier le catalogue local.
+            scenario15_marker=datetime.now(timezone.utc).strftime("%H%M%S")
+            for _item in (menu.get("items") or []):
+                if isinstance(_item,dict) and str(_item.get("operational_name") or "").strip():
+                    _base=str(_item.get("operational_name") or "").strip()
+                    _suffix=" [S15 "+scenario15_marker+"]"
+                    _item["operational_name"]=(_base[:max(2,255-len(_suffix))]+_suffix)
+                    break
+
             # Prévalidation minimale exigée par le Scenario 15.
             mealtimes=menu.get("mealtimes") or []
             categories=menu.get("categories") or []
@@ -1604,24 +1615,17 @@ def register_deliveroo_menu_upload_phase6(app, db):
             jobs_url=(
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
             )
-            # Le validateur Scenario 15 attend le trigger Publish Menu exactement
-            # sous la forme documentée par Deliveroo : action seule. Le menu_id est
-            # déduit du dernier upload S3 associé au brand/menu.
-            job_payload={"action":"publish_menu_to_live"}
+            # Notre Sandbox exige explicitement params.menu_id (l'appel sans
+            # params a été confirmé en 400 "invalid params"). Envoyer un seul trigger,
+            # afin que le runner Scenario 15 voie exactement l'appel valide.
+            job_payload={
+                "action":"publish_menu_to_live",
+                "params":{"menu_id":menu_id},
+            }
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
+            fallback_used=False
             primary_job_status=job_status
             primary_job_response=job_response
-
-            # Compatibilité défensive : si une variante Sandbox exige explicitement
-            # params.menu_id, ne l'utiliser qu'en secours après rejet 400.
-            fallback_used=False
-            if job_status==400:
-                fallback_used=True
-                job_payload={
-                    "action":"publish_menu_to_live",
-                    "params":{"menu_id":menu_id},
-                }
-                job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
 
             ok=200 <= job_status < 300
             job_id=None
@@ -1649,6 +1653,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "menu_id":menu_id,
                 "s3_url_generated":True,
                 "s3_http_status":upload_status,
+                "scenario15_marker":scenario15_marker,
                 "job_http_status":job_status,
                 "job_id":job_id,
                 "job_payload":job_payload,
