@@ -286,7 +286,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
             body={
                 "menu":preview["payload"]["menu"],
                 "site_ids":[site_id],
-                "pos_name":"BÉCHÉFAA Caisse",
             }
             url=(
                 api_url+"/menu/v1/brands/"
@@ -351,7 +350,6 @@ def register_deliveroo_menu_upload_phase6(app, db):
             body={
                 "menu":preview["payload"]["menu"],
                 "site_ids":[site_id],
-                "pos_name":"BÉCHÉFAA Caisse",
             }
 
             url=(
