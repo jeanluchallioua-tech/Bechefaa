@@ -473,6 +473,29 @@ def build_deliveroo_menu_preview(db):
             add_bundle_zero_price(drink_id, bundle_drink_mod)
 
         modifiers.extend(bundle_sections)
+        bundle["party_size"] = 1
+        # Au moins une option payante dans le bundle, tout en gardant des boissons incluses à 0 €.
+        premium_drink = by_id.get("item_70")
+        if premium_drink:
+            premium_drink.setdefault("price_info", {}).setdefault("overrides", []).append({
+                "type": "ITEM", "id": "item_2", "context_id": bundle_drink_mod, "price": 100
+            })
+
+    second_bundle = by_id.get("item_4")
+    if second_bundle:
+        second_bundle["type"] = "BUNDLE"
+        second_bundle["party_size"] = 1
+        second_bundle["modifier_ids"] = ["bundle_4_main", "bundle_4_side", "bundle_4_drink"]
+        second_sections = [
+            {"id":"bundle_4_main","name":{"fr":"Tenders"},"description":{"fr":"Choisissez les tenders de la formule."},"item_ids":["item_8"],"min_selection":1,"max_selection":1,"repeatable":False,"type":"bundle-item"},
+            {"id":"bundle_4_side","name":{"fr":"Accompagnement"},"description":{"fr":"Choisissez l’accompagnement de la formule."},"item_ids":["item_63"],"min_selection":1,"max_selection":1,"repeatable":False,"type":"bundle-item"},
+            {"id":"bundle_4_drink","name":{"fr":"Boisson"},"description":{"fr":"Choisissez la boisson de la formule."},"item_ids":[x for x in ("item_76","item_68","item_70") if x in by_id],"min_selection":1,"max_selection":1,"repeatable":False,"type":"bundle-item"},
+        ]
+        for child_id, mod_id in (("item_8","bundle_4_main"),("item_63","bundle_4_side"),("item_76","bundle_4_drink"),("item_68","bundle_4_drink"),("item_70","bundle_4_drink")):
+            child=by_id.get(child_id)
+            if child:
+                child.setdefault("price_info",{}).setdefault("overrides",[]).append({"type":"ITEM","id":"item_4","context_id":mod_id,"price":0})
+        modifiers.extend(second_sections)
 
     categories = [
         {k: v for k, v in c.items() if k != "_order"}
