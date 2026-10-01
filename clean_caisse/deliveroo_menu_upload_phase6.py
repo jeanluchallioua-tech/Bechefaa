@@ -149,11 +149,13 @@ def _deliveroo_compare_by_id(local_menu, remote_menu, limit=300):
             return out
         if isinstance(local,list) and isinstance(remote,list):
             # Sous-listes d'objets identifiables: comparer par id.
-            if all(isinstance(x,dict) and x.get("id") is not None for x in local+remote if isinstance(x,dict)):
-                rmap={str(x.get("id")):x for x in remote if isinstance(x,dict)}
+            dict_local=[x for x in local if isinstance(x,dict) and x.get("id") is not None]
+            dict_remote=[x for x in remote if isinstance(x,dict) and x.get("id") is not None]
+            if dict_local and len(dict_local)==len(local) and len(dict_remote)==len(remote):
+                rmap={str(x.get("id")):x for x in dict_remote}
                 return [
                     project_remote_to_local(x,rmap.get(str(x.get("id")),{}),path+"["+str(x.get("id"))+"]")
-                    for x in local
+                    for x in dict_local
                 ]
             return [project_remote_to_local(a,b,path+"[]") for a,b in zip(local,remote)]
         return scalar_norm(path,remote)
