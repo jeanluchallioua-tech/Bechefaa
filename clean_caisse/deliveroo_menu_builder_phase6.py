@@ -317,10 +317,26 @@ def build_deliveroo_menu_preview(db):
             if minimum > maximum:
                 minimum = maximum
 
+            modifier_description = {
+                "cuisson": "Choisissez la cuisson souhaitée.",
+                "retirer garniture": "Retirez les ingrédients que vous ne souhaitez pas.",
+                "suppléments": "Ajoutez les suppléments de votre choix.",
+                "choix des sauces supplémentaire": "Ajoutez les sauces supplémentaires de votre choix.",
+                "choix du poulet": "Choisissez votre préparation de poulet.",
+                "accompagnement": "Choisissez votre accompagnement.",
+                "choix du pain": "Choisissez votre pain.",
+                "choix des viandes": "Choisissez votre viande.",
+                "type de tender": "Choisissez le type de tender.",
+                "nombre de tender": "Choisissez le nombre de tenders.",
+                "oignons rings": "Choisissez votre option d'oignons rings.",
+                "type assiette de poulet": "Choisissez le type d'assiette de poulet.",
+                "boisson": "Choisissez votre boisson.",
+            }.get(group_name.strip().lower(), "Choisissez parmi les options proposées.")
+
             modifiers.append({
                 "id": modifier_id,
                 "name": {"fr": group_name},
-                "description": {"fr": ""},
+                "description": {"fr": modifier_description},
                 "item_ids": choice_ids,
                 "min_selection": minimum,
                 "max_selection": maximum,
@@ -354,7 +370,10 @@ def build_deliveroo_menu_preview(db):
             "contains_alcohol": False,
             "tax_rate": "10.0",
             "allergies": [],
-            "diets": [],
+            "diets": (
+                ["dairy_free", "vegetarian"] if pos_id in {"21", "23"}
+                else ["dairy_free"]
+            ),
             "classifications": [],
             "external_data": json.dumps({
                 "bechefaa_product_id": pos_id,
