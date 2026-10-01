@@ -219,6 +219,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
             body={
+                "name":str(preview["payload"].get("name") or "BÉCHÉFAA"),
                 "menu":preview["payload"]["menu"],
                 "site_ids":[site_id],
                 "pos_name":"BÉCHÉFAA Caisse",
