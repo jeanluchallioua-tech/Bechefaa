@@ -487,14 +487,37 @@ def build_deliveroo_menu_preview(db):
             "is_pos_integrated": True,
             "items": items,
             "modifiers": modifiers,
-            "mealtimes": [{
-                "id": "all-day",
-                "name": {"fr": "Toute la journée"},
-                "description": {"fr": "Menu BÉCHÉFAA"},
-                "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
-                "category_ids": [cat["id"] for cat in categories],
-                "schedule": [],
-            }],
+            "mealtimes": [
+                {
+                    "id": "lunch",
+                    "name": {"fr": "Midi"},
+                    "description": {"fr": "Service du midi BÉCHÉFAA"},
+                    "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
+                    "category_ids": [cat["id"] for cat in categories],
+                    "schedule": [
+                        {"day_of_week": "MONDAY", "start_time": "11:30", "end_time": "15:00"},
+                        {"day_of_week": "TUESDAY", "start_time": "11:30", "end_time": "15:00"},
+                        {"day_of_week": "WEDNESDAY", "start_time": "11:30", "end_time": "15:00"},
+                        {"day_of_week": "THURSDAY", "start_time": "11:30", "end_time": "15:00"},
+                        {"day_of_week": "FRIDAY", "start_time": "11:30", "end_time": "15:00"},
+                        {"day_of_week": "SUNDAY", "start_time": "11:30", "end_time": "15:30"}
+                    ],
+                },
+                {
+                    "id": "dinner",
+                    "name": {"fr": "Soir"},
+                    "description": {"fr": "Service du soir BÉCHÉFAA"},
+                    "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
+                    "category_ids": [cat["id"] for cat in categories],
+                    "schedule": [
+                        {"day_of_week": "MONDAY", "start_time": "18:30", "end_time": "22:00"},
+                        {"day_of_week": "TUESDAY", "start_time": "18:30", "end_time": "22:00"},
+                        {"day_of_week": "WEDNESDAY", "start_time": "18:30", "end_time": "22:00"},
+                        {"day_of_week": "THURSDAY", "start_time": "18:30", "end_time": "22:00"},
+                        {"day_of_week": "SUNDAY", "start_time": "18:30", "end_time": "22:00"}
+                    ],
+                },
+            ],
         },
         "site_ids": [],
     }
@@ -512,7 +535,7 @@ def build_deliveroo_menu_preview(db):
             "bundles": sum(1 for x in items if x.get("type") == "BUNDLE"),
             "modifiers": len(modifiers),
             "required_modifiers": sum(1 for x in modifiers if int(x.get("min_selection") or 0) > 0),
-            "mealtimes": 1,
+            "mealtimes": 2,
             "warnings": len(warnings),
         },
         "warnings": warnings,
