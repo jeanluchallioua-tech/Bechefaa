@@ -194,6 +194,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")
                 +"/menus/"+urllib.parse.quote(menu_id,safe="")
             )
+            first_started_at=datetime.now(timezone.utc)
             first_status,first_response=_api_json(url,token,method="PUT",payload=body)
             if not 200 <= first_status < 300:
                 return jsonify({
@@ -201,9 +202,46 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "http_status":first_status,"response":first_response
                 }),502
 
-            # Laisse Deliveroo terminer le traitement et respecte la cadence
-            # avant d'envoyer exactement le même document.
-            time.sleep(65)
+            # Un second PUT identique ne renvoie MATCH_EXISTING_MENU qu'une fois
+            # le premier upload asynchrone réellement traité. On attend donc le
+            # webhook menu.upload_result correspondant au premier PUT au lieu
+            # d'utiliser un délai arbitraire.
+            webhook_seen=False
+            webhook_info=None
+            for _ in range(48):
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT received_at, accepted, event, error
+                            FROM deliveroo_webhook_diag
+                            WHERE kind='menu'
+                        """)
+                        webhook_info=cur.fetchone()
+                if (
+                    webhook_info
+                    and webhook_info.get("accepted") is True
+                    and str(webhook_info.get("event") or "")=="menu.upload_result"
+                    and webhook_info.get("received_at")
+                    and webhook_info.get("received_at") >= first_started_at
+                ):
+                    webhook_seen=True
+                    break
+                time.sleep(5)
+
+            if not webhook_seen:
+                return jsonify({
+                    "ok":False,
+                    "stage":"waiting_webhook",
+                    "body_sha256":body_sha256,
+                    "first":{"http_status":first_status,"response":first_response},
+                    "message":"Webhook menu.upload_result non reçu dans le délai"
+                }),409
+
+            # Respecte aussi la limite de 1 PUT/min/site avant le second envoi.
+            elapsed=(datetime.now(timezone.utc)-first_started_at).total_seconds()
+            if elapsed < 61:
+                time.sleep(61-elapsed)
+
             second_status,second_response=_api_json(url,token,method="PUT",payload=body)
             ok=200 <= second_status < 300
             return jsonify({
@@ -213,6 +251,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "menu_id":menu_id,
                 "body_sha256":body_sha256,
                 "identical_payload_reused":True,
+                "webhook_received":webhook_seen,
                 "first":{"http_status":first_status,"response":first_response},
                 "second":{"http_status":second_status,"response":second_response},
             }),200 if ok else 502
