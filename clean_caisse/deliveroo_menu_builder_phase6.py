@@ -546,6 +546,7 @@ def build_deliveroo_menu_preview(db):
         "menu": {
             "categories": categories,
             "currency_code": "EUR",
+            "is_pos_integrated": False,
             "items": items,
             "modifiers": modifiers,
             "mealtimes": [
