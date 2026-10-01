@@ -350,6 +350,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "unavailable_ids":["orange_juice","whole_milk"],
                 "hidden_ids":["granola"],
             }
+            # Même ressource GET/PUT : respecter une marge au-dessus du plafond
+            # de 1 appel toutes les 833 ms pour que les 2 appels soient bien observables.
+            time.sleep(1.10)
             put_status,put_response=_api_json(url,token,method="PUT",payload=put_payload)
             ok=200 <= put_status < 300
 
