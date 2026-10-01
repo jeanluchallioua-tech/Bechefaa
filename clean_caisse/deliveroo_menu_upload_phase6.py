@@ -540,9 +540,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
             )
             post_payload={"item_unavailabilities":[
-                {"item_id":"orange_juice","status":"unavailable"},
-                {"item_id":"granola","status":"available"},
-                {"item_id":"whole_milk","status":"hidden"},
+                {"item_id":"whole_milk","status":"unavailable"},
             ]}
             post_status,post_response=_api_json(url,token,method="POST",payload=post_payload)
             ok=200 <= post_status < 300
@@ -554,8 +552,8 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "post":{"http_status":post_status,"payload":post_payload,"response":post_response},
                 "expected_final_state":{
                     "orange_juice":"unavailable",
-                    "granola":"available",
-                    "whole_milk":"hidden"
+                    "whole_milk":"unavailable",
+                    "granola":"available"
                 }
             }),200 if ok else 502
         except Exception as exc:
