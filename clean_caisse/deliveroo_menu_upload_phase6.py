@@ -699,22 +699,23 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 menu_url+"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
             )
 
-            # Scenario 12 prépare un menu synthétique de 3 items. On n'envoie
-            # surtout pas le POST tant que ce menu n'est pas visible.
-            test_ids={"orange_juice","granola","whole_milk"}
-            menu_ready=False
+            # Le runner du Scenario 12 injecte un menu synthétique. Attendre
+            # uniquement qu'il soit visible, puis envoyer immédiatement le POST
+            # attendu. Ne pas attendre de webhook : notre POS n'a pas uploadé ce menu.
+            expected_ids={"orange_juice","granola","whole_milk"}
             observed_item_ids=[]
-            for _ in range(30):
+            menu_ready=False
+            for _ in range(40):
                 menu_status,menu_response=_api_json(menu_url,token,method="GET")
                 items=((menu_response.get("menu") or {}).get("items") or []) if isinstance(menu_response,dict) else []
                 observed_item_ids=[
                     str(x.get("id")) for x in items
                     if isinstance(x,dict) and x.get("id") is not None
                 ]
-                if 200 <= menu_status < 300 and test_ids.issubset(set(observed_item_ids)):
+                if 200 <= menu_status < 300 and set(observed_item_ids)==expected_ids:
                     menu_ready=True
                     break
-                time.sleep(1)
+                time.sleep(0.25)
 
             if not menu_ready:
                 return jsonify({
@@ -722,86 +723,32 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "stage":"waiting_test_menu",
                     "waiting":True,
                     "observed_item_ids":observed_item_ids,
-                    "message":"Menu test Scenario 12 pas encore prêt"
-                }),409
-
-            # Le menu vient d'être remplacé par Deliveroo. Leur documentation
-            # impose d'attendre menu.upload_result avant toute mise à jour de stock.
-            webhook_ready=False
-            webhook_info=None
-            deadline=datetime.now(timezone.utc)+timedelta(seconds=90)
-            recent_cutoff=datetime.now(timezone.utc)-timedelta(minutes=5)
-
-            while datetime.now(timezone.utc) < deadline:
-                with db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            SELECT received_at, accepted, event, error
-                            FROM deliveroo_webhook_diag
-                            WHERE kind='menu'
-                        """)
-                        webhook_info=cur.fetchone()
-
-                webhook_ready=bool(
-                    webhook_info
-                    and webhook_info.get("accepted") is True
-                    and str(webhook_info.get("event") or "")=="menu.upload_result"
-                    and webhook_info.get("received_at")
-                    and webhook_info.get("received_at") >= recent_cutoff
-                )
-                if webhook_ready:
-                    break
-                time.sleep(2)
-
-            if not webhook_ready:
-                return jsonify({
-                    "ok":False,
-                    "stage":"waiting_menu_upload_result",
-                    "waiting":True,
-                    "test_menu_ready":True,
-                    "last_menu_webhook_at":(
-                        webhook_info.get("received_at").isoformat()
-                        if webhook_info and webhook_info.get("received_at") else None
-                    ),
-                    "last_menu_event":webhook_info.get("event") if webhook_info else None,
-                    "message":"menu.upload_result récent non reçu; POST stock non envoyé"
+                    "message":"Menu test exact du Scenario 12 non détecté"
                 }),409
 
             post_payload={"item_unavailabilities":[
                 {"item_id":"whole_milk","status":"unavailable"},
             ]}
-            post_status,post_response=_api_json(stock_url,token,method="POST",payload=post_payload)
-
-            # Vérification informative uniquement après le POST.
-            time.sleep(1.10)
-            get_status,get_response=_api_json(stock_url,token,method="GET")
-
+            post_started_at=datetime.now(timezone.utc)
+            post_status,post_response=_api_json(
+                stock_url,token,method="POST",payload=post_payload
+            )
             ok=200 <= post_status < 300
+
             return jsonify({
                 "ok":ok,
                 "brand_id":brand_id,
                 "site_id":site_id,
                 "menu_id":menu_id,
                 "test_menu_ready":True,
-                "menu_upload_result_received":True,
-                "menu_webhook_at":(
-                    webhook_info.get("received_at").isoformat()
-                    if webhook_info and webhook_info.get("received_at") else None
-                ),
+                "observed_item_ids":observed_item_ids,
+                "post_started_at":post_started_at.isoformat(),
                 "post":{
                     "http_status":post_status,
                     "payload":post_payload,
                     "response":post_response
                 },
-                "state_after":{
-                    "http_status":get_status,
-                    "response":get_response
-                },
-                "expected_final_state":{
-                    "orange_juice":"unavailable",
-                    "whole_milk":"unavailable",
-                    "granola":"available"
-                }
+                "mode":"wait_exact_test_menu_then_immediate_single_post"
             }),200 if ok else 502
         except Exception as exc:
             return jsonify({
