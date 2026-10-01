@@ -491,30 +491,33 @@ def build_deliveroo_menu_preview(db):
                 {
                     "id": "lunch",
                     "name": {"fr": "Midi"},
-                    "description": {"fr": "Service du midi BÉCHÉFAA"},
+                    "description": {"fr": "Menu BÉCHÉFAA disponible en journée"},
                     "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
                     "category_ids": [cat["id"] for cat in categories],
                     "schedule": [
-                        {"day_of_week": 0, "time_periods": [{"start": "11:30:00", "end": "15:00:00"}]},
-                        {"day_of_week": 1, "time_periods": [{"start": "11:30:00", "end": "15:00:00"}]},
-                        {"day_of_week": 2, "time_periods": [{"start": "11:30:00", "end": "15:00:00"}]},
-                        {"day_of_week": 3, "time_periods": [{"start": "11:30:00", "end": "15:00:00"}]},
-                        {"day_of_week": 4, "time_periods": [{"start": "11:30:00", "end": "15:00:00"}]},
-                        {"day_of_week": 6, "time_periods": [{"start": "11:30:00", "end": "15:30:00"}]}
+                        {"day_of_week": 0, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 1, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 2, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 3, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 4, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 5, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]},
+                        {"day_of_week": 6, "time_periods": [{"start": "00:00:00", "end": "15:59:00"}]}
                     ],
                 },
                 {
                     "id": "dinner",
                     "name": {"fr": "Soir"},
-                    "description": {"fr": "Service du soir BÉCHÉFAA"},
+                    "description": {"fr": "Menu BÉCHÉFAA disponible en soirée"},
                     "image": {"url": "https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/deliveroo/1"},
                     "category_ids": [cat["id"] for cat in categories],
                     "schedule": [
-                        {"day_of_week": 0, "time_periods": [{"start": "18:30:00", "end": "22:00:00"}]},
-                        {"day_of_week": 1, "time_periods": [{"start": "18:30:00", "end": "22:00:00"}]},
-                        {"day_of_week": 2, "time_periods": [{"start": "18:30:00", "end": "22:00:00"}]},
-                        {"day_of_week": 3, "time_periods": [{"start": "18:30:00", "end": "22:00:00"}]},
-                        {"day_of_week": 6, "time_periods": [{"start": "18:30:00", "end": "22:00:00"}]}
+                        {"day_of_week": 0, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 1, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 2, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 3, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 4, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 5, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]},
+                        {"day_of_week": 6, "time_periods": [{"start": "16:00:00", "end": "23:59:00"}]}
                     ],
                 },
             ],
