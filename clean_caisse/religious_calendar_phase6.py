@@ -399,6 +399,95 @@ def register_religious_calendar_phase6(app, db):
         ]
         return periods
 
+    def automatic_site_order_override(now=None):
+        """Décision automatique du calendrier pour la prise de commandes du site.
+
+        - ferme plus tôt avant Chabbat / fête à partir de la dernière commande calculée ;
+        - maintient la fermeture pendant toute la période religieuse ;
+        - ouvre exceptionnellement le samedi soir après Chabbat à l'heure de reprise calculée ;
+        - ne remplace jamais les horaires hebdomadaires en dehors de ces exceptions.
+        """
+        now = (now or datetime.now(TZ)).astimezone(TZ)
+        try:
+            with db() as conn:
+                ensure_tables(conn)
+                events = conn.execute("""SELECT event_key,hebrew_year,title,hebrew_title,category,subcat,starts_at
+                    FROM caisse_hebrew_calendar_events
+                    WHERE starts_at >= %s AND starts_at <= %s
+                    ORDER BY starts_at NULLS LAST, title
+                """, (now - timedelta(days=8), now + timedelta(days=45))).fetchall()
+
+            periods = _operational_periods(events)
+            cfg = _site_hours_config() or {}
+            cutoff = int(cfg.get("cutoff_minutes", 30))
+
+            for p in periods:
+                entry = datetime.fromisoformat(p["entry_at"]).astimezone(TZ)
+                resume = datetime.fromisoformat(p["resume_at"]).astimezone(TZ) if p.get("resume_at") else None
+
+                if p.get("last_order"):
+                    hh, mm = map(int, p["last_order"].split(":"))
+                    order_stop = entry.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                else:
+                    order_stop = entry
+
+                if order_stop <= now and (resume is None or now < resume):
+                    return {
+                        "mode": "closed",
+                        "source": "RELIGIOUS_CALENDAR",
+                        "type": p.get("type"),
+                        "name": p.get("name"),
+                        "order_stop_at": order_stop.isoformat(),
+                        "restaurant_closes": p.get("closure_time"),
+                        "last_order": p.get("last_order"),
+                        "resume_at": resume.isoformat() if resume else None,
+                        "resume_date": p.get("resume_date"),
+                        "resume_time": p.get("resume_time"),
+                    }
+
+                # Le samedi reste fermé dans le planning hebdomadaire.
+                # Après un Chabbat normal, le calendrier crée donc une ouverture
+                # exceptionnelle pour les commandes entre la reprise et la fin
+                # de service moins le délai habituel.
+                if p.get("type") == "shabbat" and resume and now >= resume and p.get("service_end_time"):
+                    eh, em = map(int, p["service_end_time"].split(":"))
+                    service_end = resume.replace(hour=eh, minute=em, second=0, microsecond=0)
+                    if service_end <= resume:
+                        service_end += timedelta(days=1)
+                    order_end = service_end - timedelta(minutes=cutoff)
+                    if resume <= now < order_end:
+                        return {
+                            "mode": "open",
+                            "source": "RELIGIOUS_CALENDAR",
+                            "type": "shabbat",
+                            "name": p.get("name"),
+                            "resume_at": resume.isoformat(),
+                            "resume_date": p.get("resume_date"),
+                            "resume_time": p.get("resume_time"),
+                            "service_end_at": service_end.isoformat(),
+                            "service_end_time": p.get("service_end_time"),
+                            "order_end_at": order_end.isoformat(),
+                            "order_end_time": order_end.strftime("%H:%M"),
+                        }
+                    if order_end <= now < service_end:
+                        return {
+                            "mode": "closed",
+                            "source": "RELIGIOUS_CALENDAR",
+                            "type": "shabbat",
+                            "name": p.get("name"),
+                            "reason": "Fin des commandes avant fermeture du service",
+                            "service_end_at": service_end.isoformat(),
+                            "service_end_time": p.get("service_end_time"),
+                            "order_end_at": order_end.isoformat(),
+                            "order_end_time": order_end.strftime("%H:%M"),
+                        }
+            return None
+        except Exception:
+            return None
+
+    # Décision dynamique utilisée par le moteur central des horaires du site.
+    app.config["BECHEFAA_SITE_ORDER_CALENDAR_OVERRIDE"] = automatic_site_order_override
+
     def active_site_closure(now=None):
         now = now or datetime.now(TZ)
         try:
