@@ -270,8 +270,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "response":first_response
                 }),502
 
-            # Deliveroo limite cet endpoint à 1 requête / 100 ms / site.
-            time.sleep(0.20)
+            # Deliveroo limite cet endpoint à 1 appel toutes les 833 ms / site.
+            # On garde une marge pour éviter le 429 Too Many Requests.
+            time.sleep(1.10)
 
             second_payload={"item_unavailabilities":[
                 {"item_id":"orange_juice","status":"available"},
