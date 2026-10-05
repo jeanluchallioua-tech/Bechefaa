@@ -42,7 +42,7 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
                 conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS payment_method TEXT NULL")
                 conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NULL")
                 row = conn.execute(
-                    """SELECT id,customer_name,source,payment,status,total,created_at,
+                    """SELECT id,total,created_at,
                               total_ht,tax_rate,tax_amount,total_ttc,
                               payment_status,payment_method,paid_amount
                        FROM caisse_orders WHERE id=%s LIMIT 1""",
@@ -66,13 +66,10 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
             total_ht = float(total_ht)
             tax_amount = float(tax_amount)
 
-        source = str(row.get("source") or "").upper()
-        if source in ("LIVRAISON", "DELIVERY"):
-            service = "livraison"
-        elif source in ("SALLE", "SUR PLACE", "SUR_PLACE"):
-            service = "sur place"
-        else:
-            service = "à emporter"
+        paid_amount = float(row.get("paid_amount") or 0)
+        payment_status = str(row.get("payment_status") or "").strip().upper()
+        if paid_amount <= 0 and payment_status not in {"PAYÉE","PAYEE","PAID","ENCAISSÉE","ENCAISSEE"}:
+            return "Note de frais disponible uniquement après encaissement.", 409
 
         created = row.get("created_at")
         try:
@@ -86,11 +83,6 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
         city = str(cfg.get("city") or "Fontenay-sous-Bois").strip()
         siret = str(cfg.get("siret") or "").strip()
         phone = str(cfg.get("phone") or "").strip()
-        client = str(row.get("customer_name") or "USER").strip()
-
-        payment_status = str(row.get("payment_status") or row.get("payment") or "En attente").strip()
-        paid_amount = float(row.get("paid_amount") or 0)
-        payment_amount = paid_amount if paid_amount > 0 else total_ttc
         rate_text = f"{rate:g}".replace(".", ",")
 
         details = []
@@ -121,11 +113,7 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
 <div class="center">{escape(name)} Restaurant</div>
 <div class="center">{'<br>'.join(details)}</div>
 <div class="center">Date &amp; Heure : {dt.strftime("%d/%m/%Y %H:%M")}</div>
-<div class="center">Client : {escape(client)}</div>
-<div class="center">Type : {escape(service)}</div>
-<div class="center">Repas : {persons}</div>
-<div class="sep"></div>
-<div>Paiement : {escape(payment_status)} ({money(payment_amount)})</div>
+<div class="center">Nombre de repas : {persons}</div>
 <div class="sep"></div>
 <div class="totals">
 <div class="row"><span>TOTAL HT {escape(rate_text)}% :</span><b>{money(total_ht)}</b></div>
@@ -167,14 +155,6 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
    }
    return '';
  }
- function add(){
-   document.querySelectorAll('.order').forEach(card=>{
-     if(card.querySelector('.expense-note-btn'))return;
-     const id=orderId(card);if(!id)return;
-     const btn=document.createElement('button');btn.type='button';btn.className='expense-note-btn';btn.textContent='Note de frais';
-     btn.addEventListener('click',()=>open(id));card.appendChild(btn);
-   });
- }
  function open(id){
    const back=document.createElement('div');back.className='expense-note-backdrop';
    back.innerHTML='<div class="expense-note-modal"><h3>Note de frais</h3><p>Indiquez le nombre de repas à faire apparaître sur le justificatif.</p><input type="number" min="1" max="99" step="1" value="1" inputmode="numeric"><div class="expense-note-actions"><button type="button" class="expense-note-cancel">Annuler</button><button type="button" class="expense-note-print">Afficher la note</button></div></div>';
@@ -189,10 +169,29 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
    };
    setTimeout(()=>back.querySelector('input').select(),0);
  }
+ async function paidMap(){
+   try{
+     const r=await fetch('/api/orders/history-meta-phase44',{cache:'no-store'}),d=await r.json();
+     return d&&d.ok&&d.orders?d.orders:{};
+   }catch(e){return {}}
+ }
+ async function addPaid(){
+   const meta=await paidMap();
+   document.querySelectorAll('.order').forEach(card=>{
+     if(card.querySelector('.expense-note-btn'))return;
+     const id=orderId(card);if(!id)return;
+     const m=meta[id]||{};
+     const ps=String(m.payment_status||'').toUpperCase();
+     const paid=Number(m.paid_amount||0)>0||['PAYÉE','PAYEE','PAID','ENCAISSÉE','ENCAISSEE'].includes(ps);
+     if(!paid)return;
+     const btn=document.createElement('button');btn.type='button';btn.className='expense-note-btn';btn.textContent='Note de frais';
+     btn.addEventListener('click',()=>open(id));card.appendChild(btn);
+   });
+ }
  ready(function(){
-   add();
+   addPaid();
    const target=document.getElementById('list')||document.body;
-   new MutationObserver(add).observe(target,{childList:true,subtree:true});
+   new MutationObserver(()=>addPaid()).observe(target,{childList:true,subtree:true});
  });
 })();
 </script>'''
