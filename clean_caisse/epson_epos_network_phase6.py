@@ -13,6 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from xml.sax.saxutils import escape
+from urllib.parse import quote
 
 from flask import Response, jsonify, request
 
@@ -277,6 +278,31 @@ def _expense_note_xml(order, identity=None, persons=1):
     return "".join(parts)
 
 
+def _assistant_launch_html(xml, title="Epson"):
+    assistant_url = (
+        "tmprintassistant://tmprintassistant.epson.com/print?"
+        "ver=1"
+        "&data-type=eposprintxml"
+        "&data=" + quote(xml, safe="")
+        + "&timeout=30000"
+        + "&error-dialog=yes"
+    )
+    safe_url = assistant_url.replace("\\", "\\\\").replace("'", "\\'")
+    html = f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:Arial,sans-serif;background:#111827;color:#fff;padding:24px;text-align:center}}
+.box{{max-width:520px;margin:60px auto;background:#1f2937;border-radius:16px;padding:24px}}
+button{{padding:12px 18px;border:0;border-radius:9px;font-weight:800}}</style>
+</head><body><div class="box"><h2>{title}</h2><p>Ouverture de TM Print Assistant…</p>
+<button onclick="launch()">Ouvrir Epson</button></div>
+<script>
+function launch(){{window.location.href='{safe_url}';}}
+window.addEventListener('load',()=>setTimeout(launch,80));
+</script></body></html>"""
+    return Response(html, content_type="text/html; charset=utf-8")
+
+
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
     def _load_identity(conn):
         try:
@@ -340,6 +366,66 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
                    updated_at=NOW()""",
                 (key, value, key, key, key),
             )
+
+    @app.get("/epson/print-client/<order_id>")
+    def epson_print_client_navigation_phase6(order_id):
+        try:
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+                identity = _load_identity(conn)
+            return _assistant_launch_html(_client_xml(order, identity), "Ticket client")
+        except Exception as exc:
+            return "Impression Epson impossible : " + str(exc), 500
+
+    @app.get("/epson/print-kitchen/<order_id>")
+    def epson_print_kitchen_navigation_phase6(order_id):
+        try:
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+            return _assistant_launch_html(_kitchen_xml(order), "Ticket cuisine")
+        except Exception as exc:
+            return "Impression Epson impossible : " + str(exc), 500
+
+    @app.get("/epson/print-order-pack/<order_id>")
+    def epson_print_order_pack_navigation_phase6(order_id):
+        try:
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+                identity = _load_identity(conn)
+            return _assistant_launch_html(_combined_xml(order, identity), "Cuisine + client")
+        except Exception as exc:
+            return "Impression Epson impossible : " + str(exc), 500
+
+    @app.get("/epson/print-expense-note/<order_id>")
+    def epson_print_expense_note_navigation_phase6(order_id):
+        try:
+            try:
+                persons = int(request.args.get("persons") or 1)
+            except (TypeError, ValueError):
+                persons = 1
+            persons = max(1, min(persons, 99))
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+                pay = conn.execute(
+                    "SELECT payment_status,paid_amount FROM caisse_orders WHERE id=%s",
+                    (order_id,),
+                ).fetchone()
+                payment_status = str((pay or {}).get("payment_status") or "").strip().upper()
+                paid_amount = Decimal(str((pay or {}).get("paid_amount") or 0))
+                if paid_amount <= 0 and payment_status not in {"PAYÉE","PAYEE","PAID","ENCAISSÉE","ENCAISSEE"}:
+                    return "Note de frais disponible uniquement après encaissement.", 409
+                identity = _load_identity(conn)
+            return _assistant_launch_html(_expense_note_xml(order, identity, persons), "Note de frais")
+        except Exception as exc:
+            return "Impression Epson impossible : " + str(exc), 500
 
     @app.get("/api/epson/config-phase6")
     def epson_config_phase6():
@@ -491,10 +577,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printClient(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket client…');
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-client/'+encodeURIComponent(orderId);return true;}
    const xr=await nativeFetch('/api/epson/client-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket client introuvable');
    const xml=await xr.text();
-   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'client',orderId);
    window.location.href='/impression/client/'+encodeURIComponent(orderId);
    return true;
  }
@@ -502,11 +588,11 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printOrderPack(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation cuisine + client…');
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-order-pack/'+encodeURIComponent(orderId);return true;}
    const xr=await nativeFetch('/api/epson/order-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Tickets cuisine/client introuvables');
    const xml=await xr.text();
 
-   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'order-pack',orderId);
 
    const c=await getConfig();
    const ports=[8143,443];
@@ -534,6 +620,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printKitchen(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket…');
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-kitchen/'+encodeURIComponent(orderId);return true;}
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();
@@ -541,7 +628,6 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    // Android / Samsung Internet : méthode officielle Epson TM Print Assistant.
    // L'application reçoit l'ePOS-Print XML via le schéma URL et relaie
    // l'impression vers la TM-m30II déjà sélectionnée dans TM Print Assistant.
-   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'kitchen',orderId);
 
    // Secours hors Android : communication ePOS réseau directe.
    const c=await getConfig();
@@ -574,13 +660,13 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    if(!orderId)return true;
    const n=Math.max(1,Math.min(99,parseInt(persons||1,10)||1));
    status('work','Epson : préparation de la note de frais…');
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-expense-note/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n);return true;}
    const xr=await nativeFetch('/api/epson/expense-note-xml/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n),{cache:'no-store'});
    if(!xr.ok){
      const detail=await xr.text().catch(()=> '');
      throw new Error(detail||'Note de frais introuvable');
    }
    const xml=await xr.text();
-   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'expense-note',orderId);
    window.location.href='/impression/note-de-frais/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n);
    return true;
  }
