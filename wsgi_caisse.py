@@ -7,6 +7,7 @@ from clean_caisse.app import app, db, ensure_order_schema, order_payload, load_c
 from clean_caisse.kitchen_checklist import register_kitchen_checklist
 from clean_caisse.kitchen_ready_isolated_phase5 import register_kitchen_ready_isolated_phase5
 from clean_caisse.history_modifier import register_history_modifier
+from clean_caisse.order_expense_note_phase6 import register_order_expense_note_phase6
 from clean_caisse.kitchen_resend_prepared_isolated_phase5 import register_kitchen_resend_prepared_isolated_phase5
 from clean_caisse.paid_reopen_preserve_prepared_isolated_phase5 import register_paid_reopen_preserve_prepared_isolated_phase5
 from clean_caisse.paid_reopen_payment_guard_isolated_phase5 import register_paid_reopen_payment_guard_isolated_phase5
@@ -134,13 +135,13 @@ from clean_caisse.deliveroo_sandbox_phase6 import register_deliveroo_sandbox_pha
 from clean_caisse.deliveroo_menu_builder_phase6 import register_deliveroo_menu_builder_phase6
 from clean_caisse.deliveroo_menu_upload_phase6 import register_deliveroo_menu_upload_phase6
 from clean_caisse.marketplace_markup_phase6 import register_marketplace_markup_phase6
-from clean_caisse.expense_meal_note_phase6 import register_expense_meal_note_phase6
 from clean_caisse.site_coupons_phase6 import register_site_coupons_phase6
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_kitchen_ready_isolated_phase5(app, db, ensure_order_schema)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
+register_order_expense_note_phase6(app, db, ensure_order_schema)
 register_kitchen_resend_prepared_isolated_phase5(app, db)
 register_pos_touch_layout(app, db)
 register_pos_design_v2(app)
@@ -153,7 +154,6 @@ register_deliveroo_sandbox_phase6(app, db)
 register_deliveroo_menu_builder_phase6(app, db)
 register_deliveroo_menu_upload_phase6(app, db)
 register_marketplace_markup_phase6(app, db)
-register_expense_meal_note_phase6(app)
 register_site_coupons_phase6(app, db)
 register_religious_calendar_phase6(app, db)
 register_site_order_hours_phase6(app, db)
