@@ -83,7 +83,6 @@ def register_product_options_admin_phase2(app, db):
             product=next((p for p in data.get('products') or [] if isinstance(p,dict) and str(p.get('id'))==str(product_id)),None)
             if not product:return jsonify({'ok':False,'error':'Produit introuvable'}),404
             lists=data.get('optionLists') or {}
-            option_orders=data.get('optionListOrders') if isinstance(data.get('optionListOrders'),dict) else {}
             selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
             direct=product.get('options') if isinstance(product.get('options'),list) else []
             current_order=[]
@@ -110,15 +109,17 @@ def register_product_options_admin_phase2(app, db):
                             n,_=_choice_pair(v)
                             if n and n.casefold() in direct_names:selected.append(i)
                 raw_options=[{'index':i,'name':_choice_pair(v)[0],'price':_choice_pair(v)[1]} for i,v in enumerate(vals) if _choice_pair(v)[0]]
-                wanted=option_orders.get(key) if isinstance(option_orders.get(key),list) else []
+                dg=next((g for g in direct if isinstance(g,dict) and str(g.get('key') or '')=='central_'+key),None)
+                direct_order=[]
+                if isinstance(dg,dict) and isinstance(dg.get('choices'),list):
+                    name_to_index={str(_choice_pair(v)[0]).casefold():i for i,v in enumerate(vals) if _choice_pair(v)[0]}
+                    for choice in dg.get('choices') or []:
+                        n,_=_choice_pair(choice)
+                        idx=name_to_index.get(str(n).casefold())
+                        if idx is not None and idx not in direct_order:direct_order.append(idx)
                 by_index={int(o['index']):o for o in raw_options}
-                ordered_options=[]
-                used=set()
-                for raw in wanted:
-                    try:i=int(raw)
-                    except (TypeError,ValueError):continue
-                    if i in by_index and i not in used:
-                        ordered_options.append(by_index[i]);used.add(i)
+                ordered_options=[by_index[i] for i in direct_order if i in by_index]
+                used=set(direct_order)
                 ordered_options.extend(o for o in raw_options if int(o['index']) not in used)
                 groups.append({
                     'key':key,
@@ -172,8 +173,6 @@ def register_product_options_admin_phase2(app, db):
                     product=next((p for p in data.get('products') or [] if isinstance(p,dict) and str(p.get('id'))==str(product_id)),None)
                     if not product:return jsonify({'ok':False,'error':'Produit introuvable'}),404
                     lists=data.get('optionLists') or {}
-                    option_orders=data.get('optionListOrders') if isinstance(data.get('optionListOrders'),dict) else {}
-                    data['optionListOrders']=option_orders
                     old_direct=product.get('options') if isinstance(product.get('options'),list) else []
                     old_by_key={str(g.get('key') or '')[8:]:g for g in old_direct if isinstance(g,dict) and str(g.get('key') or '').startswith('central_')}
                     selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
@@ -200,9 +199,10 @@ def register_product_options_admin_phase2(app, db):
                             for raw in cfg.get('optionOrder') or []:
                                 try:i=int(raw)
                                 except (TypeError,ValueError):continue
-                                if 0<=i<len(central_vals) and i not in wanted:wanted.append(i)
-                            wanted.extend(i for i in range(len(central_vals)) if i not in wanted)
-                            option_orders[key]=wanted
+                                if i in selected and 0<=i<len(central_vals) and i not in wanted:wanted.append(i)
+                            wanted.extend(i for i in selected if i not in wanted)
+                            selected=wanted
+                            selections[key]=selected
                         if not selected:continue
                         meta=_group_meta(data,product,key)
                         if isinstance(previous,dict):
@@ -259,7 +259,7 @@ def register_product_options_admin_phase2(app, db):
     @app.get('/administration/options-produits')
     def options_admin_page():
         return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options par produit</title><style>
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.choice-tools{display:flex;gap:4px;margin-left:6px}.choice-tools button{width:30px;height:30px;border:1px solid #cfd4dc;background:#f8fafc;border-radius:7px;font-weight:900;cursor:pointer}.choice-tools .rename{width:auto;padding:0 8px;font-size:11px}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;margin-top:16px}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.drag-handle{cursor:grab;font-size:18px;color:#7b8490;padding:2px 5px;user-select:none}.dragging{opacity:.45}.group-title{cursor:pointer}.group-title:after{content:' ✎';font-size:12px;color:#8a94a3;font-weight:700}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;margin-top:16px}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
 </style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes avec ↑ / ↓.</p>
 <div class="card"><label>1. Choisir une catégorie</label><div id="category-buttons" class="category-buttons"></div><div class="field" style="margin-top:14px"><label>2. Choisir un produit</label><select id="product" disabled><option value="">Choisissez d’abord une catégorie…</option></select></div><div id="status" class="status"></div></div>
 <div class="card"><h2 style="margin-top:0">Ajouter une nouvelle option</h2><p class="hint">Exemple : groupe « Suppléments », nom « Double bacon », prix 3,00 €.</p><div class="addgrid"><div><label>Groupe</label><select id="add-group"></select></div><div><label>Nom</label><input id="add-name" placeholder="Double bacon"></div><div><label>Prix supplémentaire</label><input id="add-price" type="number" min="0" step="0.01" value="0.00"></div><button class="primary gold" id="add-option" type="button">Ajouter</button></div></div>
@@ -274,35 +274,47 @@ function categoryList(){const seen=[];products.forEach(p=>{const c=String(p.cate
 function renderCategories(){const cats=categoryList();$('category-buttons').innerHTML=cats.map(c=>'<button type="button" class="catbtn '+(c===currentCategory?'active':'')+'" data-cat="'+E(c)+'">'+E(c)+'</button>').join('')||'<span class="hint">Aucune catégorie disponible.</span>'}
 function renderProductSelect(){const select=$('product');if(!currentCategory){select.disabled=true;select.innerHTML='<option value="">Choisissez d’abord une catégorie…</option>';return}const rows=products.filter(p=>String(p.category||'')===currentCategory);select.disabled=false;select.innerHTML='<option value="">Choisir un produit de '+E(currentCategory)+'…</option>'+rows.map(p=>'<option value="'+E(p.id)+'">'+E(p.name)+'</option>').join('')}
 async function loadProducts(){const d=await j('/api/admin/options-products-list?t='+Date.now());products=d.products||[];renderCategories();renderProductSelect()}
-function render(){if(!groups.length){$('groups').innerHTML='<div class="empty">Aucun groupe d’options disponible.</div>';return}$('groups').innerHTML=groups.map((g,gi)=>'<section class="group" data-key="'+E(g.key)+'"><div class="grouphead"><b>'+E(g.name)+'</b><span class="hint">'+g.selected.length+' sélectionnée(s)</span><div class="move"><button type="button" data-up="'+gi+'" title="Monter le groupe">↑</button><button type="button" data-down="'+gi+'" title="Descendre le groupe">↓</button></div></div><div class="options">'+g.options.map((o,oi)=>{const on=g.selected.includes(Number(o.index));const tools=g.source==='central'?'<div class="choice-tools"><button type="button" data-opt-up="'+gi+':'+oi+'" title="Monter ce choix">↑</button><button type="button" data-opt-down="'+gi+':'+oi+'" title="Descendre ce choix">↓</button><button type="button" class="rename" data-opt-rename="'+gi+':'+oi+'">Renommer</button></div>':'';return '<div class="choice '+(on?'on':'')+'"><input type="checkbox" data-gi="'+gi+'" data-index="'+Number(o.index)+'" '+(on?'checked':'')+'><span>'+E(o.name)+'</span>'+(Number(o.price||0)?'<small>+'+Number(o.price).toFixed(2).replace('.',',')+' €</small>':'')+tools+'</div>'}).join('')+'</div></section>').join('')}
+function render(){if(!groups.length){$('groups').innerHTML='<div class="empty">Aucun groupe d’options disponible.</div>';return}$('groups').innerHTML=groups.map((g,gi)=>'<section class="group" draggable="true" data-group-drag="'+gi+'" data-key="'+E(g.key)+'"><div class="grouphead"><span class="drag-handle" title="Glisser pour déplacer">☰</span><b class="group-title" data-group-rename="'+gi+'" title="Cliquer pour renommer le titre">'+E(g.name)+'</b><span class="hint">'+g.selected.length+' sélectionnée(s)</span></div><div class="options">'+g.options.map((o,oi)=>{const on=g.selected.includes(Number(o.index));return '<div class="choice '+(on?'on':'')+'" draggable="true" data-choice-drag="'+gi+':'+oi+'"><span class="drag-handle" title="Glisser pour déplacer">⋮⋮</span><input type="checkbox" data-gi="'+gi+'" data-index="'+Number(o.index)+'" '+(on?'checked':'')+'><span>'+E(o.name)+'</span>'+(Number(o.price||0)?'<small>+'+Number(o.price).toFixed(2).replace('.',',')+' €</small>':'')+'</div>'}).join('')+'</div></section>').join('')}
 async function loadProduct(){current=$('product').value;if(!current){groups=[];$('save').disabled=true;render();return}status('Chargement…');try{const d=await j('/api/admin/simple-product-options/'+encodeURIComponent(current)+'?t='+Date.now());groups=d.groups||[];$('save').disabled=false;render();status('Configuration de « '+d.product.name+' » chargée.')}catch(e){status(e.message,false)}}
 $('category-buttons').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;currentCategory=b.dataset.cat||'';current='';groups=[];$('save').disabled=true;renderCategories();renderProductSelect();render();status('Catégorie « '+currentCategory+' » sélectionnée. Choisissez maintenant un produit.')});
 $('product').onchange=loadProduct;
 $('groups').addEventListener('change',e=>{const c=e.target.closest('input[type=checkbox][data-gi]');if(!c)return;const g=groups[Number(c.dataset.gi)],idx=Number(c.dataset.index);if(c.checked&&!g.selected.includes(idx))g.selected.push(idx);if(!c.checked)g.selected=g.selected.filter(x=>Number(x)!==idx);render()});
 $('groups').addEventListener('click',async e=>{
- let b=e.target.closest('[data-opt-up]');
- if(b){const [gi,oi]=b.dataset.optUp.split(':').map(Number),g=groups[gi];if(g&&oi>0){[g.options[oi-1],g.options[oi]]=[g.options[oi],g.options[oi-1]];render()}return}
- b=e.target.closest('[data-opt-down]');
- if(b){const [gi,oi]=b.dataset.optDown.split(':').map(Number),g=groups[gi];if(g&&oi<g.options.length-1){[g.options[oi],g.options[oi+1]]=[g.options[oi+1],g.options[oi]];render()}return}
- b=e.target.closest('[data-opt-rename]');
- if(b){
-   const [gi,oi]=b.dataset.optRename.split(':').map(Number),g=groups[gi],o=g&&g.options[oi];
-   if(!g||!o||g.source!=='central')return;
-   const val=prompt('Nouveau nom pour cette option :',o.name);
-   if(val===null)return;
-   const name=String(val||'').trim();
-   if(!name||name===o.name)return;
-   status('Renommage…');
-   try{
-     await j('/api/admin/option-lists/'+encodeURIComponent(g.key)+'/'+encodeURIComponent(o.index)+'/name',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-     o.name=name;render();status('Option renommée « '+name+' ».');
-   }catch(err){status(err.message,false)}
-   return;
+ const title=e.target.closest('[data-group-rename]');
+ if(!title)return;
+ const gi=Number(title.dataset.groupRename),g=groups[gi];
+ if(!g||!current)return;
+ const val=prompt('Nouveau titre du groupe :',g.name);
+ if(val===null)return;
+ const name=String(val||'').trim();
+ if(!name||name===g.name)return;
+ status('Renommage…');
+ try{
+   await j('/api/admin/product-group-rename-phase25',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:current,groupKey:'central_'+g.key,newTitle:name})});
+   g.name=name;render();status('Titre renommé « '+name+' ».');
+ }catch(err){status(err.message,false)}
+});
+let dragData=null;
+$('groups').addEventListener('dragstart',e=>{
+ const choice=e.target.closest('[data-choice-drag]');
+ if(choice){const [gi,oi]=choice.dataset.choiceDrag.split(':').map(Number);dragData={type:'choice',gi,oi};choice.classList.add('dragging');e.stopPropagation();return}
+ const group=e.target.closest('[data-group-drag]');
+ if(group){dragData={type:'group',gi:Number(group.dataset.groupDrag)};group.classList.add('dragging')}
+});
+$('groups').addEventListener('dragend',e=>{document.querySelectorAll('.dragging').forEach(x=>x.classList.remove('dragging'));dragData=null});
+$('groups').addEventListener('dragover',e=>{if(dragData)e.preventDefault()});
+$('groups').addEventListener('drop',e=>{
+ if(!dragData)return;e.preventDefault();
+ if(dragData.type==='group'){
+   const target=e.target.closest('[data-group-drag]');if(!target)return;
+   const to=Number(target.dataset.groupDrag),from=dragData.gi;if(from===to)return;
+   const moved=groups.splice(from,1)[0];groups.splice(to,0,moved);render();return;
  }
- b=e.target.closest('[data-up]');
- if(b){const i=Number(b.dataset.up);if(i>0){[groups[i-1],groups[i]]=[groups[i],groups[i-1]];render()}return}
- b=e.target.closest('[data-down]');
- if(b){const i=Number(b.dataset.down);if(i<groups.length-1){[groups[i],groups[i+1]]=[groups[i+1],groups[i]];render()}return}
+ const target=e.target.closest('[data-choice-drag]');if(!target)return;
+ const [tgi,toi]=target.dataset.choiceDrag.split(':').map(Number);
+ if(tgi!==dragData.gi)return;
+ const g=groups[tgi],from=dragData.oi;if(!g||from===toi)return;
+ const moved=g.options.splice(from,1)[0];g.options.splice(toi,0,moved);render();
 });
 $('save').onclick=async()=>{if(!current)return;const btn=$('save'),old=btn.textContent;btn.disabled=true;btn.classList.remove('saved');btn.classList.add('saving');btn.textContent='Enregistrement…';status('Enregistrement…');try{await j('/api/admin/simple-product-options/'+encodeURIComponent(current),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({groups:groups.map(g=>({key:g.key,selected:g.selected,optionOrder:(g.options||[]).map(o=>Number(o.index))}))})});status('Options et ordre enregistrés.');btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='Enregistré ✓';await loadProduct();setTimeout(()=>{btn.classList.remove('saved');btn.textContent=old},1600)}catch(e){btn.classList.remove('saving','saved');btn.textContent=old;status(e.message,false)}finally{btn.disabled=false}};
 async function loadAddGroups(){try{const d=await j('/api/admin/option-lists?t='+Date.now());$('add-group').innerHTML=(d.groups||[]).map(g=>'<option value="'+E(g.key)+'">'+E(g.name)+'</option>').join('')}catch(e){status(e.message,false)}}
