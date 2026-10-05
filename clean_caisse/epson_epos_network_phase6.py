@@ -10,6 +10,8 @@ Configuration actuelle restaurant:
 - Device ID local_printer
 """
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from xml.sax.saxutils import escape
 
 from flask import Response, jsonify, request
@@ -232,6 +234,49 @@ def _combined_xml(order, identity=None):
     return declaration + root + body(kitchen) + body(client) + '</epos-print>'
 
 
+def _expense_note_xml(order, identity=None, persons=1):
+    identity = identity or {}
+    ht, tax, total, rate = _tax_values(order)
+    try:
+        created_ms = int(order.get("created_at") or 0)
+        dt = datetime.fromtimestamp(created_ms / 1000, tz=ZoneInfo("Europe/Paris"))
+    except Exception:
+        dt = datetime.now(ZoneInfo("Europe/Paris"))
+    brand = str(identity.get("name") or "BECHEFAA").strip() or "BECHEFAA"
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
+        '<text align="center" font="font_a" width="2" height="2" emphasized="true"/>',
+        _line(brand),
+        '<text width="1" height="1" emphasized="false"/>',
+        _line("NOTE DE FRAIS"),
+    ]
+    for line in _identity_lines(identity):
+        parts.append(_line(line))
+    siret = str(identity.get("siret") or "").strip()
+    if siret:
+        parts.append(_line("Siret : " + siret))
+    parts.extend([
+        _line("--------------------------------"),
+        _line("Date : " + dt.strftime("%d/%m/%Y %H:%M")),
+        _line("Nombre de repas : " + str(persons)),
+        _line("--------------------------------"),
+        '<text align="left"/>',
+        _line("TOTAL HT        " + _money(ht)),
+        _line("TVA " + f"{rate:g}".replace(".", ",") + " %       " + _money(tax)),
+        '<text width="2" height="1" emphasized="true"/>',
+        _line("TOTAL TTC " + _money(total)),
+        '<text width="1" height="1" emphasized="false"/>',
+        _line("--------------------------------"),
+        '<text align="center"/>',
+        _line("Justificatif de frais"),
+        '<feed line="3"/>',
+        '<cut type="feed"/>',
+        '</epos-print>',
+    ])
+    return "".join(parts)
+
+
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
     def _load_identity(conn):
         try:
@@ -360,6 +405,34 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
         except Exception as exc:
             return "Ticket Epson indisponible : " + str(exc), 500
 
+    @app.get("/api/epson/expense-note-xml/<order_id>")
+    def epson_expense_note_xml_phase6(order_id):
+        try:
+            try:
+                persons = int(request.args.get("persons") or 1)
+            except (TypeError, ValueError):
+                persons = 1
+            persons = max(1, min(persons, 99))
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                if not order:
+                    return "Commande introuvable", 404
+                pay = conn.execute(
+                    "SELECT payment_status,paid_amount FROM caisse_orders WHERE id=%s",
+                    (order_id,),
+                ).fetchone()
+                payment_status = str((pay or {}).get("payment_status") or "").strip().upper()
+                paid_amount = Decimal(str((pay or {}).get("paid_amount") or 0))
+                if paid_amount <= 0 and payment_status not in {"PAYÉE","PAYEE","PAID","ENCAISSÉE","ENCAISSEE"}:
+                    return "Note de frais disponible uniquement après encaissement.", 409
+                identity = _load_identity(conn)
+            xml = _expense_note_xml(order, identity, persons)
+            response = Response(xml, content_type="text/xml; charset=utf-8")
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except Exception as exc:
+            return "Note de frais Epson indisponible : " + str(exc), 500
+
     @app.after_request
     def inject_epson_network_phase6(response):
         if request.path not in ("/pos", "/historique-modification") or response.status_code != 200 or response.mimetype != "text/html":
@@ -402,7 +475,8 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function openPrintAssistant(xml,label,orderId){
    if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
-   const successUrl=window.location.origin+'/pos?epson=success';
+   const successPath=window.location.pathname==='/historique-modification'?'/historique-modification?epson=success':'/pos?epson=success';
+   const successUrl=window.location.origin+successPath;
    const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
      +'success='+encodeURIComponent(successUrl)
      +'&ver=1'
@@ -499,6 +573,20 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    setTimeout(()=>status('ok','Epson TM-m30II prête'),3500);
    return true;
  }
+ async function printExpenseNote(orderId,persons){
+   if(!orderId)return true;
+   const n=Math.max(1,Math.min(99,parseInt(persons||1,10)||1));
+   status('work','Epson : préparation de la note de frais…');
+   const xr=await nativeFetch('/api/epson/expense-note-xml/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n),{cache:'no-store'});
+   if(!xr.ok){
+     const detail=await xr.text().catch(()=> '');
+     throw new Error(detail||'Note de frais introuvable');
+   }
+   const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'expense-note',orderId);
+   window.location.href='/impression/note-de-frais/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n);
+   return true;
+ }
  async function testConnection(){
    try{
      const c=await getConfig();
@@ -535,6 +623,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  window.bechefaaPrintKitchen=printKitchen;
  window.bechefaaPrintClient=printClient;
+ window.bechefaaPrintExpenseNote=printExpenseNote;
  if(new URLSearchParams(window.location.search).get('epson')==='success'){
    epsonDiag('success-return');
    let d=null;try{d=JSON.parse(sessionStorage.getItem('bechefaa_epson_diag')||'null')}catch(e){}
