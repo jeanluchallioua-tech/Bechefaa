@@ -67,7 +67,26 @@ def register_payment_history_ui_phase41(app):
 
    function openPayment(card,id,btn){
      if(!id)return;
-     window.location.href='/encaisser-phase6/'+encodeURIComponent(id);
+     const s=metaCache[id];
+     if(!s){alert('Encaissement indisponible. Rechargez l’historique.');return}
+     if(s.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}
+     if(s.payment_status==='PAYÉE'){showPaid(card,s);return}
+     const total=Number(s.total||0);
+     const paid=Number(s.paid_amount||0);
+     const remaining=Math.max(0,total-paid);
+     current={card,id,order:{...s,total:remaining,order_total:total},button:btn};
+     method=null;
+     orderEl.textContent='Commande #'+String(s.num||'')+(paid>0?' · déjà encaissé '+euro(paid):'');
+     totalEl.textContent=euro(remaining);
+     amountEl.value=remaining.toFixed(2);
+     received.value='';
+     received.dataset.useredit='';
+     document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));
+     cashBox.classList.remove('show');
+     confirmBtn.disabled=true;
+     overlay.classList.add('open');
+     overlay.setAttribute('aria-hidden','false');
+     setTimeout(()=>amountEl.select(),30);
    }
 
    function decorateWithMeta(meta){
@@ -96,13 +115,32 @@ def register_payment_history_ui_phase41(app):
      }catch(e){}
    }
 
-   confirmBtn.addEventListener('click',async()=>{
-     if(!valid())return;errorEl.textContent='';confirmBtn.disabled=true;const a=amount();let payload={method,amount:a};if(method==='ESPÈCES')payload.received=num(received.value);
-     try{
-       const res=await fetch('/api/orders/'+encodeURIComponent(current.id)+'/payment-phase41',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-       const d=await res.json();if(!res.ok||!d.ok)throw new Error(d.error||'Encaissement impossible');
-       const card=current.card;if(d.payment_status==='PAYÉE')showPaid(card,d);else showPartial(card,d);close();await refreshMeta();
-     }catch(e){errorEl.textContent=e.message||'Encaissement impossible';confirmBtn.disabled=false}
+   confirmBtn.addEventListener('click',()=>{
+     if(!valid()||!current)return;
+     errorEl.textContent='';
+     confirmBtn.disabled=true;
+     const frameName='bechefaa-pay-frame';
+     let frame=document.getElementById(frameName);
+     if(!frame){
+       frame=document.createElement('iframe');
+       frame.id=frameName;frame.name=frameName;frame.style.display='none';
+       document.body.appendChild(frame);
+     }
+     const form=document.createElement('form');
+     form.method='POST';
+     form.action='/encaisser-phase6/'+encodeURIComponent(current.id);
+     form.target=frameName;
+     form.style.display='none';
+     const add=(n,v)=>{const i=document.createElement('input');i.type='hidden';i.name=n;i.value=String(v);form.appendChild(i)};
+     add('method',method);add('amount',amount());
+     if(method==='ESPÈCES')add('received',num(received.value));
+     let firstLoad=true;
+     frame.onload=()=>{
+       if(firstLoad){firstLoad=false;setTimeout(()=>{close();window.location.reload()},120);return}
+     };
+     document.body.appendChild(form);
+     form.submit();
+     setTimeout(()=>form.remove(),1000);
    });
 
    /* L'Historique reconstruit #list toutes les 8 secondes. On décore donc
