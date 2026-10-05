@@ -198,36 +198,6 @@ input{{width:100%;padding:13px;border:1px solid #cfd4dc;border-radius:10px;font-
             except Exception: row={"id":order_id}
             return Response(page(row,"Encaissement impossible : "+str(exc)),status=500,content_type="text/html; charset=utf-8")
 
-    @app.after_request
-    def inject_payment_navigation_phase6(response):
-        if request.path!="/historique-modification" or response.status_code!=200 or response.mimetype!="text/html":
-            return response
-        html=response.get_data(as_text=True)
-        if "bechefaa-payment-navigation-phase6" in html:
-            return response
-        addon=r"""
-<script id="bechefaa-payment-navigation-phase6">
-(function(){
- function orderId(card){
-   for(const b of card.querySelectorAll('button')){
-     const s=b.getAttribute('onclick')||'';
-     let m=s.match(/editOrder\('([^']+)'\)/);
-     if(!m)m=s.match(/viewOrder\('([^']+)'\)/);
-     if(m)return m[1];
-   }
-   return '';
- }
- document.addEventListener('click',function(e){
-   const b=e.target.closest('.p41-pay-btn');
-   if(!b)return;
-   const card=b.closest('.order'),id=card?orderId(card):'';
-   if(!id)return;
-   e.preventDefault();e.stopImmediatePropagation();
-   window.location.href='/encaisser-phase6/'+encodeURIComponent(id);
- },true);
-})();
-</script>
-"""
-        html=html.replace("</body>",addon+"</body>")
-        response.set_data(html);response.content_length=len(response.get_data())
-        return response
+    # L'interface d'encaissement reste la fenêtre modale historique.
+    # Les routes /encaisser-phase6 servent uniquement de backend formulaire
+    # sans fetch pour fiabiliser les navigateurs/tablettes.
