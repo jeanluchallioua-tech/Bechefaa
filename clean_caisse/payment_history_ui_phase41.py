@@ -65,19 +65,9 @@ def register_payment_history_ui_phase41(app):
    document.querySelector('.p43-close').onclick=close;document.querySelector('.p43-cancel').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});amountEl.addEventListener('input',()=>{if(method==='ESPÈCES'&&!received.dataset.useredit)received.value=amountEl.value;refresh()});received.addEventListener('input',()=>{received.dataset.useredit='1';refresh()});
    document.querySelectorAll('.p43-method').forEach(btn=>btn.addEventListener('click',()=>{method=btn.dataset.method;document.querySelectorAll('.p43-method').forEach(b=>b.classList.toggle('active',b===btn));cashBox.classList.toggle('show',method==='ESPÈCES');received.dataset.useredit='';if(method==='ESPÈCES'){received.value=amountEl.value;setTimeout(()=>received.focus(),30)}refresh()}));
 
-   async function openPayment(card,id,btn){
-     btn.disabled=true;
-     try{
-       const s=await fetch('/api/orders/'+encodeURIComponent(id)+'/payment-phase41',{cache:'no-store'}).then(r=>r.json());
-       if(!s.ok)throw new Error(s.error||'Encaissement indisponible');
-       if(s.order.z_locked){alert('Commande clôturée par le Z : encaissement interdit');return}
-       if(s.order.payment_status==='PAYÉE'){showPaid(card,s.order);return}
-       current={card,id,order:s.order,button:btn};method=null;
-       orderEl.textContent='Commande #'+s.order.num+(s.order.topup_required?' · reste à payer':'');
-       totalEl.textContent=euro(s.order.total);amountEl.value=Number(s.order.total||0).toFixed(2);received.value='';received.dataset.useredit='';
-       document.querySelectorAll('.p43-method').forEach(b=>b.classList.remove('active'));cashBox.classList.remove('show');confirmBtn.disabled=true;
-       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');setTimeout(()=>amountEl.select(),30);
-     }catch(e){alert(e.message||'Encaissement impossible')}finally{btn.disabled=false}
+   function openPayment(card,id,btn){
+     if(!id)return;
+     window.location.href='/encaisser-phase6/'+encodeURIComponent(id);
    }
 
    function decorateWithMeta(meta){
