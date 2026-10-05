@@ -545,7 +545,48 @@ def orders_history():
                    ORDER BY created_at DESC
                    LIMIT 150"""
             ).fetchall()
-            orders = [order_payload(conn, row) for row in rows]
+
+            order_ids = [row["id"] for row in rows]
+            items_by_order = {order_id: [] for order_id in order_ids}
+            if order_ids:
+                item_rows = conn.execute(
+                    """SELECT order_id, line_id, product_id, name, qty, unit_price,
+                              options_json::text AS options_json, options_text, prepared, position
+                       FROM caisse_order_items
+                       WHERE order_id = ANY(%s)
+                       ORDER BY order_id, position, id""",
+                    (order_ids,),
+                ).fetchall()
+                for item in item_rows:
+                    try:
+                        options = json.loads(item["options_json"] or "[]")
+                    except Exception:
+                        options = []
+                    items_by_order.setdefault(item["order_id"], []).append({
+                        "line_id": item["line_id"],
+                        "product_id": item["product_id"],
+                        "name": item["name"],
+                        "qty": item["qty"],
+                        "unit_price": float(item["unit_price"]),
+                        "options": options,
+                        "options_text": item["options_text"],
+                        "prepared": bool(item["prepared"]),
+                        "position": item["position"],
+                    })
+
+            orders = [{
+                "id": row["id"],
+                "num": row["num"],
+                "customer_name": row["customer_name"],
+                "source": row["source"],
+                "ticket_type": ticket_type(row["source"]),
+                "payment": row["payment"],
+                "status": row["status"],
+                "total": float(row["total"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "items": items_by_order.get(row["id"], []),
+            } for row in rows]
     except Exception as exc:
         return jsonify({"ok": False, "error": "Historique indisponible", "detail": str(exc)}), 500
     return jsonify({"ok": True, "orders": orders, "count": len(orders)})
