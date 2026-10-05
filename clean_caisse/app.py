@@ -422,7 +422,17 @@ def create_order():
             return jsonify({"ok": False, "error": "Sur place : choisissez une table de 1 à 9."}), 400
         table_label = f"Table {table_number}"
 
-    customer_name = "Client livraison" if source == "LIVRAISON" else "Client comptoir"
+    raw_customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    first_name = str(raw_customer.get("first_name") or raw_customer.get("firstName") or "").strip()
+    last_name = str(raw_customer.get("last_name") or raw_customer.get("lastName") or "").strip()
+    full_name = " ".join(x for x in (first_name, last_name) if x).strip()
+    customer_name = full_name or ("Client livraison" if source == "LIVRAISON" else "Client comptoir")
+    customer_phone = str(raw_customer.get("phone") or "").strip()
+    customer_email = str(raw_customer.get("email") or "").strip()
+    customer_address = str(raw_customer.get("address") or "").strip()
+    customer_postal_code = str(raw_customer.get("postal_code") or raw_customer.get("postalCode") or "").strip()
+    customer_city = str(raw_customer.get("city") or "").strip()
+
     try:
         with db() as conn:
             with conn.transaction():
@@ -448,11 +458,14 @@ def create_order():
                 order_num = int(row["next_num"])
                 conn.execute(
                     """INSERT INTO caisse_orders
-                       (id, num, customer_name, offline_sync_key, source, table_number, table_label,
+                       (id, num, customer_name, phone, email, address, postal_code, city,
+                        offline_sync_key, source, table_number, table_label,
                         payment, status, total, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
-                        order_id, order_num, customer_name, offline_sync_key, source, table_number, table_label,
+                        order_id, order_num, customer_name, customer_phone, customer_email,
+                        customer_address, customer_postal_code, customer_city,
+                        offline_sync_key, source, table_number, table_label,
                         "À ENCAISSER", "Enregistrée", total, now, now,
                     ),
                 )
