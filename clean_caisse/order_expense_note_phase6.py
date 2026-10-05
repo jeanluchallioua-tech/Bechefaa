@@ -157,13 +157,25 @@ def register_order_expense_note_phase6(app, db, ensure_order_schema):
  }
  function open(id){
    const back=document.createElement('div');back.className='expense-note-backdrop';
-   back.innerHTML='<div class="expense-note-modal"><h3>Note de frais</h3><p>Indiquez le nombre de repas à faire apparaître sur le justificatif.</p><input type="number" min="1" max="99" step="1" value="1" inputmode="numeric"><div class="expense-note-actions"><button type="button" class="expense-note-cancel">Annuler</button><button type="button" class="expense-note-print">Afficher la note</button></div></div>';
+   back.innerHTML='<div class="expense-note-modal"><h3>Note de frais</h3><p>Indiquez le nombre de repas à faire apparaître sur le justificatif.</p><input type="number" min="1" max="99" step="1" value="1" inputmode="numeric"><div class="expense-note-actions"><button type="button" class="expense-note-cancel">Annuler</button><button type="button" class="expense-note-print">Imprimer</button></div></div>';
    document.body.appendChild(back);
    const close=()=>back.remove();
    back.querySelector('.expense-note-cancel').onclick=close;
    back.addEventListener('click',e=>{if(e.target===back)close()});
    back.querySelector('.expense-note-print').onclick=()=>{
      const n=Math.max(1,Math.min(99,parseInt(back.querySelector('input').value||'1',10)||1));
+     if(/Android/i.test(navigator.userAgent||'')){
+       if(typeof window.bechefaaPrintExpenseNote!=='function'){
+         alert('Impression Epson impossible : TM Print Assistant non initialisé.');
+         return;
+       }
+       const btn=back.querySelector('.expense-note-print');
+       btn.disabled=true;btn.textContent='Impression…';
+       window.bechefaaPrintExpenseNote(id,n)
+         .then(()=>close())
+         .catch(err=>{alert('Impression Epson impossible : '+((err&&err.message)||err||'Erreur'));btn.disabled=false;btn.textContent='Imprimer';});
+       return;
+     }
      window.open('/impression/note-de-frais/'+encodeURIComponent(id)+'?persons='+encodeURIComponent(n),'_blank');
      close();
    };
