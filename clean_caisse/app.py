@@ -533,6 +533,38 @@ def send_order_to_kitchen(order_id):
     }), 200
 
 
+@app.post("/send-kitchen-classic/<order_id>")
+def send_order_to_kitchen_classic(order_id):
+    """Fallback sans fetch pour tablette/PWA.
+
+    Effectue la même transition que l'API puis enchaîne directement vers
+    l'impression Epson cuisine + client.
+    """
+    now = int(time.time() * 1000)
+    try:
+        with db() as conn:
+            with conn.transaction():
+                row = conn.execute(
+                    "SELECT id, num, status, total, source FROM caisse_orders WHERE id = %s FOR UPDATE",
+                    (order_id,),
+                ).fetchone()
+                if not row:
+                    return "Commande introuvable", 404
+                if row["status"] == "À préparer":
+                    pass
+                elif row["status"] == "Enregistrée":
+                    conn.execute(
+                        "UPDATE caisse_orders SET status = %s, updated_at = %s WHERE id = %s",
+                        ("À préparer", now, order_id),
+                    )
+                else:
+                    return "Cette commande ne peut pas être envoyée en cuisine", 409
+    except Exception as exc:
+        return "Envoi cuisine impossible : " + str(exc), 500
+
+    return redirect("/epson/print-order-pack/" + str(order_id), code=303)
+
+
 @app.get("/api/orders/history")
 def orders_history():
     try:
@@ -668,7 +700,17 @@ function showOptions(id,name){document.getElementById('side-title').textContent=
 function addCurrent(){if(!currentProduct)return;if(requiredMissing()){document.getElementById('order-message').innerHTML='<div class="error">Sélectionnez les options obligatoires.</div>';return}let opts=selectedOptions(),unit=Number(currentProduct.price||0)+totalExtra();ORDER.push({line_id:'line-'+Date.now()+'-'+Math.random().toString(16).slice(2),product_id:String(currentProduct.id||''),name:String(currentProduct.name||''),qty:1,unit_price:Number(unit.toFixed(2)),options:opts});document.getElementById('order-message').innerHTML='';selections={};renderOptions();renderOrder()}
 function renderOrder(){let el=document.getElementById('order');if(!ORDER.length){el.innerHTML='<div class="empty">Commande vide</div>';return}let total=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);el.innerHTML=ORDER.map((l,i)=>`<div class="order-line"><div class="order-line-head"><span>${esc(l.name)}</span><span>${Number(l.unit_price).toFixed(2).replace('.',',')} €</span></div>${l.options.length?`<div class="order-opts">${esc(l.options.map(o=>o.name).join(' • '))}</div>`:''}<button class="remove" data-action="remove-line" data-index="${i}">Retirer</button></div>`).join('')+`<div class="order-total"><span>Total</span><span>${total.toFixed(2).replace('.',',')} €</span></div><button class="action save" data-action="save-order">Enregistrer la commande ${esc(TICKET_TYPE)}</button>`}
 function saveOrder(){if(!ORDER.length)return;let btn=document.querySelector('[data-action="save-order"]');if(btn){btn.disabled=true;btn.textContent='Enregistrement…'}document.getElementById('order-message').innerHTML='';fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:ORDER,ticket_type:TICKET_TYPE})}).then(async r=>{let d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');LAST_SAVED_ORDER=d;ORDER=[];renderOrder();document.getElementById('order-message').innerHTML=`<div class="success"><b>Commande #${esc(d.num)} enregistrée • ${esc(d.ticket_type)}</b><br>Total ${Number(d.total||0).toFixed(2).replace('.',',')} € • ${esc(d.status)}</div><button class="action kitchen" data-action="send-kitchen" data-order-id="${esc(d.id)}" data-order-num="${esc(d.num)}">Envoyer en cuisine</button>`}).catch(err=>{document.getElementById('order-message').innerHTML=`<div class="error"><b>Commande non enregistrée.</b><br>${esc(err.message)}</div>`;renderOrder()})}
-function sendKitchen(orderId,orderNum){if(!orderId)return;let btn=document.querySelector('[data-action="send-kitchen"]');if(btn){btn.disabled=true;btn.textContent='Envoi en cuisine…'}fetch('/api/orders/'+encodeURIComponent(orderId)+'/send-kitchen',{method:'POST'}).then(async r=>{let d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');LAST_SAVED_ORDER=d;document.getElementById('order-message').innerHTML=`<div class="success"><b>Commande #${esc(d.num||orderNum)} envoyée en cuisine</b><br>${esc(d.ticket_type)} • Statut : ${esc(d.status)}<br><a href="/cuisine">Ouvrir l’écran cuisine</a></div>`}).catch(err=>{document.getElementById('order-message').innerHTML=`<div class="error"><b>Envoi cuisine impossible.</b><br>${esc(err.message)}</div><button class="action kitchen" data-action="send-kitchen" data-order-id="${esc(orderId)}" data-order-num="${esc(orderNum)}">Réessayer l’envoi en cuisine</button>`})}
+function sendKitchen(orderId,orderNum){
+ if(!orderId)return;
+ let btn=document.querySelector('[data-action="send-kitchen"]');
+ if(btn){btn.disabled=true;btn.textContent='Envoi en cuisine…'}
+ const form=document.createElement('form');
+ form.method='POST';
+ form.action='/send-kitchen-classic/'+encodeURIComponent(orderId);
+ form.style.display='none';
+ document.body.appendChild(form);
+ form.submit();
+}
 function render(){let items=DATA.items.filter(p=>!current||p.category===current);document.getElementById('title').textContent=current||'Tous les produits';document.getElementById('count').textContent=items.length+' produit(s)';document.getElementById('grid').innerHTML=items.map(p=>`<div class="product" data-id="${esc(p.id)}" data-name="${esc(p.name)}">${p.photo?`<img class="product-photo" src="${esc(p.photo)}" alt="${esc(p.name)}">`:''}<div class="name">${esc(p.name)}</div>${p.ingredients?`<div class="product-desc">${esc(p.ingredients)}</div>`:''}<div class="meta">${esc(p.category)}</div>${p.optionGroups?`<span class="badge">${p.optionGroups} groupe(s) d’options</span>`:''}<div class="price">${Number(p.price||0).toFixed(2).replace('.',',')} €</div></div>`).join('');document.querySelectorAll('.cat').forEach(b=>b.classList.toggle('active',b.dataset.cat===(current||'')))}
 document.querySelector('.ticket-choice').onclick=e=>{let b=e.target.closest('[data-ticket]');if(!b)return;TICKET_TYPE=b.dataset.ticket;document.querySelectorAll('[data-ticket]').forEach(x=>x.classList.toggle('active',x===b));renderOrder()};
 fetch('/api/catalog/summary').then(r=>r.json()).then(d=>{DATA=d;document.getElementById('status').textContent=d.products+' produits • PostgreSQL';let cats=['',...d.categoryNames];document.getElementById('cats').innerHTML=cats.map(c=>`<button class="cat" data-cat="${esc(c)}">${esc(c||'Tous les produits')}</button>`).join('');document.getElementById('cats').onclick=e=>{let b=e.target.closest('.cat');if(!b)return;current=b.dataset.cat||null;render()};document.getElementById('grid').onclick=e=>{let p=e.target.closest('.product');if(!p)return;showOptions(p.dataset.id,p.dataset.name)};document.querySelector('.cart').onclick=e=>{let b=e.target.closest('[data-action]');if(!b)return;let action=b.dataset.action;if(action==='add-current')addCurrent();else if(action==='remove-line'){ORDER.splice(Number(b.dataset.index),1);renderOrder()}else if(action==='save-order')saveOrder();else if(action==='send-kitchen')sendKitchen(b.dataset.orderId,b.dataset.orderNum);let opt=e.target.closest('.opt-value');if(opt)toggleOption(Number(opt.dataset.gi),Number(opt.dataset.vi))};document.getElementById('options').onclick=e=>{let b=e.target.closest('.opt-value');if(!b)return;toggleOption(Number(b.dataset.gi),Number(b.dataset.vi))};render();renderOrder()}).catch(()=>{document.getElementById('status').textContent='Erreur catalogue';document.getElementById('grid').innerHTML='<p>Impossible de charger le catalogue.</p>'});
