@@ -8,6 +8,7 @@ from clean_caisse.kitchen_checklist import register_kitchen_checklist
 from clean_caisse.kitchen_ready_isolated_phase5 import register_kitchen_ready_isolated_phase5
 from clean_caisse.history_modifier import register_history_modifier
 from clean_caisse.order_expense_note_phase6 import register_order_expense_note_phase6
+from clean_caisse.orders_live_diag_phase6 import register_orders_live_diag_phase6
 from clean_caisse.kitchen_resend_prepared_isolated_phase5 import register_kitchen_resend_prepared_isolated_phase5
 from clean_caisse.paid_reopen_preserve_prepared_isolated_phase5 import register_paid_reopen_preserve_prepared_isolated_phase5
 from clean_caisse.paid_reopen_payment_guard_isolated_phase5 import register_paid_reopen_payment_guard_isolated_phase5
@@ -143,6 +144,7 @@ register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
 register_kitchen_ready_isolated_phase5(app, db, ensure_order_schema)
 register_history_modifier(app, db, ensure_order_schema, order_payload)
 register_order_expense_note_phase6(app, db, ensure_order_schema)
+register_orders_live_diag_phase6(app, db, ensure_order_schema)
 register_kitchen_resend_prepared_isolated_phase5(app, db)
 register_pos_touch_layout(app, db)
 register_pos_design_v2(app)
