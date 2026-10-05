@@ -116,13 +116,14 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         except Exception as exc: return f"Impression indisponible : {escape(str(exc))}", 500
         mode = order["ticket_type"]
         mode_title = "COMPTOIR / EMPORTER" if mode == "Comptoir" else mode.upper()
+        preview = request.args.get("preview") == "1"
         parts = []
         if order.get("customer_name"): parts.append(escape(str(order["customer_name"])))
-        if order.get("phone"): parts.append(escape(str(order["phone"])))
+        if order.get("phone"): parts.append("Tél. " + escape(str(order["phone"])))
         if order.get("email"): parts.append(escape(str(order["email"])))
-        if mode == "Livraison":
-            address = " ".join(x for x in [order.get("address"), order.get("postal_code"), order.get("city")] if x)
-            if address: parts.append(escape(address))
+        address = " ".join(x for x in [order.get("address"), order.get("postal_code"), order.get("city")] if x)
+        if address and (mode == "Livraison" or preview):
+            parts.append(escape(address))
         client_block = '<div class="cclient">' + "<br>".join(parts) + '</div>' if parts else '<div class="cclient">Client comptoir</div>'
         items = order.get("items") or []
         piece_count = sum(int(i.get("qty") or 0) for i in items)
@@ -130,7 +131,6 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         try: rate_text = f"{float(order.get('tax_rate') or 10):g}".replace(".", ",")
         except Exception: rate_text = "10"
         auto = request.args.get("auto") == "1"
-        preview = request.args.get("preview") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket #{escape(str(order['num']))}</title>{_base_css()}<style>
 .ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:12px;line-height:1.2;margin-top:2px;padding-left:10mm}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
 </style></head><body><div class="ticket80"><div class="ctitle">BÉCHÉFAA</div><div class="sep"></div><div class="cmode">{escape(mode_title)}</div><div class="cnum">N° {escape(str(order['num']))}</div>{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="cpieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row cfiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row cfiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row ctotal"><span>TOTAL TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row cfiscal"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="thanks">Merci</div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto and not preview else ''}</body></html>'''
