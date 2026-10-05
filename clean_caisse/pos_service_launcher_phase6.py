@@ -20,7 +20,9 @@ def register_pos_service_launcher_phase6(app):
 <style id="bechefaa-service-launcher-phase6">
 #svc-launcher{position:fixed;inset:0;z-index:200000;background:rgba(9,12,16,.72);backdrop-filter:blur(7px);display:flex;align-items:center;justify-content:center;padding:22px}
 #svc-launcher.hidden{display:none}
-#svc-card{width:min(920px,96vw);background:#fff;border-radius:26px;box-shadow:0 30px 90px #0007;overflow:hidden;border:1px solid #e7e7e7}
+#svc-card{position:relative;width:min(920px,96vw);background:#fff;border-radius:26px;box-shadow:0 30px 90px #0007;overflow:hidden;border:1px solid #e7e7e7}
+#svc-close{position:absolute;top:14px;right:14px;z-index:2;width:42px;height:42px;border:0;border-radius:50%;background:#111827;color:#fff;font-size:25px;font-weight:900;line-height:1;cursor:pointer;display:grid;place-items:center;box-shadow:0 5px 14px #0003}
+#svc-close:hover{background:#2a3038}
 #svc-head{padding:26px 30px 18px;text-align:center;background:linear-gradient(180deg,#fff,#faf7ef)}
 #svc-head h2{margin:0;font:900 30px Arial,sans-serif;color:#111827}
 #svc-head p{margin:8px 0 0;color:#687180;font:700 14px Arial,sans-serif}
@@ -45,6 +47,7 @@ def register_pos_service_launcher_phase6(app):
 </style>
 <div id="svc-launcher" aria-modal="true" role="dialog">
   <div id="svc-card">
+    <button type="button" id="svc-close" aria-label="Fermer" title="Fermer">×</button>
     <div id="svc-head"><h2>Nouvelle commande</h2><p>Choisissez le mode de service avant de commencer.</p></div>
     <div id="svc-modes">
       <button type="button" class="svc-mode" data-svc="salle"><span class="svc-icon">🍽️</span><b>SUR PLACE</b><small>Choisir ensuite la table.</small></button>
@@ -92,6 +95,7 @@ def register_pos_service_launcher_phase6(app):
    });
    document.getElementById('svc-back').addEventListener('click',openModes);
    current.addEventListener('click',openModes);
+   document.getElementById('svc-close').addEventListener('click',closeModal);
    document.addEventListener('bechefaa:new-order',()=>{current.classList.remove('show');openModes()});
    openModes();
  });
