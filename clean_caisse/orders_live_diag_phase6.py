@@ -3,7 +3,7 @@
 Permet de vérifier rapidement les écarts Historique / Cuisine / Encaissement
 sans modifier aucune commande.
 """
-from flask import jsonify
+from flask import jsonify, redirect
 
 
 def register_orders_live_diag_phase6(app, db, ensure_order_schema):
@@ -79,6 +79,30 @@ def register_orders_live_diag_phase6(app, db, ensure_order_schema):
             return jsonify({"ok":False,"error":"Réparation cuisine impossible","detail":str(exc)}),500
 
 
+    @app.get("/orders/<order_id>/repair-kitchen-phase6")
+    def repair_kitchen_phase6_navigation(order_id):
+        """Même réparation, via navigation classique sans fetch JavaScript."""
+        try:
+            with db() as conn:
+                with conn.transaction():
+                    ensure_order_schema(conn)
+                    row=conn.execute(
+                        "SELECT id,status FROM caisse_orders WHERE id=%s FOR UPDATE",
+                        (order_id,),
+                    ).fetchone()
+                    if not row:
+                        return "Commande introuvable",404
+                    if row["status"]=="Enregistrée":
+                        conn.execute(
+                            "UPDATE caisse_orders SET status='À préparer',updated_at=(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=%s",
+                            (order_id,),
+                        )
+                    elif row["status"] not in ("À préparer","En préparation"):
+                        return "Cette commande ne peut pas être envoyée en cuisine depuis cet écran.",409
+            return redirect("/historique-modification",code=303)
+        except Exception as exc:
+            return "Envoi cuisine impossible : "+str(exc),500
+
     @app.after_request
     def inject_kitchen_repair_ui_phase6(response):
         from flask import request
@@ -100,7 +124,7 @@ def register_orders_live_diag_phase6(app, db, ensure_order_schema):
      const id=oid(card),o=ORDERS.find(x=>x.id===id);
      if(!o||o.status!=='Enregistrée')return;
      const b=document.createElement('button');b.type='button';b.className='kitchen-repair-btn';b.textContent='Envoyer en cuisine';
-     b.onclick=async()=>{b.disabled=true;b.textContent='Envoi…';try{const r=await fetch('/api/orders/'+encodeURIComponent(id)+'/repair-kitchen-phase6',{method:'POST'});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');await load();}catch(e){alert('Envoi cuisine impossible : '+(e.message||e));b.disabled=false;b.textContent='Envoyer en cuisine'}};
+     b.onclick=()=>{window.location.href='/orders/'+encodeURIComponent(id)+'/repair-kitchen-phase6'};
      card.appendChild(b);
    });
  }
