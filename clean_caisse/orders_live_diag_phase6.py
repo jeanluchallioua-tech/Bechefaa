@@ -48,3 +48,32 @@ def register_orders_live_diag_phase6(app, db, ensure_order_schema):
             })
         except Exception as exc:
             return jsonify({"ok":False,"error":"Diagnostic commandes indisponible","detail":str(exc)}),500
+
+
+    @app.post("/api/orders/<order_id>/repair-kitchen-phase6")
+    def repair_kitchen_phase6(order_id):
+        """Répare uniquement une commande restée Enregistrée après création."""
+        try:
+            with db() as conn:
+                with conn.transaction():
+                    ensure_order_schema(conn)
+                    row=conn.execute(
+                        "SELECT id,num,status,table_number,table_label FROM caisse_orders WHERE id=%s FOR UPDATE",
+                        (order_id,),
+                    ).fetchone()
+                    if not row:
+                        return jsonify({"ok":False,"error":"Commande introuvable"}),404
+                    if row["status"] in ("À préparer","En préparation"):
+                        return jsonify({"ok":True,"already_visible":True,"id":row["id"],"num":row["num"],"status":row["status"]})
+                    if row["status"]!="Enregistrée":
+                        return jsonify({"ok":False,"error":"Réparation refusée pour ce statut","status":row["status"]}),409
+                    conn.execute(
+                        "UPDATE caisse_orders SET status='À préparer',updated_at=(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=%s",
+                        (order_id,),
+                    )
+            return jsonify({
+                "ok":True,"repaired":True,"id":row["id"],"num":row["num"],
+                "status":"À préparer","table_number":row.get("table_number"),"table_label":row.get("table_label")
+            })
+        except Exception as exc:
+            return jsonify({"ok":False,"error":"Réparation cuisine impossible","detail":str(exc)}),500
