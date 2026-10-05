@@ -273,7 +273,23 @@ def register_product_options_admin_phase2(app, db):
         families=payload.get('families') or ['Sandwich','Burger']
         if not source_id or not isinstance(families,list):
             return jsonify({'ok':False,'error':'Produit source ou familles invalides'}),400
-        wanted_families={str(x or '').strip().casefold() for x in families if str(x or '').strip()}
+
+        def norm_group_key(value):
+            key=str(value or '').strip()
+            if key.startswith('central_'):
+                key=key[8:]
+            return key.casefold()
+
+        def family_match(category):
+            c=str(category or '').strip().casefold()
+            if not c:return False
+            for raw in families:
+                f=str(raw or '').strip().casefold()
+                if not f:continue
+                if c==f or c==f+'s' or c.rstrip('s')==f.rstrip('s'):
+                    return True
+            return False
+
         try:
             with db() as conn:
                 with conn.transaction():
@@ -289,67 +305,89 @@ def register_product_options_admin_phase2(app, db):
                     source_titles={}
                     for g in source_groups:
                         if not isinstance(g,dict):continue
-                        key=str(g.get('key') or '').strip()
+                        raw_key=str(g.get('key') or '').strip()
+                        key=norm_group_key(raw_key)
                         if not key:continue
                         if key not in source_order:source_order.append(key)
-                        title=str(g.get('title') or g.get('label') or g.get('name') or key).strip()
+                        title=str(g.get('title') or g.get('label') or g.get('name') or raw_key).strip()
                         if title:source_titles[key]=title
                     if not source_order:
                         return jsonify({'ok':False,'error':'Le produit source ne contient aucun groupe à reproduire'}),409
 
+                    matched=0
                     updated=0
                     renamed=0
+                    reordered=0
                     skipped=0
+
                     for product in products:
                         if not isinstance(product,dict) or str(product.get('id') or '')==source_id:continue
-                        category=str(product.get('category') or product.get('cat') or '').strip().casefold()
-                        if category not in wanted_families:
+                        category=product.get('category') or product.get('cat') or ''
+                        if not family_match(category):
                             continue
+                        matched+=1
+
                         groups=product.get('options') if isinstance(product.get('options'),list) else []
                         dict_groups=[g for g in groups if isinstance(g,dict)]
                         if len(dict_groups)!=len(groups):
                             skipped+=1
                             continue
-                        by_key={str(g.get('key') or '').strip():g for g in dict_groups if str(g.get('key') or '').strip()}
-                        if not by_key:
+
+                        by_norm={}
+                        for g in dict_groups:
+                            nk=norm_group_key(g.get('key'))
+                            if nk and nk not in by_norm:
+                                by_norm[nk]=g
+                        if not by_norm:
                             skipped+=1
                             continue
 
                         changed=False
-                        for key,title in source_titles.items():
-                            g=by_key.get(key)
+
+                        # Reprend seulement les intitulés des groupes correspondants.
+                        for nk,title in source_titles.items():
+                            g=by_norm.get(nk)
                             if not g:continue
-                            old=str(g.get('title') or g.get('label') or g.get('name') or key).strip()
+                            old=str(g.get('title') or g.get('label') or g.get('name') or g.get('key') or '').strip()
                             if old!=title:
                                 g['title']=title
                                 if 'label' in g:g['label']=title
                                 renamed+=1
                                 changed=True
 
+                        # Reprend seulement l'ordre des groupes existants sur le produit cible.
                         ordered=[]
                         used=set()
-                        for key in source_order:
-                            if key in by_key and key not in used:
-                                ordered.append(by_key[key]);used.add(key)
+                        for nk in source_order:
+                            g=by_norm.get(nk)
+                            if g is not None and nk not in used:
+                                ordered.append(g);used.add(nk)
                         for g in dict_groups:
-                            key=str(g.get('key') or '').strip()
-                            if key not in used:
-                                ordered.append(g);used.add(key)
+                            nk=norm_group_key(g.get('key'))
+                            if nk not in used:
+                                ordered.append(g);used.add(nk)
 
-                        if [str(g.get('key') or '') for g in ordered] != [str(g.get('key') or '') for g in dict_groups]:
+                        before=[norm_group_key(g.get('key')) for g in dict_groups]
+                        after=[norm_group_key(g.get('key')) for g in ordered]
+                        if after!=before:
                             product['options']=ordered
+                            reordered+=1
                             changed=True
 
-                        if changed:updated+=1
+                        if changed:
+                            updated+=1
 
                     conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1",
                                  (json.dumps(data,ensure_ascii=False),int(time.time()*1000)))
+
             return jsonify({
                 'ok':True,
+                'matched':matched,
                 'updated':updated,
                 'renamed':renamed,
+                'reordered':reordered,
                 'skipped':skipped,
-                'message':f'Modèle appliqué à {updated} produit(s) : ordre des groupes + intitulés. Choix internes, prix, Max et sélections inchangés.'
+                'message':f'Modèle appliqué : {matched} produit(s) Sandwich/Burger détecté(s), {updated} modifié(s), {renamed} intitulé(s) harmonisé(s), {reordered} ordre(s) ajusté(s). Choix internes, prix, Max et sélections inchangés.'
             })
         except Exception as exc:
             return jsonify({'ok':False,'error':'Application du modèle impossible','detail':str(exc)}),500
