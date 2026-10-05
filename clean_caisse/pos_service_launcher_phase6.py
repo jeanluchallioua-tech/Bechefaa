@@ -39,7 +39,7 @@ def register_pos_service_launcher_phase6(app):
 #svc-tables button{min-height:66px;border:2px solid #e3e5e8;border-radius:14px;background:#fff;font:900 17px Arial,sans-serif;cursor:pointer}
 #svc-tables button:hover{background:#fff8e6;border-color:#d9a62e}
 #svc-back{display:block;margin:18px auto 0;border:0;background:transparent;color:#6c7480;text-decoration:underline;font-weight:800;cursor:pointer}
-#svc-current{display:none;position:fixed;top:73px;left:50%;transform:translateX(-50%);z-index:190000;background:#111827;color:#fff;border-radius:999px;padding:8px 13px;font:900 12px Arial,sans-serif;box-shadow:0 5px 16px #0003;cursor:pointer;border:1px solid #343a42}
+#svc-current{display:none;position:static;transform:none;z-index:auto;background:#111827;color:#fff;border-radius:999px;padding:9px 14px;font:900 12px Arial,sans-serif;box-shadow:none;cursor:pointer;border:1px solid #343a42;white-space:nowrap;justify-self:start}
 #svc-current.show{display:block}
 #svc-current span{color:#f0bd45;margin-left:5px}
 .pos-v3-service{display:none!important}
@@ -64,6 +64,8 @@ def register_pos_service_launcher_phase6(app):
  ready(function(){
    const modal=document.getElementById('svc-launcher'),modes=document.getElementById('svc-modes'),tableStep=document.getElementById('svc-table-step'),tables=document.getElementById('svc-tables'),current=document.getElementById('svc-current');
    if(!modal||!modes||!tableStep||!tables||!current)return;
+   const toolbar=document.querySelector('.pos-v3-toolbar');
+   if(toolbar)toolbar.appendChild(current);
    tables.innerHTML=Array.from({length:9},(_,i)=>'<button type="button" data-table="'+(i+1)+'">Table '+(i+1)+'</button>').join('');
 
    function findNative(mode){
@@ -81,6 +83,16 @@ def register_pos_service_launcher_phase6(app):
      b.click();
      setCurrent(mode==='livraison'?'LIVRAISON':'À EMPORTER');
      closeModal();
+     // Réutilise le sélecteur client existant : recherche d'un client ou création.
+     // Le flux historique garde ensuite le nom sur la commande et sur le ticket cuisine.
+     setTimeout(()=>{
+       const summary=document.querySelector('.touch-client-summary:not(.hidden)');
+       if(summary)summary.click();
+       else{
+         const box=document.querySelector('.customer-box.touch-modal');
+         if(box)box.classList.add('open');
+       }
+     },80);
    }
    modes.addEventListener('click',e=>{const b=e.target.closest('[data-svc]');if(b)chooseMode(b.dataset.svc)});
    tables.addEventListener('click',e=>{
