@@ -15,7 +15,7 @@ def register_history_print_buttons(app):
         addon = r'''
 <style>
 .history-print-actions{display:flex;gap:7px;flex-wrap:wrap}
-.history-print-actions a{display:inline-block;text-decoration:none;border-radius:8px;padding:10px 12px;font-weight:800;font-size:12px;color:#fff;white-space:nowrap}
+.history-print-actions button{display:inline-block;border:0;border-radius:8px;padding:10px 12px;font-weight:800;font-size:12px;color:#fff;white-space:nowrap;cursor:pointer}
 .history-print-client{background:#2563eb}.history-print-kitchen{background:#d97706}
 </style>
 <script>
@@ -39,7 +39,21 @@ def register_history_print_buttons(app):
        if(!match)return;
        const id=match[1];
        const wrap=document.createElement('div');wrap.className='history-print-actions';
-       wrap.innerHTML='<a class="history-print-client" target="_blank" href="/impression/client/'+encodeURIComponent(id)+'">Ticket client</a><a class="history-print-kitchen" target="_blank" href="/impression/cuisine/'+encodeURIComponent(id)+'">Ticket cuisine</a>';
+       wrap.innerHTML='<button type="button" class="history-print-client">Ticket client</button><button type="button" class="history-print-kitchen">Ticket cuisine</button>';
+       wrap.querySelector('.history-print-client').onclick=function(){
+         if(typeof window.bechefaaPrintClient==='function'){
+           window.bechefaaPrintClient(id).catch(()=>{});
+         }else{
+           window.location.href='/impression/client/'+encodeURIComponent(id);
+         }
+       };
+       wrap.querySelector('.history-print-kitchen').onclick=function(){
+         if(typeof window.bechefaaPrintKitchen==='function'){
+           window.bechefaaPrintKitchen(id).catch(()=>{});
+         }else{
+           window.location.href='/impression/cuisine/'+encodeURIComponent(id);
+         }
+       };
        card.appendChild(wrap);
      });
    }
