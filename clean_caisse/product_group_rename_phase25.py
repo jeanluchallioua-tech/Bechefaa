@@ -23,13 +23,25 @@ def register_product_group_rename_phase25(app,db):
      pm=[p for p in products if isinstance(p,dict) and str(p.get('id') or '')==pid]
      if len(pm)!=1:return jsonify({'ok':False,'error':'Produit introuvable ou ambigu'}),409
      p=pm[0]; groups=p.get('options') if isinstance(p.get('options'),list) else []
-     gm=[g for g in groups if isinstance(g,dict) and _key(g)==key]
-     if len(gm)!=1:return jsonify({'ok':False,'error':'Groupe introuvable ou ambigu : opération refusée'}),409
-     g=gm[0]; old=_title(g)
-     # Conserve la clé technique. Le titre est le champ d'affichage privilégié par le POS.
-     g['title']=new
-     if 'label' in g:g['label']=new
-     # Ne pas modifier name lorsqu'il sert de clé de secours.
+
+     raw_key=key
+     base_key=raw_key[8:] if raw_key.startswith('central_') else raw_key
+     gm=[g for g in groups if isinstance(g,dict) and str(g.get('key') or '') in {raw_key,'central_'+base_key,base_key}]
+
+     old=None
+     if gm:
+      g=gm[0]; old=_title(g)
+      g['title']=new
+      if 'label' in g:g['label']=new
+
+     overrides=p.get('optionGroupTitles') if isinstance(p.get('optionGroupTitles'),dict) else {}
+     if old is None:
+      defs=data.get('optionListDefs') if isinstance(data.get('optionListDefs'),dict) else {}
+      d=defs.get(base_key) if isinstance(defs.get(base_key),dict) else {}
+      old=str(overrides.get(base_key) or d.get('title') or d.get('label') or base_key)
+     overrides[base_key]=new
+     p['optionGroupTitles']=overrides
+
      conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb,updated_at=%s WHERE id=1",(json.dumps(data,ensure_ascii=False),int(time.time()*1000)))
    return jsonify({'ok':True,'message':f'Groupe « {old} » renommé « {new} » uniquement pour ce produit. Clé, choix, prix et historique inchangés.'})
   except Exception as e:return jsonify({'ok':False,'error':str(e)}),500
