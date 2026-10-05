@@ -475,18 +475,15 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function openPrintAssistant(xml,label,orderId){
    if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
-   const successPath=window.location.pathname==='/historique-modification'?'/historique-modification?epson=success':'/pos?epson=success';
-   const successUrl=window.location.origin+successPath;
    const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
-     +'success='+encodeURIComponent(successUrl)
-     +'&ver=1'
+     +'ver=1'
      +'&data-type=eposprintxml'
      +'&data='+encodeURIComponent(xml)
      +'&timeout=30000'
      +'&error-dialog=yes';
    if(orderId)printed.add(String(label)+':'+String(orderId));
    epsonDiag('before-assistant');
-   status('work','Epson : ouverture TM Print Assistant • retour='+((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)?'PWA':'navigateur'));
+   status('work','Epson : ouverture TM Print Assistant…');
    window.location.href=assistantUrl;
    return true;
  }
