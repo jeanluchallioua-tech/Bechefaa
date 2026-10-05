@@ -40,16 +40,23 @@ def register_history_print_buttons(app):
        const id=match[1];
        const wrap=document.createElement('div');wrap.className='history-print-actions';
        wrap.innerHTML='<button type="button" class="history-print-client">Ticket client</button><button type="button" class="history-print-kitchen">Ticket cuisine</button>';
+       function printError(err){
+         alert('Impression Epson impossible : '+((err&&err.message)||err||'pont Epson indisponible'));
+       }
        wrap.querySelector('.history-print-client').onclick=function(){
          if(typeof window.bechefaaPrintClient==='function'){
-           window.bechefaaPrintClient(id).catch(()=>{});
+           window.bechefaaPrintClient(id).catch(printError);
+         }else if(/Android/i.test(navigator.userAgent||'')){
+           printError('TM Print Assistant non initialisé');
          }else{
            window.location.href='/impression/client/'+encodeURIComponent(id);
          }
        };
        wrap.querySelector('.history-print-kitchen').onclick=function(){
          if(typeof window.bechefaaPrintKitchen==='function'){
-           window.bechefaaPrintKitchen(id).catch(()=>{});
+           window.bechefaaPrintKitchen(id).catch(printError);
+         }else if(/Android/i.test(navigator.userAgent||'')){
+           printError('TM Print Assistant non initialisé');
          }else{
            window.location.href='/impression/cuisine/'+encodeURIComponent(id);
          }
