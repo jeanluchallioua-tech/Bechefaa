@@ -77,3 +77,37 @@ def register_orders_live_diag_phase6(app, db, ensure_order_schema):
             })
         except Exception as exc:
             return jsonify({"ok":False,"error":"Réparation cuisine impossible","detail":str(exc)}),500
+
+
+    @app.after_request
+    def inject_kitchen_repair_ui_phase6(response):
+        from flask import request
+        if request.path!="/historique-modification" or response.status_code!=200 or response.mimetype!="text/html":
+            return response
+        html=response.get_data(as_text=True)
+        addon=r"""
+<style id="bechefaa-kitchen-repair-ui-phase6">
+.kitchen-repair-btn{border:0;border-radius:8px;padding:10px 12px;font-weight:900;font-size:12px;color:#fff;background:#d97706;cursor:pointer;margin-left:6px}
+</style>
+<script id="bechefaa-kitchen-repair-script-phase6">
+(function(){
+ function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn);else fn()}
+ function oid(card){for(const b of card.querySelectorAll('button')){const s=b.getAttribute('onclick')||'';let m=s.match(/viewOrder\('([^']+)'\)/);if(!m)m=s.match(/editOrder\('([^']+)'\)/);if(m)return m[1]}return ''}
+ function decorate(){
+   if(typeof ORDERS==='undefined')return;
+   document.querySelectorAll('#list .order').forEach(card=>{
+     if(card.querySelector('.kitchen-repair-btn'))return;
+     const id=oid(card),o=ORDERS.find(x=>x.id===id);
+     if(!o||o.status!=='Enregistrée')return;
+     const b=document.createElement('button');b.type='button';b.className='kitchen-repair-btn';b.textContent='Envoyer en cuisine';
+     b.onclick=async()=>{b.disabled=true;b.textContent='Envoi…';try{const r=await fetch('/api/orders/'+encodeURIComponent(id)+'/repair-kitchen-phase6',{method:'POST'});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');await load();}catch(e){alert('Envoi cuisine impossible : '+(e.message||e));b.disabled=false;b.textContent='Envoyer en cuisine'}};
+     card.appendChild(b);
+   });
+ }
+ ready(()=>{decorate();const t=document.getElementById('list')||document.body;new MutationObserver(decorate).observe(t,{childList:true,subtree:true})});
+})();
+</script>
+"""
+        html=html.replace("</body>",addon+"</body>")
+        response.set_data(html);response.content_length=len(response.get_data())
+        return response
