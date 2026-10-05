@@ -64,6 +64,7 @@ from clean_caisse.pos_quantity_phase38 import register_pos_quantity_phase38
 from clean_caisse.payment_core_phase41 import register_payment_core_phase41
 from clean_caisse.payment_history_ui_phase41 import register_payment_history_ui_phase41
 from clean_caisse.service_mode_ui_phase42 import register_service_mode_ui_phase42
+from clean_caisse.pos_service_launcher_phase6 import register_pos_service_launcher_phase6
 from clean_caisse.service_label_phase42 import register_service_label_phase42
 from clean_caisse.payment_transactions_phase44 import register_payment_transactions_phase44
 from clean_caisse.payment_topup_safe_isolated_phase44 import register_payment_topup_safe_isolated_phase44
@@ -197,6 +198,7 @@ register_pos_quantity_phase38(app)
 register_payment_core_phase41(app, db, ensure_order_schema)
 register_payment_history_ui_phase41(app)
 register_service_mode_ui_phase42(app)
+register_pos_service_launcher_phase6(app)
 register_service_label_phase42(app)
 register_payment_transactions_phase44(app, db, ensure_order_schema)
 register_order_cancellation_phase44(app, db, ensure_order_schema)
