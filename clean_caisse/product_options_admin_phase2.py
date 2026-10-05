@@ -123,6 +123,7 @@ def register_product_options_admin_phase2(app, db):
                 ordered_options.extend(o for o in raw_options if int(o['index']) not in used)
                 groups.append({
                     'key':key,
+                    'rawKey':str(dg.get('key') or ('central_'+key)) if isinstance(dg,dict) else 'central_'+key,
                     'name':meta['title'],
                     'required':meta['required'],
                     'max':meta['max'],
@@ -146,6 +147,7 @@ def register_product_options_admin_phase2(app, db):
                     if n:opts.append({'index':i,'name':n,'price':p})
                 groups.append({
                     'key':key,
+                    'rawKey':raw_key,
                     'name':str(dg.get('title') or dg.get('name') or LABELS.get(key) or key),
                     'required':bool(dg.get('required',False)),
                     'max':dg.get('max',0) or 0,
@@ -397,7 +399,7 @@ $('groups').addEventListener('click',async e=>{
  if(!name||name===g.name)return;
  status('Renommage…');
  try{
-   await j('/api/admin/product-group-rename-phase25',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:current,groupKey:'central_'+g.key,newTitle:name})});
+   await j('/api/admin/product-group-rename-phase25',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:current,groupKey:(g.rawKey||('central_'+g.key)),newTitle:name})});
    g.name=name;render();status('Titre renommé « '+name+' ».');
  }catch(err){status(err.message,false)}
 });
