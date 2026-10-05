@@ -283,15 +283,20 @@ def register_product_options_admin_phase2(app, db):
                     if not source:return jsonify({'ok':False,'error':'Produit source introuvable'}),404
 
                     source_groups=source.get('options') if isinstance(source.get('options'),list) else []
-                    source_keys=[]
+                    source_order=[]
+                    source_titles={}
                     for g in source_groups:
                         if not isinstance(g,dict):continue
-                        k=str(g.get('key') or '').strip()
-                        if k and k not in source_keys:source_keys.append(k)
-                    if not source_keys:
+                        key=str(g.get('key') or '').strip()
+                        if not key:continue
+                        if key not in source_order:source_order.append(key)
+                        title=str(g.get('title') or g.get('label') or g.get('name') or key).strip()
+                        if title:source_titles[key]=title
+                    if not source_order:
                         return jsonify({'ok':False,'error':'Le produit source ne contient aucun groupe à reproduire'}),409
 
                     updated=0
+                    renamed=0
                     skipped=0
                     for product in products:
                         if not isinstance(product,dict) or str(product.get('id') or '')==source_id:continue
@@ -307,29 +312,46 @@ def register_product_options_admin_phase2(app, db):
                         if not by_key:
                             skipped+=1
                             continue
+
+                        changed=False
+                        for key,title in source_titles.items():
+                            g=by_key.get(key)
+                            if not g:continue
+                            old=str(g.get('title') or g.get('label') or g.get('name') or key).strip()
+                            if old!=title:
+                                g['title']=title
+                                if 'label' in g:g['label']=title
+                                renamed+=1
+                                changed=True
+
                         ordered=[]
                         used=set()
-                        for key in source_keys:
+                        for key in source_order:
                             if key in by_key and key not in used:
                                 ordered.append(by_key[key]);used.add(key)
                         for g in dict_groups:
                             key=str(g.get('key') or '').strip()
                             if key not in used:
                                 ordered.append(g);used.add(key)
+
                         if [str(g.get('key') or '') for g in ordered] != [str(g.get('key') or '') for g in dict_groups]:
                             product['options']=ordered
-                            updated+=1
+                            changed=True
+
+                        if changed:updated+=1
 
                     conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1",
                                  (json.dumps(data,ensure_ascii=False),int(time.time()*1000)))
             return jsonify({
                 'ok':True,
                 'updated':updated,
+                'renamed':renamed,
                 'skipped':skipped,
-                'message':f'Ordre des groupes appliqué à {updated} produit(s). Aucun choix, prix, Max ou contenu interne n’a été modifié.'
+                'message':f'Modèle appliqué à {updated} produit(s) : ordre des groupes + intitulés. Choix internes, prix, Max et sélections inchangés.'
             })
         except Exception as exc:
-            return jsonify({'ok':False,'error':'Application de l’ordre impossible','detail':str(exc)}),500
+            return jsonify({'ok':False,'error':'Application du modèle impossible','detail':str(exc)}),500
+
 
     @app.get('/administration/options-produits')
     def options_admin_page():
@@ -338,7 +360,7 @@ def register_product_options_admin_phase2(app, db):
 </style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes avec ↑ / ↓.</p>
 <div class="card"><label>1. Choisir une catégorie</label><div id="category-buttons" class="category-buttons"></div><div class="field" style="margin-top:14px"><label>2. Choisir un produit</label><select id="product" disabled><option value="">Choisissez d’abord une catégorie…</option></select></div><div id="status" class="status"></div></div>
 <div class="card"><h2 style="margin-top:0">Ajouter une nouvelle option</h2><p class="hint">Exemple : groupe « Suppléments », nom « Double bacon », prix 3,00 €.</p><div class="addgrid"><div><label>Groupe</label><select id="add-group"></select></div><div><label>Nom</label><input id="add-name" placeholder="Double bacon"></div><div><label>Prix supplémentaire</label><input id="add-price" type="number" min="0" step="0.01" value="0.00"></div><button class="primary gold" id="add-option" type="button">Ajouter</button></div></div>
-<div class="card"><h2 style="margin-top:0">Choix proposés au client</h2><div id="groups" class="groups"><div class="empty">Choisissez d’abord un produit.</div></div><div class="savebar"><button class="secondary" id="apply-family-order" type="button" disabled>Appliquer l’ordre aux Sandwichs + Burgers</button><button class="primary" id="save" type="button" disabled>Enregistrer les options et l’ordre</button></div></div>
+<div class="card"><h2 style="margin-top:0">Choix proposés au client</h2><div id="groups" class="groups"><div class="empty">Choisissez d’abord un produit.</div></div><div class="savebar"><button class="secondary" id="apply-family-order" type="button" disabled>Appliquer le modèle aux Sandwichs + Burgers</button><button class="primary" id="save" type="button" disabled>Enregistrer les options et l’ordre</button></div></div>
 <details class="advanced"><summary>Gestion avancée (règles, noms et prix)</summary><iframe src="/administration/options-ajout-test" title="Gestion avancée"></iframe></details>
 </main><script>
 const $=id=>document.getElementById(id),E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -406,8 +428,8 @@ $('apply-family-order').onclick=async()=>{
  if(!current)return;
  const p=products.find(x=>String(x.id)===String(current));
  const name=p?p.name:'ce produit';
- if(!confirm('Utiliser uniquement l’ordre des groupes de « '+name+' » pour tous les Sandwichs et Burgers ?\n\nLes choix internes, les Max, les noms et les prix ne seront pas modifiés.'))return;
- status('Application de l’ordre aux Sandwichs et Burgers…');
+ if(!confirm('Utiliser l’ordre et les noms des groupes de « '+name+' » pour tous les Sandwichs et Burgers ?\n\nLes choix internes, les Max, les prix et les sélections ne seront pas modifiés.'))return;
+ status('Application du modèle aux Sandwichs et Burgers…');
  const btn=$('apply-family-order');btn.disabled=true;
  try{
    const d=await j('/api/admin/apply-group-order-family',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceProductId:current,families:['Sandwich','Burger']})});
