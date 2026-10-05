@@ -57,11 +57,13 @@ def register_product_options_admin_phase2(app, db):
 
     def _group_meta(data, product, key):
         central='central_'+key
+        title_overrides=product.get('optionGroupTitles') if isinstance(product.get('optionGroupTitles'),dict) else {}
+        local_title=str(title_overrides.get(key) or '').strip()
         for g in product.get('options') or []:
             if isinstance(g,dict) and str(g.get('key') or '')==central:
                 return {
                     'key':central,
-                    'title':str(g.get('title') or g.get('name') or LABELS.get(key) or key),
+                    'title':local_title or str(g.get('title') or g.get('name') or LABELS.get(key) or key),
                     'required':bool(g.get('required',False)),
                     'max':g.get('max',0) or 0,
                     'priceMode':g.get('priceMode','extra'),
@@ -70,7 +72,7 @@ def register_product_options_admin_phase2(app, db):
         d=defs.get(key) if isinstance(defs,dict) and isinstance(defs.get(key),dict) else {}
         return {
             'key':central,
-            'title':str(d.get('title') or d.get('label') or LABELS.get(key) or key),
+            'title':local_title or str(d.get('title') or d.get('label') or LABELS.get(key) or key),
             'required':bool(d.get('required',False)),
             'max':d.get('max',0) or 0,
             'priceMode':d.get('priceMode','extra'),
