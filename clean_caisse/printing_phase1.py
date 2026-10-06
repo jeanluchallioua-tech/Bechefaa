@@ -1,5 +1,7 @@
 """Phase 1 / Phase 3.3 — impression 80 mm BÉCHÉFAA."""
 import re
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 from flask import Response, request
@@ -54,8 +56,22 @@ def _load_order(conn, ensure_order_schema, order_payload, order_id):
         "total_ht": row.get("total_ht") if row.get("total_ht") is not None else fallback_ht,
         "tax_rate": row.get("tax_rate") if row.get("tax_rate") is not None else Decimal("10.0"),
         "tax_amount": row.get("tax_amount") if row.get("tax_amount") is not None else fallback_tax,
+        "created_at": row.get("created_at"),
     })
     return payload
+
+
+def _format_order_datetime(value):
+    try:
+        if value in (None, ""):
+            return ""
+        raw = float(value)
+        if raw > 100000000000:
+            raw /= 1000.0
+        dt = datetime.fromtimestamp(raw, tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
+        return dt.strftime("%d/%m/%Y à %H:%M")
+    except Exception:
+        return ""
 
 
 def _base_css():
@@ -125,6 +141,11 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         if address and (mode == "Livraison" or preview):
             parts.append(escape(address))
         client_block = '<div class="cclient">' + "<br>".join(parts) + '</div>' if parts else '<div class="cclient">Client comptoir</div>'
+        order_datetime = _format_order_datetime(order.get("created_at"))
+        delivery_datetime_block = (
+            '<div class="cdate">Commande du ' + escape(order_datetime) + '</div>'
+            if mode == "Livraison" and order_datetime else ''
+        )
         items = order.get("items") or []
         piece_count = sum(int(i.get("qty") or 0) for i in items)
         items_html = "".join(f'''<div class="citem"><div class="cline"><span class="cname">{escape(str(i.get("qty",1)))}×&nbsp;&nbsp;{escape(str(i.get("name") or ""))}</span><span class="cprice">{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{_option_lines(i)}</div>''' for i in items)
@@ -132,8 +153,8 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         except Exception: rate_text = "10"
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:12px;line-height:1.2;margin-top:2px;padding-left:10mm}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
-</style></head><body><div class="ticket80"><div class="ctitle">BÉCHÉFAA</div><div class="sep"></div><div class="cmode">{escape(mode_title)}</div><div class="cnum">N° {escape(str(order['num']))}</div>{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="cpieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row cfiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row cfiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row ctotal"><span>TOTAL TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row cfiscal"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="thanks">Merci</div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto and not preview else ''}</body></html>'''
+.ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.cdate{{text-align:center;font-size:13px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:12px;line-height:1.2;margin-top:2px;padding-left:10mm}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
+</style></head><body><div class="ticket80"><div class="ctitle">BÉCHÉFAA</div><div class="sep"></div><div class="cmode">{escape(mode_title)}</div><div class="cnum">N° {escape(str(order['num']))}</div>{delivery_datetime_block}{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="cpieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row cfiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row cfiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row ctotal"><span>TOTAL TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row cfiscal"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="thanks">Merci</div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto and not preview else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
     @app.get("/impression/cuisine/<order_id>")
