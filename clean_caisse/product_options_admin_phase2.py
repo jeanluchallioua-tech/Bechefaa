@@ -389,7 +389,7 @@ def register_product_options_admin_phase2(app, db):
                 'renamed':renamed,
                 'reordered':reordered,
                 'skipped':skipped,
-                'message':f'Modèle appliqué : {matched} produit(s) Sandwich/Burger détecté(s), {updated} modifié(s), {renamed} intitulé(s) harmonisé(s), {reordered} ordre(s) ajusté(s). Choix internes, prix, Max et sélections inchangés.'
+                'message':f'Modèle appliqué à {", ".join(str(x) for x in families)} : {matched} produit(s) détecté(s), {updated} modifié(s), {renamed} intitulé(s) harmonisé(s), {reordered} ordre(s) ajusté(s). Choix internes, prix, Max et sélections inchangés.'
             })
         except Exception as exc:
             return jsonify({'ok':False,'error':'Application du modèle impossible','detail':str(exc)}),500
@@ -402,7 +402,7 @@ def register_product_options_admin_phase2(app, db):
 </style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes avec ↑ / ↓.</p>
 <div class="card"><label>1. Choisir une catégorie</label><div id="category-buttons" class="category-buttons"></div><div class="field" style="margin-top:14px"><label>2. Choisir un produit</label><select id="product" disabled><option value="">Choisissez d’abord une catégorie…</option></select></div><div id="status" class="status"></div></div>
 <div class="card"><h2 style="margin-top:0">Ajouter une nouvelle option</h2><p class="hint">Exemple : groupe « Suppléments », nom « Double bacon », prix 3,00 €.</p><div class="addgrid"><div><label>Groupe</label><select id="add-group"></select></div><div><label>Nom</label><input id="add-name" placeholder="Double bacon"></div><div><label>Prix supplémentaire</label><input id="add-price" type="number" min="0" step="0.01" value="0.00"></div><button class="primary gold" id="add-option" type="button">Ajouter</button></div></div>
-<div class="card"><h2 style="margin-top:0">Choix proposés au client</h2><div id="groups" class="groups"><div class="empty">Choisissez d’abord un produit.</div></div><div class="savebar"><button class="secondary" id="apply-family-order" type="button" disabled>Appliquer le modèle aux Sandwichs + Burgers</button><button class="primary" id="save" type="button" disabled>Enregistrer les options et l’ordre</button></div></div>
+<div class="card"><h2 style="margin-top:0">Choix proposés au client</h2><div id="groups" class="groups"><div class="empty">Choisissez d’abord un produit.</div></div><div class="savebar"><button class="secondary" id="apply-family-order" type="button" disabled>Appliquer le modèle à la catégorie</button><button class="primary" id="save" type="button" disabled>Enregistrer les options et l’ordre</button></div></div>
 <details class="advanced"><summary>Gestion avancée (règles, noms et prix)</summary><iframe src="/administration/options-ajout-test" title="Gestion avancée"></iframe></details>
 </main><script>
 const $=id=>document.getElementById(id),E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -412,10 +412,11 @@ async function j(url,opts){const r=await fetch(url,opts);let d;try{d=await r.jso
 function categoryList(){const seen=[];products.forEach(p=>{const c=String(p.category||'').trim();if(c&&!seen.includes(c))seen.push(c)});return seen}
 function renderCategories(){const cats=categoryList();$('category-buttons').innerHTML=cats.map(c=>'<button type="button" class="catbtn '+(c===currentCategory?'active':'')+'" data-cat="'+E(c)+'">'+E(c)+'</button>').join('')||'<span class="hint">Aucune catégorie disponible.</span>'}
 function renderProductSelect(){const select=$('product');if(!currentCategory){select.disabled=true;select.innerHTML='<option value="">Choisissez d’abord une catégorie…</option>';return}const rows=products.filter(p=>String(p.category||'')===currentCategory);select.disabled=false;select.innerHTML='<option value="">Choisir un produit de '+E(currentCategory)+'…</option>'+rows.map(p=>'<option value="'+E(p.id)+'">'+E(p.name)+'</option>').join('')}
+function updateFamilyButton(){const btn=$('apply-family-order');btn.textContent=currentCategory?'Appliquer le modèle aux '+currentCategory:'Appliquer le modèle à la catégorie'}
 async function loadProducts(){const d=await j('/api/admin/options-products-list?t='+Date.now());products=d.products||[];renderCategories();renderProductSelect()}
 function render(){if(!groups.length){$('groups').innerHTML='<div class="empty">Aucun groupe d’options disponible.</div>';return}$('groups').innerHTML=groups.map((g,gi)=>'<section class="group" draggable="true" data-group-drag="'+gi+'" data-key="'+E(g.key)+'"><div class="grouphead"><span class="drag-handle" title="Glisser pour déplacer">☰</span><b class="group-title" data-group-rename="'+gi+'" title="Cliquer pour renommer le titre">'+E(g.name)+'</b><label class="max-choice-wrap">Max <input type="number" min="0" max="'+Math.max(0,g.selected.length)+'" value="'+Number(g.max||0)+'" data-group-max="'+gi+'" title="0 = sans limite"></label><span class="hint">'+g.selected.length+' sélectionnée(s)</span></div><div class="options">'+g.options.map((o,oi)=>{const on=g.selected.includes(Number(o.index));return '<div class="choice '+(on?'on':'')+'" draggable="true" data-choice-drag="'+gi+':'+oi+'"><span class="drag-handle" title="Glisser pour déplacer">⋮⋮</span><input type="checkbox" data-gi="'+gi+'" data-index="'+Number(o.index)+'" '+(on?'checked':'')+'><span>'+E(o.name)+'</span>'+(Number(o.price||0)?'<small>+'+Number(o.price).toFixed(2).replace('.',',')+' €</small>':'')+'</div>'}).join('')+'</div></section>').join('')}
 async function loadProduct(){current=$('product').value;if(!current){groups=[];$('save').disabled=true;$('apply-family-order').disabled=true;render();return}status('Chargement…');try{const d=await j('/api/admin/simple-product-options/'+encodeURIComponent(current)+'?t='+Date.now());groups=d.groups||[];$('save').disabled=false;$('apply-family-order').disabled=false;render();status('Configuration de « '+d.product.name+' » chargée.')}catch(e){status(e.message,false)}}
-$('category-buttons').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;currentCategory=b.dataset.cat||'';current='';groups=[];$('save').disabled=true;$('apply-family-order').disabled=true;renderCategories();renderProductSelect();render();status('Catégorie « '+currentCategory+' » sélectionnée. Choisissez maintenant un produit.')});
+$('category-buttons').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;currentCategory=b.dataset.cat||'';current='';groups=[];$('save').disabled=true;$('apply-family-order').disabled=true;renderCategories();renderProductSelect();updateFamilyButton();render();status('Catégorie « '+currentCategory+' » sélectionnée. Choisissez maintenant un produit.')});
 $('product').onchange=loadProduct;
 $('groups').addEventListener('change',e=>{
  const m=e.target.closest('input[data-group-max]');
@@ -467,14 +468,15 @@ $('groups').addEventListener('drop',e=>{
  const moved=g.options.splice(from,1)[0];g.options.splice(toi,0,moved);render();
 });
 $('apply-family-order').onclick=async()=>{
- if(!current)return;
+ if(!current||!currentCategory)return;
  const p=products.find(x=>String(x.id)===String(current));
  const name=p?p.name:'ce produit';
- if(!confirm('Utiliser l’ordre et les noms des groupes de « '+name+' » pour tous les Sandwichs et Burgers ?\n\nLes choix internes, les Max, les prix et les sélections ne seront pas modifiés.'))return;
- status('Application du modèle aux Sandwichs et Burgers…');
+ const category=currentCategory;
+ if(!confirm('Utiliser l’ordre et les noms des groupes de « '+name+' » pour tous les produits de la catégorie « '+category+' » ?\n\nLes choix internes, les Max, les prix et les sélections ne seront pas modifiés.'))return;
+ status('Application du modèle à la catégorie « '+category+' »…');
  const btn=$('apply-family-order');btn.disabled=true;
  try{
-   const d=await j('/api/admin/apply-group-order-family',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceProductId:current,families:['Sandwich','Burger']})});
+   const d=await j('/api/admin/apply-group-order-family',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceProductId:current,families:[category]})});
    status(d.message||'Ordre appliqué.');
  }catch(e){status(e.message,false)}
  finally{btn.disabled=false}
