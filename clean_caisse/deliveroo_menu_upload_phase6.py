@@ -663,102 +663,132 @@ def register_deliveroo_menu_upload_phase6(app, db):
 
     @app.post("/api/deliveroo/scenario12-ignore-morning-reset-phase6")
     def deliveroo_scenario12_ignore_morning_reset_phase6():
-        payload=request.get_json(silent=True) or {}
-        site_id=str(payload.get("site_id") or "").strip()
-        menu_id=str(payload.get("menu_id") or "bechefaa-menu-01").strip()
-        if not site_id or not menu_id:
-            return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
+        # Scenario 12 Sandbox — flux volontairement minimal et déterministe.
+        # Deliveroo crée le menu de test puis attend exactement un POST v1
+        # mettant whole_milk en unavailable.
+        site_id="101"
+        menu_id="bechefaa-menu-01"
+        brand_id="bceaa87a-74db-434e-b548-6da7e7de67a6"
+        api_url="https://api-sandbox.developers.deliveroo.com"
 
-        expected_brand_id="bceaa87a-74db-434e-b548-6da7e7de67a6"
+        post_payload={
+            "item_unavailabilities":[
+                {"item_id":"whole_milk","status":"unavailable"}
+            ]
+        }
+        stock_url=(
+            api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")
+            +"/menus/"+urllib.parse.quote(menu_id,safe="")
+            +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
+        )
 
+        started_at=datetime.now(timezone.utc)
         try:
             token=_oauth_token()
-            api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
-
-            # Vérification explicite du Brand ID rattaché au site avant le test.
-            brand_status,brand_data=_api_json(
-                api_url+"/site/v1/restaurant_locations/"+urllib.parse.quote(site_id,safe=""),
-                token,
-            )
-            if not 200 <= brand_status < 300:
-                return jsonify({
-                    "ok":False,
-                    "stage":"brand_lookup",
-                    "http_status":brand_status,
-                    "response":brand_data
-                }),502
-
-            raw_brand_id=(
-                brand_data.get("brand_id")
-                or brand_data.get("brand_ids")
-                or ((brand_data.get("brand") or {}).get("id") if isinstance(brand_data.get("brand"),dict) else "")
-                or ""
-            )
-            if isinstance(raw_brand_id,(list,tuple)):
-                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
-            brand_id=str(raw_brand_id or "").strip()
-
-            if not brand_id:
-                return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
-
-            if brand_id != expected_brand_id:
-                return jsonify({
-                    "ok":False,
-                    "stage":"brand_id_mismatch",
-                    "expected_brand_id":expected_brand_id,
-                    "actual_brand_id":brand_id,
-                    "site_id":site_id,
-                    "message":"Brand ID différent de celui attendu pour BÉCHÉFAA"
-                }),409
-
-            stock_url=(
-                api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")
-                +"/menus/"+urllib.parse.quote(menu_id,safe="")
-                +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
-            )
-
-            # Instruction Deliveroo Scenario 12 :
-            # le runner crée lui-même orange_juice, granola et whole_milk,
-            # puis marque orange_juice indisponible.
-            # Notre seule action est de rendre whole_milk indisponible.
-            post_payload={
-                "item_unavailabilities":[
-                    {"item_id":"whole_milk","status":"unavailable"}
-                ]
-            }
-
-            post_started_at=datetime.now(timezone.utc)
             post_status,post_response=_api_json(
                 stock_url,
                 token,
                 method="POST",
                 payload=post_payload,
             )
-            ok=200 <= post_status < 300
 
+            # Conserver une preuve serveur de l'appel réellement effectué.
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS deliveroo_scenario12_trace (
+                                id BIGSERIAL PRIMARY KEY,
+                                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                method TEXT NOT NULL,
+                                request_url TEXT NOT NULL,
+                                brand_id TEXT NOT NULL,
+                                menu_id TEXT NOT NULL,
+                                site_id TEXT NOT NULL,
+                                request_payload JSONB NOT NULL,
+                                http_status INTEGER,
+                                response_payload JSONB
+                            )
+                        """)
+                        cur.execute(
+                            """INSERT INTO deliveroo_scenario12_trace
+                               (method,request_url,brand_id,menu_id,site_id,request_payload,http_status,response_payload)
+                               VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb)""",
+                            (
+                                "POST",stock_url,brand_id,menu_id,site_id,
+                                json.dumps(post_payload,ensure_ascii=False),
+                                int(post_status),
+                                json.dumps(post_response if isinstance(post_response,(dict,list)) else {"raw":str(post_response)},ensure_ascii=False),
+                            ),
+                        )
+                    conn.commit()
+            except Exception as trace_exc:
+                trace_warning=str(trace_exc)
+            else:
+                trace_warning=None
+
+            ok=200 <= post_status < 300
             return jsonify({
                 "ok":ok,
-                "mode":"deliveroo_support_exact_scenario12",
+                "mode":"scenario12_support_strict",
+                "method":"POST",
+                "request_url":stock_url,
                 "brand_id":brand_id,
-                "brand_id_verified":True,
-                "site_id":site_id,
                 "menu_id":menu_id,
-                "post_started_at":post_started_at.isoformat(),
-                "post":{
-                    "http_status":post_status,
-                    "payload":post_payload,
-                    "response":post_response
-                },
-                "instruction":"Lancer Scenario 12 côté Deliveroo, attendre son état d'attente, puis appeler ce bouton une seule fois."
+                "site_id":site_id,
+                "payload_sent":post_payload,
+                "started_at":started_at.isoformat(),
+                "http_status":post_status,
+                "response":post_response,
+                "trace_saved":trace_warning is None,
+                "trace_warning":trace_warning,
+                "important":"Un seul POST whole_milk=unavailable a été envoyé au Sandbox Deliveroo."
             }),200 if ok else 502
 
         except Exception as exc:
             return jsonify({
                 "ok":False,
                 "stage":"scenario12",
+                "method":"POST",
+                "request_url":stock_url,
+                "brand_id":brand_id,
+                "menu_id":menu_id,
+                "site_id":site_id,
+                "payload_sent":post_payload,
                 "error":"Scenario 12 Deliveroo impossible",
                 "detail":str(exc)
             }),500
+
+    @app.get("/api/deliveroo/scenario12-last-trace-phase6")
+    def deliveroo_scenario12_last_trace_phase6():
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT created_at,method,request_url,brand_id,menu_id,site_id,
+                               request_payload,http_status,response_payload
+                        FROM deliveroo_scenario12_trace
+                        ORDER BY id DESC LIMIT 1
+                    """)
+                    row=cur.fetchone()
+            if not row:
+                return jsonify({"ok":False,"error":"Aucune trace Scenario 12 enregistrée"}),404
+            return jsonify({
+                "ok":True,
+                "trace":{
+                    "created_at":row["created_at"].isoformat() if row.get("created_at") else None,
+                    "method":row.get("method"),
+                    "request_url":row.get("request_url"),
+                    "brand_id":row.get("brand_id"),
+                    "menu_id":row.get("menu_id"),
+                    "site_id":row.get("site_id"),
+                    "request_payload":row.get("request_payload"),
+                    "http_status":row.get("http_status"),
+                    "response_payload":row.get("response_payload"),
+                }
+            })
+        except Exception as exc:
+            return jsonify({"ok":False,"error":"Trace Scenario 12 indisponible","detail":str(exc)}),500
 
 
     @app.post("/api/deliveroo/menu-events-webhook-status-phase6")
@@ -1619,12 +1649,12 @@ def register_deliveroo_menu_upload_phase6(app, db):
             jobs_url=(
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
             )
-            # Notre Sandbox exige explicitement params.menu_id (l'appel sans
-            # params a été confirmé en 400 "invalid params"). Envoyer un seul trigger,
-            # afin que le runner Scenario 15 voie exactement l'appel valide.
+            # Deliveroo exige un objet params, mais aucun champ interne n'est
+            # documenté pour publish_menu_to_live. Le support a confirmé que
+            # params.menu_id provoquait "invalid params".
             job_payload={
                 "action":"publish_menu_to_live",
-                "params":{"menu_id":menu_id},
+                "params":{},
             }
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
             fallback_used=False
@@ -1955,4 +1985,4 @@ def register_deliveroo_menu_upload_phase6(app, db):
 
     @app.get("/administration/deliveroo-upload")
     def deliveroo_upload_page_phase6():
-        return Response("""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Deliveroo Sandbox</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0}.w{max-width:760px;margin:32px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:18px;padding:24px;box-shadow:0 8px 24px #25466e12}h1{margin-top:0}label{display:block;font-weight:900;margin:16px 0 6px}input,button{width:100%;min-height:48px;border-radius:10px;border:1px solid #ccd5e2;padding:10px;font-size:16px}button{margin-top:20px;background:#111827;color:#fff;font-weight:900;cursor:pointer}.m{color:#667085}.out{white-space:pre-wrap;background:#0b1220;color:#dce6f4;padding:16px;border-radius:12px;margin-top:18px;min-height:90px}</style></head><body><div class="w"><div class="b"><h1>Upload Deliveroo Sandbox</h1><p class="m">Envoie réellement le menu BÉCHÉFAA validé vers le site Sandbox indiqué.</p><label>Site ID Sandbox</label><input id="site" placeholder="Collez le Site ID Deliveroo"><label>Menu ID</label><input id="menu" value="bechefaa-menu-01"><button id="s1">SCENARIO 1 • FETCH BRAND ID</button><button id="send">ENVOYER LE MENU SANDBOX</button><button id="s5">SCENARIO 5 • TEST MENU IDENTIQUE</button><button id="s5diag">DIAGNOSTIC S5 • COMPARER SANS ENVOYER</button><button id="s8">SCENARIO 8 • ENVOYER LES 2 POST INDISPONIBILITÉS</button><button id="s9">SCENARIO 9 • GET + PUT INDISPONIBILITÉS</button><button id="s10">SCENARIO 10 • RÉINITIALISER LE STOCK</button><button id="s11">SCENARIO 11 • ÉTAT AVANT RESET MATINAL</button><button id="s12">SCENARIO 12 • BLOQUER LE RESET MATINAL</button><button id="menuWebhookStatus">WEBHOOK MENU • VOIR URL</button><button id="s12state">DIAGNOSTIC S12 • ÉTAT</button><button id="s12statuses">DIAGNOSTIC S12 • TEST 3 STATUTS</button><button id="s12official">DIAGNOSTIC S12 • BODY OFFICIEL</button><button id="s12expected">DIAGNOSTIC S12 • BODY ATTENDU</button><button id="s12v2">DIAGNOSTIC S12 • POST V2</button><button id="s12diag">DIAGNOSTIC S12 • TRACE POST</button><button id="s13u">SCENARIO 13 • 1/2 UPLOAD 100+ ITEMS</button><button id="s13s">SCENARIO 13 • 2/2 STOCK APRÈS WEBHOOK</button><button id="s14">SCENARIO 14 • GÉNÉRER URL S3</button><button id="s15">SCENARIO 15 • V3 UPLOAD S3 + JOB</button><button id="s16">SCENARIO 16 • STATUT DU JOB V3</button><button id="s17">SCENARIO 17 • GET MENU V3</button><div id="out" class="out">Prêt.</div></div></div><script>const out=document.getElementById('out'),btn=document.getElementById('send'),s1=document.getElementById('s1'),s5=document.getElementById('s5'),s5diag=document.getElementById('s5diag'),s8=document.getElementById('s8'),s9=document.getElementById('s9'),s10=document.getElementById('s10'),s11=document.getElementById('s11'),s12=document.getElementById('s12'),menuWebhookStatus=document.getElementById('menuWebhookStatus'),s12state=document.getElementById('s12state'),s12statuses=document.getElementById('s12statuses'),s12official=document.getElementById('s12official'),s12expected=document.getElementById('s12expected'),s12v2=document.getElementById('s12v2'),s12diag=document.getElementById('s12diag'),s13u=document.getElementById('s13u'),s13s=document.getElementById('s13s'),s14=document.getElementById('s14'),s15=document.getElementById('s15'),s16=document.getElementById('s16'),s17=document.getElementById('s17');btn.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site){out.textContent='Site ID requis.';return}btn.disabled=true;out.textContent='Upload en cours…';try{const r=await fetch('/api/deliveroo/menu-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{btn.disabled=false}};s1.onclick=async()=>{const site=document.getElementById('site').value.trim();if(!site){out.textContent='Site ID requis.';return}s1.disabled=true;out.textContent='Scenario 1 : récupération du Brand ID…';try{const r=await fetch('/api/deliveroo/scenario1-fetch-brand-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s1.disabled=false}};s5.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s5.disabled=true;out.textContent='Scenario 5 : vérification du menu déjà enregistré…';try{const r=await fetch('/api/deliveroo/scenario5-identical-menu-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s5.disabled=false}};s5diag.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s5diag.disabled=true;out.textContent='Diagnostic S5 : lecture Deliveroo + comparaison, aucun upload…';try{const r=await fetch('/api/deliveroo/scenario5-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s5diag.disabled=false}};s8.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s8.disabled=true;out.textContent='Scenario 8 : envoi des 2 POST…';try{const r=await fetch('/api/deliveroo/scenario8-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s8.disabled=false}};s9.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s9.disabled=true;out.textContent='Scenario 9 : GET puis PUT…';try{const r=await fetch('/api/deliveroo/scenario9-replace-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s9.disabled=false}};s10.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s10.disabled=true;out.textContent='Scenario 10 : réinitialisation du stock…';try{const r=await fetch('/api/deliveroo/scenario10-reset-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s10.disabled=false}};s11.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s11.disabled=true;out.textContent='Scenario 11 : état initial avant reset matinal…';try{const r=await fetch('/api/deliveroo/scenario11-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s11.disabled=false}};s12.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12.disabled=true;out.textContent='Scenario 12 : changement après minuit…';try{const r=await fetch('/api/deliveroo/scenario12-ignore-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12.disabled=false}};menuWebhookStatus.onclick=async()=>{menuWebhookStatus.disabled=true;out.textContent='Lecture du Menu Events Webhook Deliveroo…';try{const r=await fetch('/api/deliveroo/menu-events-webhook-status-phase6',{method:'POST'});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{menuWebhookStatus.disabled=false}};s12state.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12state.disabled=true;out.textContent='Diagnostic S12 : lecture de l état…';try{const r=await fetch('/api/deliveroo/scenario12-state-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12state.disabled=false}};s12statuses.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12statuses.disabled=true;out.textContent='Diagnostic S12 : unavailable → hidden → available…';try{const r=await fetch('/api/deliveroo/scenario12-statuses-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12statuses.disabled=false}};s12official.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12official.disabled=true;out.textContent='Diagnostic S12 : envoi du body officiel Deliveroo…';try{const r=await fetch('/api/deliveroo/scenario12-official-body-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12official.disabled=false}};s12v2.onclick=async()=>{const site=document.getElementById('site').value.trim();if(!site){out.textContent='Site ID requis.';return}s12v2.disabled=true;out.textContent='Diagnostic S12 : POST v2 officiel…';try{const r=await fetch('/api/deliveroo/scenario12-v2-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12v2.disabled=false}};s12expected.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12expected.disabled=true;out.textContent='Diagnostic S12 : envoi du body attendu…';try{const r=await fetch('/api/deliveroo/scenario12-expected-body-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12expected.disabled=false}};s12diag.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12diag.disabled=true;out.textContent='Diagnostic S12 : GET avant, POST réel, GET après…';try{const r=await fetch('/api/deliveroo/scenario12-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12diag.disabled=false}};s13u.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13u.disabled=true;out.textContent='Scenario 13 : upload 100+ items…';try{const r=await fetch('/api/deliveroo/scenario13-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13u.disabled=false}};s13s.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13s.disabled=true;out.textContent='Scenario 13 : vérification webhook puis stock…';try{const r=await fetch('/api/deliveroo/scenario13-stock-after-webhook-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13s.disabled=false}};s14.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s14.disabled=true;out.textContent='Scenario 14 : génération URL S3…';try{const r=await fetch('/api/deliveroo/scenario14-generate-s3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s14.disabled=false}};s15.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s15.disabled=true;out.textContent='Scenario 15 : S3 + job V3…';try{const r=await fetch('/api/deliveroo/scenario15-v3-async-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s15.disabled=false}};s16.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s16.disabled=true;out.textContent='Scenario 16 : statut du job V3…';try{const r=await fetch('/api/deliveroo/scenario16-job-status-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s16.disabled=false}};s17.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s17.disabled=true;out.textContent='Scenario 17 : GET Menu V3…';try{const r=await fetch('/api/deliveroo/scenario17-get-menu-v3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s17.disabled=false}};</script></body></html>""",content_type="text/html; charset=utf-8")
+        return Response("""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Deliveroo Sandbox</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0}.w{max-width:760px;margin:32px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:18px;padding:24px;box-shadow:0 8px 24px #25466e12}h1{margin-top:0}label{display:block;font-weight:900;margin:16px 0 6px}input,button{width:100%;min-height:48px;border-radius:10px;border:1px solid #ccd5e2;padding:10px;font-size:16px}button{margin-top:20px;background:#111827;color:#fff;font-weight:900;cursor:pointer}.m{color:#667085}.out{white-space:pre-wrap;background:#0b1220;color:#dce6f4;padding:16px;border-radius:12px;margin-top:18px;min-height:90px}</style></head><body><div class="w"><div class="b"><h1>Upload Deliveroo Sandbox</h1><p class="m">Envoie réellement le menu BÉCHÉFAA validé vers le site Sandbox indiqué.</p><label>Site ID Sandbox</label><input id="site" value="101"><label>Menu ID</label><input id="menu" value="bechefaa-menu-01"><label>Brand ID Sandbox</label><input id="brand" value="bceaa87a-74db-434e-b548-6da7e7de67a6" readonly><button id="s1">SCENARIO 1 • FETCH BRAND ID</button><button id="send">ENVOYER LE MENU SANDBOX</button><button id="s5">SCENARIO 5 • TEST MENU IDENTIQUE</button><button id="s5diag">DIAGNOSTIC S5 • COMPARER SANS ENVOYER</button><button id="s8">SCENARIO 8 • ENVOYER LES 2 POST INDISPONIBILITÉS</button><button id="s9">SCENARIO 9 • GET + PUT INDISPONIBILITÉS</button><button id="s10">SCENARIO 10 • RÉINITIALISER LE STOCK</button><button id="s11">SCENARIO 11 • ÉTAT AVANT RESET MATINAL</button><button id="s12">SCENARIO 12 • BLOQUER LE RESET MATINAL</button><button id="menuWebhookStatus">WEBHOOK MENU • VOIR URL</button><button id="s12state">DIAGNOSTIC S12 • ÉTAT</button><button id="s12statuses">DIAGNOSTIC S12 • TEST 3 STATUTS</button><button id="s12official">DIAGNOSTIC S12 • BODY OFFICIEL</button><button id="s12expected">DIAGNOSTIC S12 • BODY ATTENDU</button><button id="s12v2">DIAGNOSTIC S12 • POST V2</button><button id="s12diag">DIAGNOSTIC S12 • TRACE POST</button><button id="s13u">SCENARIO 13 • 1/2 UPLOAD 100+ ITEMS</button><button id="s13s">SCENARIO 13 • 2/2 STOCK APRÈS WEBHOOK</button><button id="s14">SCENARIO 14 • GÉNÉRER URL S3</button><button id="s15">SCENARIO 15 • V3 UPLOAD S3 + JOB</button><button id="s16">SCENARIO 16 • STATUT DU JOB V3</button><button id="s17">SCENARIO 17 • GET MENU V3</button><div id="out" class="out">Prêt.</div></div></div><script>const out=document.getElementById('out'),btn=document.getElementById('send'),s1=document.getElementById('s1'),s5=document.getElementById('s5'),s5diag=document.getElementById('s5diag'),s8=document.getElementById('s8'),s9=document.getElementById('s9'),s10=document.getElementById('s10'),s11=document.getElementById('s11'),s12=document.getElementById('s12'),menuWebhookStatus=document.getElementById('menuWebhookStatus'),s12state=document.getElementById('s12state'),s12statuses=document.getElementById('s12statuses'),s12official=document.getElementById('s12official'),s12expected=document.getElementById('s12expected'),s12v2=document.getElementById('s12v2'),s12diag=document.getElementById('s12diag'),s13u=document.getElementById('s13u'),s13s=document.getElementById('s13s'),s14=document.getElementById('s14'),s15=document.getElementById('s15'),s16=document.getElementById('s16'),s17=document.getElementById('s17');btn.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site){out.textContent='Site ID requis.';return}btn.disabled=true;out.textContent='Upload en cours…';try{const r=await fetch('/api/deliveroo/menu-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{btn.disabled=false}};s1.onclick=async()=>{const site=document.getElementById('site').value.trim();if(!site){out.textContent='Site ID requis.';return}s1.disabled=true;out.textContent='Scenario 1 : récupération du Brand ID…';try{const r=await fetch('/api/deliveroo/scenario1-fetch-brand-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s1.disabled=false}};s5.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s5.disabled=true;out.textContent='Scenario 5 : vérification du menu déjà enregistré…';try{const r=await fetch('/api/deliveroo/scenario5-identical-menu-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s5.disabled=false}};s5diag.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s5diag.disabled=true;out.textContent='Diagnostic S5 : lecture Deliveroo + comparaison, aucun upload…';try{const r=await fetch('/api/deliveroo/scenario5-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s5diag.disabled=false}};s8.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s8.disabled=true;out.textContent='Scenario 8 : envoi des 2 POST…';try{const r=await fetch('/api/deliveroo/scenario8-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s8.disabled=false}};s9.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s9.disabled=true;out.textContent='Scenario 9 : GET puis PUT…';try{const r=await fetch('/api/deliveroo/scenario9-replace-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s9.disabled=false}};s10.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s10.disabled=true;out.textContent='Scenario 10 : réinitialisation du stock…';try{const r=await fetch('/api/deliveroo/scenario10-reset-unavailabilities-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s10.disabled=false}};s11.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s11.disabled=true;out.textContent='Scenario 11 : état initial avant reset matinal…';try{const r=await fetch('/api/deliveroo/scenario11-morning-reset-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s11.disabled=false}};s12.onclick=()=>{s12.disabled=true;out.textContent='Scenario 12 : envoi POST strict vers Deliveroo…';const form=document.createElement('form');form.method='POST';form.action='/api/deliveroo/scenario12-ignore-morning-reset-phase6';form.style.display='none';document.body.appendChild(form);form.submit()};menuWebhookStatus.onclick=async()=>{menuWebhookStatus.disabled=true;out.textContent='Lecture du Menu Events Webhook Deliveroo…';try{const r=await fetch('/api/deliveroo/menu-events-webhook-status-phase6',{method:'POST'});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{menuWebhookStatus.disabled=false}};s12state.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12state.disabled=true;out.textContent='Diagnostic S12 : lecture de l état…';try{const r=await fetch('/api/deliveroo/scenario12-state-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12state.disabled=false}};s12statuses.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12statuses.disabled=true;out.textContent='Diagnostic S12 : unavailable → hidden → available…';try{const r=await fetch('/api/deliveroo/scenario12-statuses-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12statuses.disabled=false}};s12official.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12official.disabled=true;out.textContent='Diagnostic S12 : envoi du body officiel Deliveroo…';try{const r=await fetch('/api/deliveroo/scenario12-official-body-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12official.disabled=false}};s12v2.onclick=async()=>{const site=document.getElementById('site').value.trim();if(!site){out.textContent='Site ID requis.';return}s12v2.disabled=true;out.textContent='Diagnostic S12 : POST v2 officiel…';try{const r=await fetch('/api/deliveroo/scenario12-v2-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12v2.disabled=false}};s12expected.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12expected.disabled=true;out.textContent='Diagnostic S12 : envoi du body attendu…';try{const r=await fetch('/api/deliveroo/scenario12-expected-body-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12expected.disabled=false}};s12diag.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s12diag.disabled=true;out.textContent='Diagnostic S12 : GET avant, POST réel, GET après…';try{const r=await fetch('/api/deliveroo/scenario12-diagnostic-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s12diag.disabled=false}};s13u.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13u.disabled=true;out.textContent='Scenario 13 : upload 100+ items…';try{const r=await fetch('/api/deliveroo/scenario13-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13u.disabled=false}};s13s.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s13s.disabled=true;out.textContent='Scenario 13 : vérification webhook puis stock…';try{const r=await fetch('/api/deliveroo/scenario13-stock-after-webhook-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s13s.disabled=false}};s14.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s14.disabled=true;out.textContent='Scenario 14 : génération URL S3…';try{const r=await fetch('/api/deliveroo/scenario14-generate-s3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s14.disabled=false}};s15.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s15.disabled=true;out.textContent='Scenario 15 : S3 + job V3…';try{const r=await fetch('/api/deliveroo/scenario15-v3-async-upload-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s15.disabled=false}};s16.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s16.disabled=true;out.textContent='Scenario 16 : statut du job V3…';try{const r=await fetch('/api/deliveroo/scenario16-job-status-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s16.disabled=false}};s17.onclick=async()=>{const site=document.getElementById('site').value.trim(),menu=document.getElementById('menu').value.trim();if(!site||!menu){out.textContent='Site ID et Menu ID requis.';return}s17.disabled=true;out.textContent='Scenario 17 : GET Menu V3…';try{const r=await fetch('/api/deliveroo/scenario17-get-menu-v3-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site_id:site,menu_id:menu})});const j=await r.json();out.textContent=JSON.stringify(j,null,2)}catch(e){out.textContent='Erreur : '+e.message}finally{s17.disabled=false}};</script></body></html>""",content_type="text/html; charset=utf-8")
