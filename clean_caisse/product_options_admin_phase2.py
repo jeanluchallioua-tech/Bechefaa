@@ -88,10 +88,16 @@ def register_product_options_admin_phase2(app, db):
             selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
             direct=product.get('options') if isinstance(product.get('options'),list) else []
             current_order=[]
-            for g in direct:
-                if isinstance(g,dict):
-                    k=str(g.get('key') or '')
-                    if k.startswith('central_'): current_order.append(k[8:])
+            saved_group_order=product.get('optionGroupOrder') if isinstance(product.get('optionGroupOrder'),list) else []
+            for raw in saved_group_order:
+                key=str(raw or '').strip()
+                if key.startswith('central_'):key=key[8:]
+                if key and key not in current_order:current_order.append(key)
+            if not current_order:
+                for g in direct:
+                    if isinstance(g,dict):
+                        k=str(g.get('key') or '')
+                        if k.startswith('central_'): current_order.append(k[8:])
             groups=[]
             known=set()
             for key,vals in lists.items():
@@ -182,10 +188,12 @@ def register_product_options_admin_phase2(app, db):
                     selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
                     new_direct=[]
                     seen=set()
+                    group_order=[]
                     for cfg in groups_payload:
                         if not isinstance(cfg,dict):continue
                         key=str(cfg.get('key') or '').strip()
                         if not key or key in seen:continue
+                        group_order.append(key)
                         previous=old_by_key.get(key)
                         central_vals=lists.get(key) if isinstance(lists.get(key),list) else None
                         direct_vals=previous.get('choices') if isinstance(previous,dict) and isinstance(previous.get('choices'),list) else None
@@ -233,6 +241,7 @@ def register_product_options_admin_phase2(app, db):
                     for key in list(selections.keys()):
                         if key in known_product_keys and key not in seen: selections[key]=[]
                     product['optionSelections']=selections
+                    product['optionGroupOrder']=group_order
                     # Preserve any non-central direct groups, then use the user-defined central order.
                     noncentral=[g for g in old_direct if not (isinstance(g,dict) and str(g.get('key') or '').startswith('central_'))]
                     product['options']=new_direct+noncentral
@@ -267,6 +276,73 @@ def register_product_options_admin_phase2(app, db):
                     conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1",(json.dumps(data,ensure_ascii=False),int(time.time()*1000)))
             return jsonify({'ok':True,'group':key,'index':idx,'name':name,'price':price})
         except Exception as exc:return jsonify({'ok':False,'error':'Ajout impossible','detail':str(exc)}),500
+
+    @app.post('/api/admin/simple-option-delete')
+    def simple_option_delete():
+        payload=request.get_json(silent=True) or {}
+        key=str(payload.get('group') or '').strip()
+        try:delete_index=int(payload.get('index'))
+        except (TypeError,ValueError):return jsonify({'ok':False,'error':'Option invalide'}),400
+        if not key:return jsonify({'ok':False,'error':'Groupe obligatoire'}),400
+        try:
+            with db() as conn:
+                with conn.transaction():
+                    row=conn.execute("SELECT data_json::text AS data_json FROM catalog_admin_v2 WHERE id=1 FOR UPDATE").fetchone()
+                    if not row:return jsonify({'ok':False,'error':'Catalogue introuvable'}),404
+                    data=json.loads(row['data_json'] or '{}')
+                    lists=data.get('optionLists') or {}
+                    vals=lists.get(key)
+                    if not isinstance(vals,list) or not (0<=delete_index<len(vals)):
+                        return jsonify({'ok':False,'error':'Option introuvable'}),404
+                    deleted_name,_deleted_price=_choice_pair(vals[delete_index])
+                    vals.pop(delete_index)
+
+                    orders=data.get('optionListOrders')
+                    if isinstance(orders,dict) and isinstance(orders.get(key),list):
+                        remapped=[]
+                        for raw in orders.get(key) or []:
+                            try:i=int(raw)
+                            except (TypeError,ValueError):continue
+                            if i==delete_index:continue
+                            if i>delete_index:i-=1
+                            if 0<=i<len(vals) and i not in remapped:remapped.append(i)
+                        orders[key]=remapped
+
+                    for product in data.get('products') or []:
+                        if not isinstance(product,dict):continue
+                        selections=product.get('optionSelections')
+                        if not isinstance(selections,dict):continue
+                        old_sel=selections.get(key)
+                        if not isinstance(old_sel,list):continue
+                        new_sel=[]
+                        for raw in old_sel:
+                            try:i=int(raw)
+                            except (TypeError,ValueError):continue
+                            if i==delete_index:continue
+                            if i>delete_index:i-=1
+                            if 0<=i<len(vals) and i not in new_sel:new_sel.append(i)
+                        selections[key]=new_sel
+
+                        direct=product.get('options') if isinstance(product.get('options'),list) else []
+                        central='central_'+key
+                        group=next((g for g in direct if isinstance(g,dict) and str(g.get('key') or '')==central),None)
+                        if isinstance(group,dict):
+                            if new_sel:
+                                rebuilt=[]
+                                for i in new_sel:
+                                    name,price=_choice_pair(vals[i])
+                                    if name:rebuilt.append([name,price])
+                                group['choices']=rebuilt
+                                try:maxv=int(group.get('max',0) or 0)
+                                except (TypeError,ValueError):maxv=0
+                                if maxv>len(rebuilt):group['max']=len(rebuilt)
+                            else:
+                                product['options']=[g for g in direct if g is not group]
+
+                    conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1",
+                                 (json.dumps(data,ensure_ascii=False),int(time.time()*1000)))
+            return jsonify({'ok':True,'group':key,'deleted_index':delete_index,'name':deleted_name,'message':f'Option « {deleted_name} » supprimée.'})
+        except Exception as exc:return jsonify({'ok':False,'error':'Suppression impossible','detail':str(exc)}),500
 
     @app.post('/api/admin/apply-group-order-family')
     def apply_group_order_family():
@@ -304,6 +380,9 @@ def register_product_options_admin_phase2(app, db):
 
                     source_groups=source.get('options') if isinstance(source.get('options'),list) else []
                     source_order=[]
+                    for raw in (source.get('optionGroupOrder') if isinstance(source.get('optionGroupOrder'),list) else []):
+                        key=norm_group_key(raw)
+                        if key and key not in source_order:source_order.append(key)
                     source_titles={}
                     for g in source_groups:
                         if not isinstance(g,dict):continue
@@ -376,6 +455,20 @@ def register_product_options_admin_phase2(app, db):
                             reordered+=1
                             changed=True
 
+                        target_existing=product.get('optionGroupOrder') if isinstance(product.get('optionGroupOrder'),list) else []
+                        target_existing_norm=[]
+                        for raw in target_existing:
+                            nk=norm_group_key(raw)
+                            if nk and nk not in target_existing_norm:target_existing_norm.append(nk)
+                        target_complete=[]
+                        for nk in source_order:
+                            if nk not in target_complete:target_complete.append(nk)
+                        for nk in target_existing_norm:
+                            if nk not in target_complete:target_complete.append(nk)
+                        if target_complete and target_complete!=target_existing_norm:
+                            product['optionGroupOrder']=target_complete
+                            changed=True
+
                         if changed:
                             updated+=1
 
@@ -398,7 +491,7 @@ def register_product_options_admin_phase2(app, db):
     @app.get('/administration/options-produits')
     def options_admin_page():
         return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options par produit</title><style>
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.drag-handle{cursor:grab;font-size:18px;color:#7b8490;padding:2px 5px;user-select:none}.dragging{opacity:.45}.group-title{cursor:pointer}.group-title:after{content:' ✎';font-size:12px;color:#8a94a3;font-weight:700}.max-choice-wrap{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#667085}.max-choice-wrap input{width:58px;padding:6px 7px;border:1px solid #cfd4dc;border-radius:7px;font-size:14px;text-align:center}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}.secondary{border:1px solid #111827;border-radius:10px;padding:13px 18px;background:#fff;color:#111827;font-weight:900;font-size:14px;cursor:pointer}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.drag-handle{cursor:grab;font-size:18px;color:#7b8490;padding:2px 5px;user-select:none}.dragging{opacity:.45}.group-title{cursor:pointer}.group-title:after{content:' ✎';font-size:12px;color:#8a94a3;font-weight:700}.max-choice-wrap{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#667085}.max-choice-wrap input{width:58px;padding:6px 7px;border:1px solid #cfd4dc;border-radius:7px;font-size:14px;text-align:center}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}.secondary{border:1px solid #111827;border-radius:10px;padding:13px 18px;background:#fff;color:#111827;font-weight:900;font-size:14px;cursor:pointer}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.delete-option{margin-left:auto;background:#fff0ee;color:#b42318;border:1px solid #f4b9b4;border-radius:7px;padding:4px 8px;font-weight:900;cursor:pointer}.delete-option:hover{background:#fee4e2}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
 </style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes avec ↑ / ↓.</p>
 <div class="card"><label>1. Choisir une catégorie</label><div id="category-buttons" class="category-buttons"></div><div class="field" style="margin-top:14px"><label>2. Choisir un produit</label><select id="product" disabled><option value="">Choisissez d’abord une catégorie…</option></select></div><div id="status" class="status"></div></div>
 <div class="card"><h2 style="margin-top:0">Ajouter une nouvelle option</h2><p class="hint">Exemple : groupe « Suppléments », nom « Double bacon », prix 3,00 €.</p><div class="addgrid"><div><label>Groupe</label><select id="add-group"></select></div><div><label>Nom</label><input id="add-name" placeholder="Double bacon"></div><div><label>Prix supplémentaire</label><input id="add-price" type="number" min="0" step="0.01" value="0.00"></div><button class="primary gold" id="add-option" type="button">Ajouter</button></div></div>
@@ -414,7 +507,7 @@ function renderCategories(){const cats=categoryList();$('category-buttons').inne
 function renderProductSelect(){const select=$('product');if(!currentCategory){select.disabled=true;select.innerHTML='<option value="">Choisissez d’abord une catégorie…</option>';return}const rows=products.filter(p=>String(p.category||'')===currentCategory);select.disabled=false;select.innerHTML='<option value="">Choisir un produit de '+E(currentCategory)+'…</option>'+rows.map(p=>'<option value="'+E(p.id)+'">'+E(p.name)+'</option>').join('')}
 function updateFamilyButton(){const btn=$('apply-family-order');btn.textContent=currentCategory?'Appliquer le modèle aux '+currentCategory:'Appliquer le modèle à la catégorie'}
 async function loadProducts(){const d=await j('/api/admin/options-products-list?t='+Date.now());products=d.products||[];renderCategories();renderProductSelect()}
-function render(){if(!groups.length){$('groups').innerHTML='<div class="empty">Aucun groupe d’options disponible.</div>';return}$('groups').innerHTML=groups.map((g,gi)=>'<section class="group" draggable="true" data-group-drag="'+gi+'" data-key="'+E(g.key)+'"><div class="grouphead"><span class="drag-handle" title="Glisser pour déplacer">☰</span><b class="group-title" data-group-rename="'+gi+'" title="Cliquer pour renommer le titre">'+E(g.name)+'</b><label class="max-choice-wrap">Max <input type="number" min="0" max="'+Math.max(0,g.selected.length)+'" value="'+Number(g.max||0)+'" data-group-max="'+gi+'" title="0 = sans limite"></label><span class="hint">'+g.selected.length+' sélectionnée(s)</span></div><div class="options">'+g.options.map((o,oi)=>{const on=g.selected.includes(Number(o.index));return '<div class="choice '+(on?'on':'')+'" draggable="true" data-choice-drag="'+gi+':'+oi+'"><span class="drag-handle" title="Glisser pour déplacer">⋮⋮</span><input type="checkbox" data-gi="'+gi+'" data-index="'+Number(o.index)+'" '+(on?'checked':'')+'><span>'+E(o.name)+'</span>'+(Number(o.price||0)?'<small>+'+Number(o.price).toFixed(2).replace('.',',')+' €</small>':'')+'</div>'}).join('')+'</div></section>').join('')}
+function render(){if(!groups.length){$('groups').innerHTML='<div class="empty">Aucun groupe d’options disponible.</div>';return}$('groups').innerHTML=groups.map((g,gi)=>'<section class="group" draggable="true" data-group-drag="'+gi+'" data-key="'+E(g.key)+'"><div class="grouphead"><span class="drag-handle" title="Glisser pour déplacer">☰</span><b class="group-title" data-group-rename="'+gi+'" title="Cliquer pour renommer le titre">'+E(g.name)+'</b><label class="max-choice-wrap">Max <input type="number" min="0" max="'+Math.max(0,g.selected.length)+'" value="'+Number(g.max||0)+'" data-group-max="'+gi+'" title="0 = sans limite"></label><span class="hint">'+g.selected.length+' sélectionnée(s)</span></div><div class="options">'+g.options.map((o,oi)=>{const on=g.selected.includes(Number(o.index));return '<div class="choice '+(on?'on':'')+'" draggable="true" data-choice-drag="'+gi+':'+oi+'"><span class="drag-handle" title="Glisser pour déplacer">⋮⋮</span><input type="checkbox" data-gi="'+gi+'" data-index="'+Number(o.index)+'" '+(on?'checked':'')+'><span>'+E(o.name)+'</span>'+(Number(o.price||0)?'<small>+'+Number(o.price).toFixed(2).replace('.',',')+' €</small>':'')+'<button type="button" class="delete-option" data-delete-option="'+gi+':'+oi+'" title="Supprimer cette option">✕</button></div>'}).join('')+'</div></section>').join('')}
 async function loadProduct(){current=$('product').value;if(!current){groups=[];$('save').disabled=true;$('apply-family-order').disabled=true;render();return}status('Chargement…');try{const d=await j('/api/admin/simple-product-options/'+encodeURIComponent(current)+'?t='+Date.now());groups=d.groups||[];$('save').disabled=false;$('apply-family-order').disabled=false;render();status('Configuration de « '+d.product.name+' » chargée.')}catch(e){status(e.message,false)}}
 $('category-buttons').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;currentCategory=b.dataset.cat||'';current='';groups=[];$('save').disabled=true;$('apply-family-order').disabled=true;renderCategories();renderProductSelect();updateFamilyButton();render();status('Catégorie « '+currentCategory+' » sélectionnée. Choisissez maintenant un produit.')});
 $('product').onchange=loadProduct;
@@ -430,6 +523,22 @@ $('groups').addEventListener('change',e=>{
  render();
 });
 $('groups').addEventListener('click',async e=>{
+ const del=e.target.closest('[data-delete-option]');
+ if(del){
+   e.preventDefault();e.stopPropagation();
+   const [gi,oi]=del.dataset.deleteOption.split(':').map(Number);
+   const g=groups[gi],o=g&&g.options?g.options[oi]:null;
+   if(!g||!o)return;
+   if(!confirm('Supprimer définitivement l’option « '+o.name+' » du groupe « '+g.name+' » ?\n\nElle sera retirée de tous les produits qui l’utilisent.'))return;
+   status('Suppression de l’option…');
+   try{
+     const d=await j('/api/admin/simple-option-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({group:g.key,index:Number(o.index)})});
+     status(d.message||'Option supprimée.');
+     if(current)await loadProduct();
+     await loadAddGroups();
+   }catch(err){status(err.message,false)}
+   return;
+ }
  const title=e.target.closest('[data-group-rename]');
  if(!title)return;
  const gi=Number(title.dataset.groupRename),g=groups[gi];
@@ -446,7 +555,7 @@ $('groups').addEventListener('click',async e=>{
 });
 let dragData=null;
 $('groups').addEventListener('dragstart',e=>{
- if(e.target.closest('input')){e.preventDefault();return}
+ if(e.target.closest('input')||e.target.closest('[data-delete-option]')){e.preventDefault();return}
  const choice=e.target.closest('[data-choice-drag]');
  if(choice){const [gi,oi]=choice.dataset.choiceDrag.split(':').map(Number);dragData={type:'choice',gi,oi};choice.classList.add('dragging');e.stopPropagation();return}
  const group=e.target.closest('[data-group-drag]');
