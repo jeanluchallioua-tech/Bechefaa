@@ -221,7 +221,8 @@ def register_product_options_admin_phase2(app, db):
                             meta['required']=bool(previous.get('required',meta['required']))
                             meta['max']=previous.get('max',meta['max']) or 0
                             meta['priceMode']=previous.get('priceMode',meta['priceMode'])
-                            meta['title']=str(previous.get('title') or previous.get('name') or meta['title'])
+                            title_overrides=product.get('optionGroupTitles') if isinstance(product.get('optionGroupTitles'),dict) else {}
+                            meta['title']=str(title_overrides.get(key) or previous.get('title') or previous.get('name') or meta['title'])
                         if cfg.get('max') is not None:
                             try:
                                 max_choices=int(cfg.get('max'))
@@ -384,13 +385,25 @@ def register_product_options_admin_phase2(app, db):
                         key=norm_group_key(raw)
                         if key and key not in source_order:source_order.append(key)
                     source_titles={}
+                    source_title_overrides=source.get('optionGroupTitles') if isinstance(source.get('optionGroupTitles'),dict) else {}
+                    for raw_key,raw_title in source_title_overrides.items():
+                        key=norm_group_key(raw_key)
+                        title=str(raw_title or '').strip()
+                        if key and title:source_titles[key]=title
                     for g in source_groups:
                         if not isinstance(g,dict):continue
                         raw_key=str(g.get('key') or '').strip()
                         key=norm_group_key(raw_key)
                         if not key:continue
                         if key not in source_order:source_order.append(key)
-                        title=str(g.get('title') or g.get('label') or g.get('name') or raw_key).strip()
+                        if key not in source_titles:
+                            title=str(g.get('title') or g.get('label') or g.get('name') or raw_key).strip()
+                            if title:source_titles[key]=title
+                    defs=data.get('optionListDefs') if isinstance(data.get('optionListDefs'),dict) else {}
+                    for key in source_order:
+                        if key in source_titles:continue
+                        d=defs.get(key) if isinstance(defs.get(key),dict) else {}
+                        title=str(d.get('title') or d.get('label') or LABELS.get(key) or key).strip()
                         if title:source_titles[key]=title
                     if not source_order:
                         return jsonify({'ok':False,'error':'Le produit source ne contient aucun groupe à reproduire'}),409
@@ -419,13 +432,52 @@ def register_product_options_admin_phase2(app, db):
                             nk=norm_group_key(g.get('key'))
                             if nk and nk not in by_norm:
                                 by_norm[nk]=g
-                        if not by_norm:
-                            skipped+=1
-                            continue
 
                         changed=False
 
-                        # Reprend seulement les intitulés des groupes correspondants.
+                        # Les intitulés du modèle sont des overrides produit : ils doivent
+                        # s'appliquer même si le groupe n'était pas encore matérialisé.
+                        target_titles=product.get('optionGroupTitles') if isinstance(product.get('optionGroupTitles'),dict) else {}
+                        target_titles=dict(target_titles)
+                        for nk,title in source_titles.items():
+                            old_title=str(target_titles.get(nk) or '').strip()
+                            if old_title!=title:
+                                target_titles[nk]=title
+                                renamed+=1
+                                changed=True
+                        product['optionGroupTitles']=target_titles
+
+                        # Matérialise les groupes du modèle à partir des sélections propres
+                        # au produit cible. On ne copie jamais les choix du produit source.
+                        selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
+                        lists=data.get('optionLists') if isinstance(data.get('optionLists'),dict) else {}
+                        for nk in source_order:
+                            if nk in by_norm:continue
+                            vals=lists.get(nk)
+                            selected=selections.get(nk)
+                            if not isinstance(vals,list) or not isinstance(selected,list) or not selected:
+                                continue
+                            meta=_group_meta(data,product,nk)
+                            meta['title']=source_titles.get(nk) or meta.get('title') or nk
+                            materialized=[]
+                            valid_sel=[]
+                            for raw in selected:
+                                try:i=int(raw)
+                                except (TypeError,ValueError):continue
+                                if 0<=i<len(vals) and i not in valid_sel:
+                                    valid_sel.append(i)
+                                    name,price=_choice_pair(vals[i])
+                                    if name:materialized.append([name,price])
+                            if not materialized:continue
+                            meta['choices']=materialized
+                            try:maxv=int(meta.get('max',0) or 0)
+                            except (TypeError,ValueError):maxv=0
+                            if maxv>len(materialized):meta['max']=len(materialized)
+                            by_norm[nk]=meta
+                            dict_groups.append(meta)
+                            changed=True
+
+                        # Harmonise aussi le titre des groupes déjà matérialisés.
                         for nk,title in source_titles.items():
                             g=by_norm.get(nk)
                             if not g:continue
@@ -433,10 +485,9 @@ def register_product_options_admin_phase2(app, db):
                             if old!=title:
                                 g['title']=title
                                 if 'label' in g:g['label']=title
-                                renamed+=1
                                 changed=True
 
-                        # Reprend seulement l'ordre des groupes existants sur le produit cible.
+                        # Ordre complet du modèle, puis éventuels groupes spécifiques au produit.
                         ordered=[]
                         used=set()
                         for nk in source_order:
@@ -448,12 +499,12 @@ def register_product_options_admin_phase2(app, db):
                             if nk not in used:
                                 ordered.append(g);used.add(nk)
 
-                        before=[norm_group_key(g.get('key')) for g in dict_groups]
+                        before=[norm_group_key(g.get('key')) for g in (product.get('options') if isinstance(product.get('options'),list) else []) if isinstance(g,dict)]
                         after=[norm_group_key(g.get('key')) for g in ordered]
                         if after!=before:
-                            product['options']=ordered
                             reordered+=1
                             changed=True
+                        product['options']=ordered
 
                         target_existing=product.get('optionGroupOrder') if isinstance(product.get('optionGroupOrder'),list) else []
                         target_existing_norm=[]
@@ -465,7 +516,7 @@ def register_product_options_admin_phase2(app, db):
                             if nk not in target_complete:target_complete.append(nk)
                         for nk in target_existing_norm:
                             if nk not in target_complete:target_complete.append(nk)
-                        if target_complete and target_complete!=target_existing_norm:
+                        if target_complete!=target_existing_norm:
                             product['optionGroupOrder']=target_complete
                             changed=True
 
