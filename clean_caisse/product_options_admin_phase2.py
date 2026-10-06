@@ -59,6 +59,12 @@ def register_product_options_admin_phase2(app, db):
         central='central_'+key
         title_overrides=product.get('optionGroupTitles') if isinstance(product.get('optionGroupTitles'),dict) else {}
         local_title=str(title_overrides.get(key) or '').strip()
+        if not local_title:
+            wanted_key=str(key or '').casefold()
+            for override_key,override_title in title_overrides.items():
+                if str(override_key or '').casefold()==wanted_key:
+                    local_title=str(override_title or '').strip()
+                    break
         for g in product.get('options') or []:
             if isinstance(g,dict) and str(g.get('key') or '')==central:
                 return {
@@ -164,8 +170,20 @@ def register_product_options_admin_phase2(app, db):
                     'source':'direct',
                 })
                 known.add(key)
-            order=current_order+[g['key'] for g in groups if g['key'] not in current_order]
-            groups.sort(key=lambda g: order.index(g['key']) if g['key'] in order else 9999)
+            order=[]
+            order_norm=[]
+            for raw in current_order:
+                key=str(raw or '').strip()
+                nk=key.casefold()
+                if key and nk not in order_norm:
+                    order.append(key);order_norm.append(nk)
+            for g in groups:
+                key=str(g.get('key') or '').strip()
+                nk=key.casefold()
+                if key and nk not in order_norm:
+                    order.append(key);order_norm.append(nk)
+            order_pos={str(k).casefold():i for i,k in enumerate(order)}
+            groups.sort(key=lambda g: order_pos.get(str(g.get('key') or '').casefold(),9999))
             return jsonify({'ok':True,'product':{'id':product.get('id'),'name':product.get('name'),'category':product.get('category') or product.get('cat') or ''},'groups':groups,'order':order})
         except Exception as exc:return jsonify({'ok':False,'error':'Configuration options indisponible','detail':str(exc)}),500
 
@@ -439,10 +457,24 @@ def register_product_options_admin_phase2(app, db):
                         # s'appliquer même si le groupe n'était pas encore matérialisé.
                         target_titles=product.get('optionGroupTitles') if isinstance(product.get('optionGroupTitles'),dict) else {}
                         target_titles=dict(target_titles)
+
+                        # Table de correspondance : clé normalisée pour comparer,
+                        # clé exacte du catalogue pour persister (ex. saucesSupp).
+                        lists=data.get('optionLists') if isinstance(data.get('optionLists'),dict) else {}
+                        canonical_keys={norm_group_key(k):str(k) for k in lists.keys()}
                         for nk,title in source_titles.items():
-                            old_title=str(target_titles.get(nk) or '').strip()
+                            canonical_key=canonical_keys.get(nk,nk)
+                            old_title=''
+                            for existing_key,existing_title in target_titles.items():
+                                if norm_group_key(existing_key)==nk:
+                                    old_title=str(existing_title or '').strip()
+                                    break
                             if old_title!=title:
-                                target_titles[nk]=title
+                                # retire une ancienne variante normalisée éventuelle
+                                for existing_key in list(target_titles.keys()):
+                                    if norm_group_key(existing_key)==nk and existing_key!=canonical_key:
+                                        target_titles.pop(existing_key,None)
+                                target_titles[canonical_key]=title
                                 renamed+=1
                                 changed=True
                         product['optionGroupTitles']=target_titles
@@ -450,14 +482,17 @@ def register_product_options_admin_phase2(app, db):
                         # Matérialise les groupes du modèle à partir des sélections propres
                         # au produit cible. On ne copie jamais les choix du produit source.
                         selections=product.get('optionSelections') if isinstance(product.get('optionSelections'),dict) else {}
-                        lists=data.get('optionLists') if isinstance(data.get('optionLists'),dict) else {}
                         for nk in source_order:
                             if nk in by_norm:continue
-                            vals=lists.get(nk)
-                            selected=selections.get(nk)
+                            canonical_key=canonical_keys.get(nk,nk)
+                            vals=lists.get(canonical_key)
+                            selected=selections.get(canonical_key)
+                            if not isinstance(selected,list):
+                                # Compatibilité avec d'anciennes clés enregistrées sous une autre casse.
+                                selected=next((v for k,v in selections.items() if norm_group_key(k)==nk),None)
                             if not isinstance(vals,list) or not isinstance(selected,list) or not selected:
                                 continue
-                            meta=_group_meta(data,product,nk)
+                            meta=_group_meta(data,product,canonical_key)
                             meta['title']=source_titles.get(nk) or meta.get('title') or nk
                             materialized=[]
                             valid_sel=[]
@@ -511,12 +546,18 @@ def register_product_options_admin_phase2(app, db):
                         for raw in target_existing:
                             nk=norm_group_key(raw)
                             if nk and nk not in target_existing_norm:target_existing_norm.append(nk)
+                        target_complete_norm=[]
                         target_complete=[]
                         for nk in source_order:
-                            if nk not in target_complete:target_complete.append(nk)
-                        for nk in target_existing_norm:
-                            if nk not in target_complete:target_complete.append(nk)
-                        if target_complete!=target_existing_norm:
+                            if nk not in target_complete_norm:
+                                target_complete_norm.append(nk)
+                                target_complete.append(canonical_keys.get(nk,nk))
+                        for raw in target_existing:
+                            nk=norm_group_key(raw)
+                            if nk and nk not in target_complete_norm:
+                                target_complete_norm.append(nk)
+                                target_complete.append(canonical_keys.get(nk,str(raw)))
+                        if target_complete_norm!=target_existing_norm:
                             product['optionGroupOrder']=target_complete
                             changed=True
 
