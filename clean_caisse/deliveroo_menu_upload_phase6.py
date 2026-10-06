@@ -668,16 +668,25 @@ def register_deliveroo_menu_upload_phase6(app, db):
         menu_id=str(payload.get("menu_id") or "bechefaa-menu-01").strip()
         if not site_id or not menu_id:
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
+
+        expected_brand_id="bceaa87a-74db-434e-b548-6da7e7de67a6"
+
         try:
             token=_oauth_token()
             api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
 
+            # Vérification explicite du Brand ID rattaché au site avant le test.
             brand_status,brand_data=_api_json(
                 api_url+"/site/v1/restaurant_locations/"+urllib.parse.quote(site_id,safe=""),
                 token,
             )
             if not 200 <= brand_status < 300:
-                return jsonify({"ok":False,"stage":"brand_lookup","http_status":brand_status,"response":brand_data}),502
+                return jsonify({
+                    "ok":False,
+                    "stage":"brand_lookup",
+                    "http_status":brand_status,
+                    "response":brand_data
+                }),502
 
             raw_brand_id=(
                 brand_data.get("brand_id")
@@ -688,72 +697,67 @@ def register_deliveroo_menu_upload_phase6(app, db):
             if isinstance(raw_brand_id,(list,tuple)):
                 raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
             brand_id=str(raw_brand_id or "").strip()
+
             if not brand_id:
                 return jsonify({"ok":False,"stage":"brand_lookup","error":"brand_id absent"}),502
 
-            menu_url=(
-                api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")
-                +"/menus/"+urllib.parse.quote(menu_id,safe="")
-            )
-            stock_url=(
-                menu_url+"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
-            )
-
-            # Le runner du Scenario 12 injecte un menu synthétique. Attendre
-            # uniquement qu'il soit visible, puis envoyer immédiatement le POST
-            # attendu. Ne pas attendre de webhook : notre POS n'a pas uploadé ce menu.
-            expected_ids={"orange_juice","granola","whole_milk"}
-            observed_item_ids=[]
-            menu_ready=False
-            for _ in range(40):
-                menu_status,menu_response=_api_json(menu_url,token,method="GET")
-                items=((menu_response.get("menu") or {}).get("items") or []) if isinstance(menu_response,dict) else []
-                observed_item_ids=[
-                    str(x.get("id")) for x in items
-                    if isinstance(x,dict) and x.get("id") is not None
-                ]
-                if 200 <= menu_status < 300 and set(observed_item_ids)==expected_ids:
-                    menu_ready=True
-                    break
-                time.sleep(0.25)
-
-            if not menu_ready:
+            if brand_id != expected_brand_id:
                 return jsonify({
                     "ok":False,
-                    "stage":"waiting_test_menu",
-                    "waiting":True,
-                    "observed_item_ids":observed_item_ids,
-                    "message":"Menu test exact du Scenario 12 non détecté"
+                    "stage":"brand_id_mismatch",
+                    "expected_brand_id":expected_brand_id,
+                    "actual_brand_id":brand_id,
+                    "site_id":site_id,
+                    "message":"Brand ID différent de celui attendu pour BÉCHÉFAA"
                 }),409
 
-            post_payload={"item_unavailabilities":[
-                {"item_id":"whole_milk","status":"unavailable"},
-            ]}
+            stock_url=(
+                api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")
+                +"/menus/"+urllib.parse.quote(menu_id,safe="")
+                +"/item_unavailabilities/"+urllib.parse.quote(site_id,safe="")
+            )
+
+            # Instruction Deliveroo Scenario 12 :
+            # le runner crée lui-même orange_juice, granola et whole_milk,
+            # puis marque orange_juice indisponible.
+            # Notre seule action est de rendre whole_milk indisponible.
+            post_payload={
+                "item_unavailabilities":[
+                    {"item_id":"whole_milk","status":"unavailable"}
+                ]
+            }
+
             post_started_at=datetime.now(timezone.utc)
             post_status,post_response=_api_json(
-                stock_url,token,method="POST",payload=post_payload
+                stock_url,
+                token,
+                method="POST",
+                payload=post_payload,
             )
             ok=200 <= post_status < 300
 
             return jsonify({
                 "ok":ok,
+                "mode":"deliveroo_support_exact_scenario12",
                 "brand_id":brand_id,
+                "brand_id_verified":True,
                 "site_id":site_id,
                 "menu_id":menu_id,
-                "test_menu_ready":True,
-                "observed_item_ids":observed_item_ids,
                 "post_started_at":post_started_at.isoformat(),
                 "post":{
                     "http_status":post_status,
                     "payload":post_payload,
                     "response":post_response
                 },
-                "mode":"wait_exact_test_menu_then_immediate_single_post"
+                "instruction":"Lancer Scenario 12 côté Deliveroo, attendre son état d'attente, puis appeler ce bouton une seule fois."
             }),200 if ok else 502
+
         except Exception as exc:
             return jsonify({
-                "ok":False,"stage":"scenario12",
-                "error":"Scenario 12 Deliveroo impossible","detail":str(exc)
+                "ok":False,
+                "stage":"scenario12",
+                "error":"Scenario 12 Deliveroo impossible",
+                "detail":str(exc)
             }),500
 
 
