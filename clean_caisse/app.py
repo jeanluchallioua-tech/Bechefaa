@@ -731,6 +731,67 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).catch(()=>{}));
 }
 </script>
+<script id="bechefaa-screen-awake-v1">
+
+(function () {
+  if (window.__bechefaaScreenAwake) return;
+  window.__bechefaaScreenAwake = true;
+  let lock = null;
+  let pending = false;
+  let active = true;
+  let lastAttempt = 0;
+  const supported = !!(navigator.wakeLock && navigator.wakeLock.request);
+  function status(value) {
+    document.documentElement.dataset.bechefaaScreenAwake = value;
+  }
+  function wanted() {
+    return active && document.visibilityState === 'visible';
+  }
+  function release() {
+    const previous = lock;
+    lock = null;
+    status('paused');
+    if (previous) previous.release().catch(() => {});
+  }
+  async function acquire(force) {
+    if (!supported) { status('unsupported'); return; }
+    if (!wanted() || pending || (lock && !lock.released)) return;
+    if (!force && Date.now() - lastAttempt < 10000) return;
+    lastAttempt = Date.now();
+    pending = true;
+    try {
+      const acquired = await navigator.wakeLock.request('screen');
+      if (!wanted()) {
+        await acquired.release();
+        return;
+      }
+      lock = acquired;
+      status('active');
+      acquired.addEventListener('release', () => {
+        if (lock === acquired) {
+          lock = null;
+          status(wanted() ? 'released' : 'paused');
+        }
+      });
+    } catch (_) {
+      // Android may refuse in power-saving mode or with a low battery.
+      status('unavailable');
+    } finally {
+      pending = false;
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (wanted()) acquire(true);
+    else release();
+  });
+  window.addEventListener('pagehide', () => { active = false; release(); });
+  window.addEventListener('pageshow', () => { active = true; acquire(true); });
+  window.addEventListener('focus', () => acquire(false));
+  document.addEventListener('pointerdown', () => acquire(false), {passive: true});
+  document.addEventListener('keydown', () => acquire(false));
+  acquire(true);
+})();
+</script>
 </body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
