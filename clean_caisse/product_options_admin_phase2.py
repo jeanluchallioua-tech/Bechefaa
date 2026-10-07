@@ -8,6 +8,13 @@ from flask import Response, jsonify, request
 
 
 def register_product_options_admin_phase2(app, db):
+    @app.after_request
+    def options_fresh_response(response):
+        if request.path == '/administration/options-produits' or request.path.startswith('/api/admin/simple-product-options/') or request.path in ('/api/admin/option-lists', '/api/admin/options-products-list', '/api/admin/options-product'):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+        return response
+
     LABELS = {'pain':'Pain','poulet':'Poulet','sauces':'Sauces','tender':'Type de tender','cuisson':'Cuisson','viandes':'Viandes','boissons':'Boissons','garnitures':'Garnitures','saucesSupp':'Sauces supplémentaires','supplements':'Suppléments','accompagnements':'Accompagnements'}
     def load_catalog():
         with db() as conn: row=conn.execute("SELECT data_json::text AS data_json FROM catalog_admin_v2 WHERE id=1").fetchone()
@@ -593,7 +600,7 @@ def register_product_options_admin_phase2(app, db):
 const $=id=>document.getElementById(id),E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let products=[],groups=[],current='',currentCategory='';
 function status(t,ok=true){$('status').innerHTML=t?'<div class="'+(ok?'ok':'bad')+'">'+E(t)+'</div>':''}
-async function j(url,opts){const r=await fetch(url,opts);let d;try{d=await r.json()}catch(e){throw Error('Réponse serveur invalide')}if(!r.ok||!d.ok)throw Error(d.error||'Erreur');return d}
+async function j(url,opts){const r=await fetch(url,Object.assign({},opts||{},{cache:'no-store'}));let d;try{d=await r.json()}catch(e){throw Error('Réponse serveur invalide')}if(!r.ok||!d.ok)throw Error(d.error||'Erreur');return d}
 function categoryList(){const seen=[];products.forEach(p=>{const c=String(p.category||'').trim();if(c&&!seen.includes(c))seen.push(c)});return seen}
 function renderCategories(){const cats=categoryList();$('category-buttons').innerHTML=cats.map(c=>'<button type="button" class="catbtn '+(c===currentCategory?'active':'')+'" data-cat="'+E(c)+'">'+E(c)+'</button>').join('')||'<span class="hint">Aucune catégorie disponible.</span>'}
 function renderProductSelect(){const select=$('product');if(!currentCategory){select.disabled=true;select.innerHTML='<option value="">Choisissez d’abord une catégorie…</option>';return}const rows=products.filter(p=>String(p.category||'')===currentCategory);select.disabled=false;select.innerHTML='<option value="">Choisir un produit de '+E(currentCategory)+'…</option>'+rows.map(p=>'<option value="'+E(p.id)+'">'+E(p.name)+'</option>').join('')}
@@ -682,7 +689,44 @@ $('apply-family-order').onclick=async()=>{
  }catch(e){status(e.message,false)}
  finally{btn.disabled=false}
 };
-$('save').onclick=async()=>{if(!current)return;const btn=$('save'),old=btn.textContent;btn.disabled=true;btn.classList.remove('saved');btn.classList.add('saving');btn.textContent='Enregistrement…';status('Enregistrement…');try{await j('/api/admin/simple-product-options/'+encodeURIComponent(current),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({groups:groups.map(g=>({key:g.key,selected:g.selected,max:Number(g.max||0),optionOrder:(g.options||[]).map(o=>Number(o.index))}))})});status('Options et ordre enregistrés.');btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='Enregistré ✓';await loadProduct();setTimeout(()=>{btn.classList.remove('saved');btn.textContent=old},1600)}catch(e){btn.classList.remove('saving','saved');btn.textContent=old;status(e.message,false)}finally{btn.disabled=false}};
+function optionSavePayload(){
+ // Read visible controls too: a tablet keyboard can defer the change event.
+ $('groups').querySelectorAll('input[type=checkbox][data-gi]').forEach(cb=>{
+   const g=groups[Number(cb.dataset.gi)],idx=Number(cb.dataset.index);
+   if(!g)return;
+   if(cb.checked&&!g.selected.includes(idx))g.selected.push(idx);
+   if(!cb.checked)g.selected=g.selected.filter(x=>Number(x)!==idx);
+ });
+ $('groups').querySelectorAll('input[data-group-max]').forEach(input=>{
+   const g=groups[Number(input.dataset.groupMax)];if(!g)return;
+   let value=parseInt(input.value||'0',10);
+   g.max=Number.isFinite(value)?Math.min(Math.max(0,value),g.selected.length):0;
+ });
+ return {groups:groups.map(g=>({key:g.key,selected:[...g.selected],max:Number(g.max||0),optionOrder:(g.options||[]).map(o=>Number(o.index))}))};
+}
+function sameOptionSelection(sent,received){
+ const actual=new Map((received||[]).map(g=>[g.key,g]));
+ const indexes=values=>JSON.stringify([...new Set((values||[]).map(Number))].sort((a,b)=>a-b));
+ return sent.every(g=>{
+   const saved=actual.get(g.key);
+   if(!saved)return !(g.selected||[]).length;
+   return indexes(g.selected)===indexes(saved.selected)&&(!g.selected.length||Number(g.max||0)===Number(saved.max||0));
+ });
+}
+$('save').onclick=async()=>{
+ if(!current)return;
+ const productId=current,payload=optionSavePayload(),btn=$('save'),old=btn.textContent;
+ btn.disabled=true;btn.classList.remove('saved');btn.classList.add('saving');btn.textContent='Enregistrement…';status('Enregistrement…');
+ try{
+   await j('/api/admin/simple-product-options/'+encodeURIComponent(productId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   const verified=await j('/api/admin/simple-product-options/'+encodeURIComponent(productId)+'?t='+Date.now());
+   if(!sameOptionSelection(payload.groups,verified.groups))throw Error('Les options relues ne correspondent pas aux choix enregistrés. Réessayez.');
+   if(current===productId){groups=verified.groups||[];render();status('Options et ordre enregistrés et vérifiés.');}
+   btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='Enregistré ✓';
+   setTimeout(()=>{btn.classList.remove('saved');btn.textContent=old},1600);
+ }catch(e){btn.classList.remove('saving','saved');btn.textContent=old;status(e.message,false)}
+ finally{btn.disabled=!current}
+};
 async function loadAddGroups(){try{const d=await j('/api/admin/option-lists?t='+Date.now());$('add-group').innerHTML=(d.groups||[]).map(g=>'<option value="'+E(g.key)+'">'+E(g.name)+'</option>').join('')}catch(e){status(e.message,false)}}
 $('add-option').onclick=async()=>{const group=$('add-group').value,name=$('add-name').value.trim(),price=$('add-price').value;if(!group||!name)return status('Choisissez un groupe et saisissez un nom.',false);$('add-option').disabled=true;try{await j('/api/admin/simple-option-add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({group,name,price})});$('add-name').value='';$('add-price').value='0.00';status('Option « '+name+' » ajoutée. Vous pouvez maintenant la cocher sur le produit.');if(current)await loadProduct()}catch(e){status(e.message,false)}finally{$('add-option').disabled=false}};
 (async()=>{try{await Promise.all([loadProducts(),loadAddGroups()]);status('Choisissez une catégorie, puis un produit à configurer.')}catch(e){status(e.message,false)}})();

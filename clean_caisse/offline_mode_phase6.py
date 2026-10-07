@@ -50,8 +50,8 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
 async function cachedGet(req){
   const c=await caches.open(CACHE);
   try{
-    const net=await fetch(req);
-    if(net.ok)c.put(req,net.clone());
+    const net=await fetch(req,{cache:'no-store'});
+    if(net.ok)await c.put(req,net.clone());
     return net;
   }catch(e){
     const hit=await c.match(req);
