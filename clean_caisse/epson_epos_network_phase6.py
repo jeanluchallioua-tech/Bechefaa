@@ -365,6 +365,40 @@ window.addEventListener('load',()=>setTimeout(launch,80));
 
 
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
+    @app.get("/apercu/tickets/<order_number>")
+    def receipt_preview_by_number_phase6(order_number):
+        # SELECT only: no printing, order update or printer configuration.
+        try:
+            with db() as conn:
+                rows = conn.execute(
+                    "SELECT id FROM caisse_orders WHERE num::text=%s LIMIT 2",
+                    (order_number,),
+                ).fetchall()
+            if not rows:
+                return "Commande introuvable", 404
+            if len(rows) != 1:
+                return "Plusieurs commandes portent ce numéro", 409
+            order_id = quote(str(rows[0]["id"]), safe="")
+            title = escape("Commande " + order_number)
+            html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<title>Aperçu {title}</title><style>
+body{{font-family:Arial,sans-serif;background:#e5e7eb;margin:20px;color:#111827}}
+.tickets{{display:flex;gap:24px;flex-wrap:wrap}}section{{background:white;padding:16px;border-radius:8px}}
+iframe{{width:330px;height:1100px;border:0}}h2{{font-size:18px}}
+</style></head><body><h1>{title}</h1>
+<p>Aperçus uniquement : aucune impression ne se lance. Le rendu papier Epson peut légèrement différer.</p>
+<div class="tickets"><section><h2>Ticket cuisine</h2>
+<iframe title="Ticket cuisine" src="/impression/cuisine/{order_id}?preview=1"></iframe></section>
+<section><h2>Ticket client</h2>
+<iframe title="Ticket client" src="/impression/client/{order_id}?preview=1"></iframe></section></div>
+</body></html>'''
+            response = Response(html, content_type="text/html; charset=utf-8")
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except Exception:
+            app.logger.error("Receipt preview lookup failed")
+            return "Aperçu indisponible", 503
+
     def _load_identity(conn):
         try:
             rows = conn.execute("SELECT setting_key,setting_value FROM caisse_restaurant_settings").fetchall()
