@@ -25,6 +25,7 @@ _PUBLIC_PREFIXES = (
 )
 
 _PUBLIC_EXACT = {
+    "/api/uber/webhook",
     "/api/health",
     "/api/deliveroo/status-phase6",
     "/api/deliveroo/webhooks/status-phase6",
