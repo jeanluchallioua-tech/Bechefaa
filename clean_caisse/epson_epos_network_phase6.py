@@ -9,11 +9,17 @@ Configuration actuelle restaurant:
 - ePOS-Print activé
 - Device ID local_printer
 """
+import base64
+import re
+import textwrap
+from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from xml.sax.saxutils import escape
 from urllib.parse import quote
+
+from PIL import Image, ImageDraw, ImageFont
 
 from flask import Response, jsonify, request
 
@@ -56,19 +62,77 @@ def _service_label(order):
 
 
 def _option_text(item):
+    """Compact selected values for paper only; retain the original order data."""
     text = str(item.get("options_text") or "").strip()
-    if text:
-        return text.replace(";;", " | ").replace("::", ": ")
     values = []
-    for option in item.get("options") or []:
-        if isinstance(option, dict):
-            group = str(option.get("group") or "").strip()
-            label = str(option.get("name") or option.get("label") or "").strip()
-            if label:
-                values.append((group + ": " if group else "") + label)
-        elif option is not None:
-            values.append(str(option))
-    return " | ".join(values)
+    if text:
+        normalized = text.replace(";;", " · ").replace("::", ": ")
+        for part in re.split(r"[•·|\n]+", normalized):
+            group, separator, value = part.partition(":")
+            value = (value if separator else group).strip()
+            if separator and group.strip().lower().startswith("sans") and not value.lower().startswith("sans"):
+                value = "Sans " + value
+            if value:
+                values.append(value)
+    else:
+        for option in item.get("options") or []:
+            if isinstance(option, dict):
+                value = str(option.get("name") or option.get("label") or "").strip()
+                if str(option.get("group") or "").strip().lower().startswith("sans") and value and not value.lower().startswith("sans"):
+                    value = "Sans " + value
+            else:
+                value = str(option).strip() if option is not None else ""
+            if value:
+                values.append(value)
+    return " · ".join(values)
+
+
+def _wrapped_lines(text, columns=48):
+    """Wrap at spaces before the printer performs character-level wrapping."""
+    return textwrap.wrap(" ".join(str(text).split()), width=columns,
+                         break_long_words=False, break_on_hyphens=False) or [""]
+
+
+def _wrapped_xml(text, columns=48):
+    return "".join(_line(line) for line in _wrapped_lines(text, columns))
+
+
+def _option_image_xml(text):
+    # 28 px versus the printer's standard 24-dot font: a modest enlargement.
+    # Raster printing allows intermediate sizes instead of doubling the font.
+    font = ImageFont.truetype(str(Path(__file__).parent / "print_assets" / "DejaVuSans-receipt.ttf"), size=28)
+    width, padding, line_height = 576, 4, 34
+    lines, current = [], ""
+    for word in str(text).split():
+        candidate = (current + " " + word).strip()
+        if current and font.getlength(candidate) > width - 2 * padding:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    image = Image.new("1", (width, max(1, len(lines)) * line_height + 8), 0)
+    draw = ImageDraw.Draw(image)
+    for index, line in enumerate(lines):
+        draw.text((padding, 4 + index * line_height), line, font=font, fill=1, anchor="lt")
+    # Epson monochrome raster: 1 = black dot, highest bit first, padded rows.
+    encoded = base64.b64encode(image.tobytes()).decode("ascii")
+    return f'<image width="{width}" height="{image.height}" color="color_1" mode="mono">{encoded}</image>'
+
+
+def _priced_item_xml(label, price, columns=48):
+    amount = _money(price)
+    available = columns - len(amount) - 2
+    lines = _wrapped_lines(label, available)
+    parts = [_line(line) for line in lines[:-1]]
+    last = lines[-1]
+    if len(last) > available:
+        parts.append(_wrapped_xml(last, columns))
+        parts.append(_line(amount.rjust(columns)))
+    else:
+        parts.append(_line(last + " " * (columns - len(last) - len(amount)) + amount))
+    return "".join(parts)
 
 
 def _identity_lines(identity):
@@ -121,12 +185,11 @@ def _kitchen_xml(order):
         qty = item.get("qty") or 1
         name = str(item.get("name") or "")
         parts.append('<text align="left" width="2" height="1" emphasized="true"/>')
-        parts.append(_line(f"{qty} x {name}"))
+        parts.append(_wrapped_xml(f"{qty} x {name}", columns=24))
         parts.append('<text align="left" width="1" height="1" emphasized="false"/>')
         opts = _option_text(item)
         if opts:
-            for chunk in [x.strip() for x in opts.replace(" • ", "|").split("|") if x.strip()]:
-                parts.append(_line("  - " + chunk))
+            parts.append(_option_image_xml(opts))
         parts.append('<feed line="1"/>')
 
     parts.extend([
@@ -186,13 +249,11 @@ def _client_xml(order, identity=None):
         name = str(item.get("name") or "")
         price = Decimal(str(item.get("unit_price") or 0)) * Decimal(str(qty))
         parts.append('<text align="left" width="1" height="1" emphasized="true"/>')
-        parts.append(_line(f"{qty} x {name}"))
+        parts.append(_priced_item_xml(f"{qty} x {name}", price))
         parts.append('<text align="left" emphasized="false"/>')
-        parts.append(_line("    " + _money(price)))
         opts = _option_text(item)
         if opts:
-            for chunk in [x.strip() for x in opts.replace(" • ", "|").split("|") if x.strip()]:
-                parts.append(_line("  - " + chunk))
+            parts.append(_option_image_xml(opts))
         parts.append('<feed line="1"/>')
 
     rate_text = f"{rate:g}".replace(".", ",")

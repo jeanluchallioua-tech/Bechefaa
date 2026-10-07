@@ -82,45 +82,10 @@ def _base_css():
 
 
 def _option_lines(item):
-    # Pour les commandes SITE, options_text est volontairement conservé comme
-    # libellé complet choisi par le client. Il peut être plus complet que
-    # options_json lorsqu'une option V2 n'a pas de mapping structuré.
-    text = str(item.get("options_text") or "").strip()
-    if text:
-        normalized = text.replace(";;", " • ").replace("::", ": ")
-        rendered, last_group = [], None
-        for part in [p.strip() for p in re.split(r"\s*[•·]\s*", normalized) if p.strip()]:
-            if ":" in part:
-                group, value = [x.strip() for x in part.split(":", 1)]
-                values = [x.strip() for x in value.split("|") if x.strip()] or [value]
-                for index, option_value in enumerate(values):
-                    if not option_value:
-                        continue
-                    if group == last_group or index > 0:
-                        rendered.append(f'<div class="kopt kcontinuation">{escape(option_value)}</div>')
-                    else:
-                        rendered.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(option_value)}</div>')
-                    last_group = group or None
-            else:
-                rendered.append(f'<div class="kopt">{escape(part)}</div>')
-                last_group = None
-        if rendered:
-            return "".join(rendered)
-
-    # Repli pour les commandes qui n'ont que les options structurées.
-    options = item.get("options") or []
-    lines, last_group = [], None
-    for option in options:
-        if isinstance(option, dict):
-            group = str(option.get("group") or "").strip(); label = str(option.get("name") or option.get("label") or "").strip()
-            if not label: continue
-            if group and group == last_group: lines.append(f'<div class="kopt kcontinuation">{escape(label)}</div>')
-            elif group: lines.append(f'<div class="kopt"><span class="kgroup">{escape(group)} :</span> {escape(label)}</div>')
-            else: lines.append(f'<div class="kopt">{escape(label)}</div>')
-            last_group = group or None
-        elif option is not None:
-            lines.append(f'<div class="kopt">{escape(str(option))}</div>'); last_group = None
-    return "".join(lines)
+    # This renderer is used only by printed ticket pages, never the kitchen screen.
+    from .epson_epos_network_phase6 import _option_text
+    text = _option_text(item)
+    return '<div class="kopt">' + escape(text) + '</div>' if text else ''
 
 
 def register_printing_phase1(app, db, ensure_order_schema, order_payload):
@@ -153,7 +118,7 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         except Exception: rate_text = "10"
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.cdate{{text-align:center;font-size:13px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:12px;line-height:1.2;margin-top:2px;padding-left:10mm}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
+.ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.cdate{{text-align:center;font-size:13px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:14px;line-height:1.2;margin-top:2px;padding-left:0;word-break:normal;overflow-wrap:normal}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
 </style></head><body><div class="ticket80"><div class="ctitle">BÉCHÉFAA</div><div class="sep"></div><div class="cmode">{escape(mode_title)}</div><div class="cnum">N° {escape(str(order['num']))}</div>{delivery_datetime_block}{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="cpieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row cfiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row cfiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row ctotal"><span>TOTAL TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row cfiscal"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="thanks">Merci</div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto and not preview else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
@@ -168,7 +133,7 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         items_html = "".join(f'''<div class="kitem"><div class="kline"><span class="kname"><span class="kqty">{escape(str(i.get("qty",1)))}×</span>&nbsp;&nbsp;{escape(str(i.get("name") or ""))}</span><span class="kprice">{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{_option_lines(i)}</div>''' for i in order.get("items") or [])
         auto = request.args.get("auto") == "1"
         html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;gap:5px}}.kname{{font-size:16px;font-weight:900;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:13px;line-height:1.18;margin-top:2px;padding-left:12mm}}.kcontinuation{{padding-left:18mm}}.kgroup{{font-weight:900}}.ktotal{{display:flex;justify-content:space-between;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}
+.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;gap:5px}}.kname{{font-size:16px;font-weight:900;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:15px;line-height:1.18;margin-top:2px;padding-left:0;word-break:normal;overflow-wrap:normal}}.kcontinuation{{padding-left:18mm}}.kgroup{{font-weight:900}}.ktotal{{display:flex;justify-content:space-between;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}
 </style></head><body><div class="ticket80"><div class="ktitle">BÉCHÉFAA</div><div class="ksolid"></div><div class="kmode">{escape(mode_title)}</div><div class="ksolid"></div><div class="knum">N° {escape(str(order['num']))}</div><div class="kclient">{client_name}</div><div class="kdots"></div>{items_html or '<div class="center">Aucun article</div>'}<div class="ktotal"><span>TOTAL</span><span>{_money(order.get('total_ttc'))}</span></div></div><div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
         return Response(html, content_type="text/html; charset=utf-8")
 
