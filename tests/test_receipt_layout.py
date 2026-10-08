@@ -35,6 +35,33 @@ class ReceiptLayoutTests(unittest.TestCase):
     def test_combined_still_cuts_two_tickets(self):
         root=ET.fromstring(_combined_xml(self.order))
         self.assertEqual(len(root.findall('{*}cut')),2)
+    def test_approved_text_and_conditional_identity(self):
+        from unittest.mock import patch
+        from clean_caisse.receipt_photo_layout import Paper
+        identity={'siret':'SIRET-TEST','vat_number':'TVA-TEST'}
+        for mode in ['COMPTOIR','SALLE','LIVRAISON']:
+            order=copy.deepcopy(self.order)
+            order['source']=mode
+            order['table_number']=2 if mode=='SALLE' else None
+            order['customer_name']='Autre client réel'
+            for kind in ['client','kitchen']:
+                calls=[]
+                original=Paper.text
+                def record(paper,text='',**kwargs):
+                    calls.append(str(text));return original(paper,text,**kwargs)
+                with patch.object(Paper,'text',record): render_receipt(order,kind,identity)
+                content='\n'.join(calls)
+                self.assertIn('Autre client réel',content)
+                self.assertNotIn('Choix de cuisson',content)
+                self.assertNotIn('Supplements',content)
+                self.assertIn('  - À point',calls)
+                self.assertIn('  - Sans tomates',calls)
+                has_identity=kind=='client' and mode!='LIVRAISON'
+                self.assertEqual('SIRET-TEST' in content,has_identity)
+                self.assertEqual('TVA-TEST' in content,has_identity)
+                if kind=='client':
+                    self.assertTrue(any('Bacon Burger' in line and '17,50 €' in line for line in calls))
+
     def test_long_ticket_is_chunked_without_pixel_loss(self):
         self.order['items']*=30
         root=ET.fromstring(_client_xml(self.order))

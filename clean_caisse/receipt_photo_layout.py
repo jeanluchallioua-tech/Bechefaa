@@ -1,4 +1,4 @@
-"""Paper-only layout from the restaurant's approved photograph.
+"""Approved kitchen and client paper layouts.
 
 One monochrome renderer supplies both Epson raster data and browser previews.
 No order or payment data is modified.
@@ -50,18 +50,20 @@ class Paper:
     def __init__(self):
         self.rows = []
         self.font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-receipt.ttf'), 24)
+        self.bold_font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-Bold-receipt.ttf'), 24)
 
-    def text(self, text='', *, columns=48, center=False):
+    def text(self, text='', *, columns=48, center=False, height=1, bold=False):
         # Match thermal character cells and automatic line endings in the photo.
         text = str(text)
+        font = self.bold_font if bold else self.font
         for start in range(0, max(1, len(text)), columns):
             line = text[start:start + columns]
             cell = WIDTH // columns
-            row = Image.new('1', (WIDTH, 28), 0)
+            row = Image.new('1', (WIDTH, 28 * height), 0)
             if line:
-                glyph = Image.new('L', (max(1, int(self.font.getlength(line)) + 2), 28), 0)
-                ImageDraw.Draw(glyph).text((0, 0), line, font=self.font, fill=255, anchor='lt')
-                glyph = glyph.resize((len(line) * cell, 24), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
+                glyph = Image.new('L', (max(1, int(font.getlength(line)) + 2), 28), 0)
+                ImageDraw.Draw(glyph).text((0, 0), line, font=font, fill=255, anchor='lt')
+                glyph = glyph.resize((len(line) * cell, 24 * height), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
                 row.paste(glyph, ((WIDTH - glyph.width)//2 if center else 0, 0))
             self.rows.append(row)
 
@@ -71,13 +73,13 @@ class Paper:
     def rule(self):
         self.text('-' * 40, center=True)
 
-    def price(self, label, value):
-        amount = f'{Decimal(str(value or 0)):.2f}EUR'
+    def price(self, label, value, bold=False):
+        amount = f'{Decimal(str(value or 0)):.2f}'.replace('.', ',') + ' €'
         available = 48 - len(amount) - 1
         while len(label) > available:
             self.text(label[:available])
             label = label[available:]
-        self.text(label + ' ' * (48 - len(label) - len(amount)) + amount)
+        self.text(label + ' ' * (48 - len(label) - len(amount)) + amount, bold=bold)
 
     def image(self):
         self.gap(60)
@@ -95,60 +97,53 @@ def render_receipt(order, kind, identity=None):
     mode = _service_label(order)
     p.gap(12)
     if kind == 'kitchen':
-        p.text('BECHEFAA', columns=24, center=True)
+        p.text('BECHEFAA', columns=24, center=True, height=2)
         p.rule()
-        p.text(mode, columns=24, center=True)
+        p.text(mode, columns=24, center=True, height=2, bold=True)
         if order.get('table_number'):
-            p.text('TABLE ' + str(order['table_number']), center=True)
+            p.text('TABLE ' + str(order['table_number']), center=True, bold=True)
         if order.get('customer_name'):
-            p.text(order['customer_name'], center=True)
+            p.text(order['customer_name'], center=True, bold=True)
         p.rule()
         for item in order.get('items') or []:
-            p.text(f"{item.get('qty') or 1} x {item.get('name') or ''}", columns=24)
-            groups = option_groups(item)
-            if groups:
-                p.text(' - ' + ' · '.join(groups))
-            p.gap(24)
+            p.text(f"{item.get('qty') or 1} x {item.get('name') or ''}", columns=24, bold=True)
+            for value in option_values(item):
+                p.text('  - ' + value)
+            p.gap(12)
         p.rule()
     else:
-        logo = Image.open(ASSETS / 'bechefaa-receipt-logo.png').convert('1')
-        row = Image.new('1', (WIDTH, logo.height), 0)
-        row.paste(logo, ((WIDTH-logo.width)//2, 0)); p.rows.append(row)
-        p.gap(44)
-        p.text('Commande C' + str(order.get('num') or ''), center=True)
-        p.text(identity.get('name') or 'Bechefaa Restaurant', center=True)
-        address = ' '.join(str(identity.get(k) or '').strip() for k in ('address','postal_code','city')).strip()
-        if address: p.text(address, center=True)
-        if identity.get('siret'): p.text('Siret : ' + str(identity['siret']), center=True)
-        if identity.get('phone'): p.text('Tel: ' + str(identity['phone']), center=True)
-        if order.get('created_at'):
-            stamp = float(order['created_at'])
-            if stamp > 100000000000: stamp /= 1000
-            date = datetime.fromtimestamp(stamp, ZoneInfo('Europe/Paris')).strftime('%d-%m-%Y %H:%M:%S')
-            p.text('Date & Heure: ' + date, center=True)
-        covers = int(order.get('covers') or order.get('persons') or 1)
-        total = _tax_values(order)[2]
-        p.text(f'Couverts: {covers}  Couvert MOYEN: {total / covers:.2f}', center=True)
-        p.text('Type de commande: ' + {'A EMPORTER':'A emporter','SUR PLACE':'Sur place','LIVRAISON':'Livraison'}[mode], center=True)
-        if order.get('table_number'): p.text('Table: ' + str(order['table_number']), center=True)
-        p.text('Client : ' + str(order.get('customer_name') or 'Client'), center=True)
+        p.text(identity.get('name') or 'BECHEFAA', columns=24, center=True, height=2, bold=True)
+        if identity.get('address'):
+            p.text(identity['address'], center=True)
+        locality = ' '.join(str(identity.get(k) or '').strip() for k in ('postal_code','city')).strip()
+        if locality: p.text(locality, center=True)
+        if identity.get('phone'): p.text('Tel. ' + str(identity['phone']), center=True)
+        if mode != 'LIVRAISON':
+            if identity.get('siret'): p.text('SIRET : ' + str(identity['siret']), center=True)
+            if identity.get('vat_number'): p.text('TVA : ' + str(identity['vat_number']), center=True)
+        p.rule()
+        p.text(mode, columns=24, center=True, bold=True)
+        if order.get('table_number'): p.text('Table ' + str(order['table_number']), center=True)
+        if order.get('customer_name'): p.text(order['customer_name'], center=True)
         if mode == 'LIVRAISON':
             for key in ('phone','address','postal_code','city'):
                 if order.get(key): p.text(order[key], center=True)
         p.rule()
-        p.text('  Produit                                  Total')
         for item in order.get('items') or []:
             qty = item.get('qty') or 1
-            p.price(f"{qty}x {item.get('name') or ''}", Decimal(str(item.get('unit_price') or 0)) * Decimal(str(qty)))
-            options = option_values(item)
-            if options:
-                p.text('  Supplements:')
-                for value in options: p.text('    - ' + value)
+            p.price(f"{qty} x {item.get('name') or ''}", Decimal(str(item.get('unit_price') or 0)) * Decimal(str(qty)), bold=True)
+            for value in option_values(item):
+                p.text('  - ' + value)
+            p.gap(12)
         p.rule()
         ht, tax, total, rate = _tax_values(order)
-        p.price('  TOTAL HT:', ht)
-        p.price(f'  2 TVA {rate:g}%:', tax)
-        p.price('  TOTAL TTC:', total)
+        p.price('Total HT', ht)
+        p.price(f'TVA {rate:g} %', tax)
+        p.text('TOTAL TTC ' + f'{total:.2f}'.replace('.', ',') + ' €', columns=24, bold=True)
+        p.text('Paiement: ' + str(order.get('payment') or 'A ENCAISSER'))
+        p.rule()
+        p.gap(28)
+        p.text('Merci', center=True)
     return p.image()
 
 
