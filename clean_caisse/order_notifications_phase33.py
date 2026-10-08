@@ -104,7 +104,7 @@ def register_order_notifications_phase33(app):
    // (toucher, clic ou clavier) avec la Caisse ou la Cuisine.
  }
  function installButton(){
-   if(new URLSearchParams(location.search).get('test_notifications')!=='1')return;
+   if(!__TEST_MODE__)return;
    const panel=document.createElement('section');
    panel.style.cssText='position:fixed;bottom:18px;left:18px;z-index:50001;background:white;color:#111;padding:16px;border:3px solid #d99a18;border-radius:12px;max-width:340px;box-shadow:0 4px 20px #0004';
    panel.innerHTML='<b>Test des alertes '+(PAGE==='pos'?'caisse':'cuisine')+'</b><p>Aucune commande enregistrée, aucun paiement, aucune impression.</p><button type="button">Simuler une arrivée</button> <button type="button">Fermer</button><p role="status"></p>';
@@ -213,7 +213,7 @@ def register_order_notifications_phase33(app):
  installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
-'''.replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false')
+'''.replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false').replace('__TEST_MODE__', 'true' if request.args.get('test_notifications') == '1' else 'false')
         html = html.replace("</body>", addon + "</body>")
         response.set_data(html)
         response.content_length = len(response.get_data())

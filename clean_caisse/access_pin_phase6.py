@@ -213,11 +213,12 @@ def register_access_pin_phase6(app):
             )
 
         failures.clear()
+        test_target = session.get('notification_test_target')
         session.clear()
         session["caisse_auth"] = True
         session.permanent = True
         session["caisse_auth_at"] = int(time.time())
-        return redirect("/pos", code=303)
+        return redirect(test_target if test_target in ('/pos?test_notifications=1', '/cuisine-preparation?test_notifications=1') else '/pos', code=303)
 
     @app.get("/caisse-fermee")
     def _caisse_fermee():
@@ -266,11 +267,15 @@ small{display:block;margin-top:18px;color:#777}
     def _protect_caisse():
         path = request.path or "/"
 
+        if path in ('/pos', '/cuisine-preparation') and request.args.get('test_notifications') == '1' and session.get('caisse_auth') is not True:
+            session['notification_test_target'] = path + '?test_notifications=1'
+
         # Si la session caisse est encore valide, l'ouverture de la PWA
         # ne redemande pas inutilement le PIN.
         if path == "/":
             if session.get("caisse_auth") is True:
-                return redirect("/pos", code=303)
+                test_target = session.pop('notification_test_target', None)
+                return redirect(test_target if test_target in ('/pos?test_notifications=1', '/cuisine-preparation?test_notifications=1') else '/pos', code=303)
             return Response(
                 _login_html(),
                 content_type="text/html; charset=utf-8",

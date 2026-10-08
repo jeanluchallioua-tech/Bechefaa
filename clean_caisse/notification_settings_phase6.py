@@ -90,4 +90,6 @@ async function save(){try{const body={pos_enabled:$('posEnabled').checked,pos_vo
 function testTone(kind){try{const C=window.AudioContext||window.webkitAudioContext,ctx=new C(),v=Number($(kind==='pos'?'posVolume':'kitchenVolume').value)/100,t=ctx.currentTime+.02;[[920,.22],[1080,.22],[920,.30]].forEach((p,i)=>{const o=ctx.createOscillator(),g=ctx.createGain(),s=t+i*.28;o.type='square';o.frequency.value=p[0];g.gain.setValueAtTime(.001,s);g.gain.exponentialRampToValueAtTime(Math.max(.01,v),s+.015);g.gain.setValueAtTime(Math.max(.01,v),s+p[1]-.055);g.gain.exponentialRampToValueAtTime(.001,s+p[1]);o.connect(g);g.connect(ctx.destination);o.start(s);o.stop(s+p[1]+.02)});}catch(e){$('msg').textContent='Le navigateur bloque le test sonore.'}}
 load();
 </script></body></html>'''
+        tests = '<section class="box"><h2>Tester une arrivée de commande</h2><p>Aucune commande enregistrée, aucun paiement, aucune impression.</p><div class="actions"><a href="/pos?test_notifications=1">Ouvrir le test caisse</a><a href="/cuisine-preparation?test_notifications=1">Ouvrir le test cuisine</a></div></section>'
+        html = html.replace('</main>', tests + '</main>')
         return Response(html, content_type='text/html; charset=utf-8')

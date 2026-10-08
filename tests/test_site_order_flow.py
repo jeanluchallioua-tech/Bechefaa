@@ -7,6 +7,28 @@ from pathlib import Path
 from unittest.mock import patch
 
 class SiteOrderFlowTests(unittest.TestCase):
+    def test_notification_test_target_survives_pin_and_normal_page_stays_normal(self):
+        from flask import Flask
+        from clean_caisse.access_pin_phase6 import register_access_pin_phase6
+        from clean_caisse.order_notifications_phase33 import register_order_notifications_phase33
+        app=Flask(__name__);app.secret_key='local-test-only'
+        app.add_url_rule('/pos',endpoint='pos',view_func=lambda:'<html><body>Caisse</body></html>')
+        app.add_url_rule('/cuisine-preparation',endpoint='kitchen',view_func=lambda:'<html><body>Cuisine</body></html>')
+        register_order_notifications_phase33(app);register_access_pin_phase6(app)
+        for target in ['/pos','/cuisine-preparation']:
+            client=app.test_client()
+            url=target+'?test_notifications=1'
+            response=client.get(url,base_url='https://localhost')
+            self.assertEqual(response.status_code,303)
+            with patch('clean_caisse.access_pin_phase6._pin_configured',return_value='1234'):
+                response=client.post('/auth/pin',data={'pin':'1234'},base_url='https://localhost')
+            self.assertEqual(response.headers['Location'],url)
+            html=client.get(url,base_url='https://localhost').get_data(as_text=True)
+            self.assertIn('if(!true)return;',html)
+            self.assertNotIn('__TEST_MODE__',html)
+            html=client.get(target,base_url='https://localhost').get_data(as_text=True)
+            self.assertIn('if(!false)return;',html)
+
     def test_history_hides_unpaid_site_drafts_and_keeps_restaurant_orders(self):
         from clean_caisse import app as backend
         conn=sqlite3.connect(':memory:');conn.row_factory=sqlite3.Row
