@@ -41,9 +41,12 @@ def option_values(item):
     for part in option_groups(item):
         group, sep, value = part.partition(':')
         value = (value if sep else group).strip()
-        if sep and group.lower().startswith('sans') and not value.lower().startswith('sans'):
-            value = 'Sans ' + value
-        result.append(value)
+        for detail in re.split(r',\s+(?!\d)', value):
+            detail = detail.strip()
+            if sep and group.lower().startswith('sans') and not detail.lower().startswith('sans'):
+                detail = 'Sans ' + detail
+            if detail:
+                result.append(detail)
     return result
 
 
@@ -70,6 +73,12 @@ class Paper:
 
     def gap(self, dots=20):
         self.rows.append(Image.new('1', (WIDTH, dots), 0))
+
+    def option(self, value):
+        lines = textwrap.wrap(str(value), width=44, break_long_words=False,
+                              break_on_hyphens=False)
+        for index, line in enumerate(lines):
+            self.text(('  - ' if index == 0 else '    ') + line)
 
     def rule(self):
         self.text('-' * 40, center=True)
@@ -111,7 +120,7 @@ def render_receipt(order, kind, identity=None):
             for line in textwrap.wrap(label, width=48, break_long_words=False, break_on_hyphens=False):
                 p.text(line, bold=True)
             for value in option_values(item):
-                p.text('  - ' + value)
+                p.option(value)
             p.gap(12)
         p.rule()
     else:
@@ -139,7 +148,7 @@ def render_receipt(order, kind, identity=None):
             qty = item.get('qty') or 1
             p.price(f"{qty} x {item.get('name') or ''}", Decimal(str(item.get('unit_price') or 0)) * Decimal(str(qty)), bold=True)
             for value in option_values(item):
-                p.text('  - ' + value)
+                p.option(value)
             p.gap(12)
         p.rule()
         ht, tax, total, rate = _tax_values(order)

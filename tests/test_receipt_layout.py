@@ -84,6 +84,29 @@ class ReceiptLayoutTests(unittest.TestCase):
         self.assertGreater(len(root.findall('{*}image')),4)
         actual=b''.join(base64.b64decode(n.text) for n in root.findall('{*}image'))
         self.assertEqual(actual,render_receipt(self.order,'client').tobytes())
+
+    def test_each_selection_has_its_own_line_and_words_remain_whole(self):
+        from unittest.mock import patch
+        from clean_caisse.receipt_photo_layout import Paper
+        item={'qty':1,'name':'Sandwich Shawarma','unit_price':17.5,
+              'options_text':'Cuisson::À point;;Sans ingredients::aubergine, choux blanc, tehina, houmous;;Garnitures::Cornichons, Oignons confits, Oignons rouge;;Sauces::Sauce américaine, Moutarde au miel'}
+        expected=['À point','Sans aubergine','Sans choux blanc','Sans tehina','Sans houmous',
+                  'Cornichons','Oignons confits','Oignons rouge','Sauce américaine','Moutarde au miel']
+        self.assertEqual(option_values(item),expected)
+        self.assertEqual(option_values({'options_text':'Supplément::Sauce à 1,50 €'}),['Sauce à 1,50 €'])
+        for kind in ['kitchen','client']:
+            calls=[]
+            original=Paper.text
+            def record(paper,text='',**kwargs):
+                calls.append(str(text));return original(paper,text,**kwargs)
+            with patch.object(Paper,'text',record):
+                render_receipt(dict(self.order,items=[item]),kind)
+                Paper().option('Sans aubergine et sans choux blanc avec une sauce tehina')
+            for detail in expected:
+                self.assertIn('  - '+detail,calls)
+            self.assertTrue(all(len(line)<=48 for line in calls if line.startswith('  ')))
+            self.assertIn('    sauce tehina',calls)
+
     def test_browser_preview_never_auto_prints(self):
         app=Flask(__name__)
         register_printing_phase1(app,None,None,None)
