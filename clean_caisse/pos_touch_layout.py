@@ -30,6 +30,7 @@ def register_pos_touch_layout(app, db):
                     FROM caisse_orders
                     WHERE COALESCE(cancellation_hidden, FALSE) = FALSE
                       AND UPPER(COALESCE(status, '')) <> 'ANNULÉE'
+                      AND (UPPER(COALESCE(sales_channel,'')) <> 'SITE' OR status <> 'Enregistrée' OR COALESCE(paid_amount,0) > 0)
                       AND (to_timestamp(created_at / 1000.0) AT TIME ZONE 'Europe/Paris')::date
                           = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date
                     ORDER BY created_at DESC

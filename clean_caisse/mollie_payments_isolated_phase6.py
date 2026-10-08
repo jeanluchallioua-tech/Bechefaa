@@ -391,6 +391,8 @@ def _finalize_payment(app, db, ensure_order_schema, payment_id, *, test_mode=Fal
             with conn.transaction():
                 result = _apply_paid_payment(conn, ensure_order_schema, payment)
         kitchen = _send_paid_order_to_kitchen(app, order_id)
+        if not kitchen.get("ok"):
+            raise RuntimeError("Paiement enregistré, envoi cuisine à réessayer")
 
     refund_sync = []
     try:

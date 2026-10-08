@@ -587,6 +587,7 @@ def orders_history():
             rows = conn.execute(
                 """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
                    FROM caisse_orders
+                   WHERE (UPPER(COALESCE(sales_channel,'')) <> 'SITE' OR status <> 'Enregistrée' OR COALESCE(paid_amount,0) > 0)
                    ORDER BY created_at DESC
                    LIMIT 150"""
             ).fetchall()

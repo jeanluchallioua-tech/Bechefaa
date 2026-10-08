@@ -247,15 +247,31 @@ def _assistant_launch_html(xml, title="Epson"):
 .box{{max-width:520px;margin:60px auto;background:#1f2937;border-radius:16px;padding:24px}}
 button{{padding:12px 18px;border:0;border-radius:9px;font-weight:800}}</style>
 </head><body><div class="box"><h2>{title}</h2><p>Ouverture de TM Print Assistant…</p>
-<button onclick="launch()">Ouvrir Epson</button></div>
+<button onclick="launch()">Ouvrir Epson</button><p><a href="/pos" style="color:white">Revenir à la caisse</a></p></div>
 <script>
-function launch(){{window.location.href='{safe_url}';}}
+let launchedAt=0;
+function launch(){{launchedAt=Date.now();window.location.href='{safe_url}';}}
+function returnToPos(){{if(launchedAt&&Date.now()-launchedAt>1500)window.location.replace('/pos');}}
+window.addEventListener('focus',returnToPos);
+document.addEventListener('visibilitychange',()=>{{if(!document.hidden)returnToPos();}});
 window.addEventListener('load',()=>setTimeout(launch,80));
 </script></body></html>"""
     return Response(html, content_type="text/html; charset=utf-8")
 
 
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
+    @app.get("/api/epson/receipt-layout")
+    def receipt_layout_version():
+        return jsonify({"ok": True, "version": "2026-10-08-approved-v3",
+                        "shared_preview_renderer": True})
+
+    @app.after_request
+    def receipt_cache_headers(response):
+        if request.path.startswith(("/epson/", "/api/epson/", "/impression/", "/apercu/")) or request.path in {"/pos", "/cuisine-preparation", "/api/epson/receipt-layout"}:
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["X-Bechefaa-Receipt-Layout"] = "2026-10-08-approved-v3"
+        return response
+
     @app.get("/apercu/tickets/<order_number>")
     def receipt_preview_by_number_phase6(order_number):
         # SELECT only: no printing, order update or printer configuration.
@@ -579,7 +595,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printClient(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket client…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-client/'+encodeURIComponent(orderId);return true;}
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-client/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/client-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket client introuvable');
    const xml=await xr.text();
@@ -590,7 +606,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printOrderPack(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation cuisine + client…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-order-pack/'+encodeURIComponent(orderId);return true;}
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-order-pack/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/order-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Tickets cuisine/client introuvables');
    const xml=await xr.text();
@@ -622,7 +638,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printKitchen(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-kitchen/'+encodeURIComponent(orderId);return true;}
+   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-kitchen/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();

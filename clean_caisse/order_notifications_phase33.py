@@ -20,11 +20,11 @@ def register_order_notifications_phase33(app):
 
     @app.after_request
     def inject_order_notifications_phase33(response):
-        if request.path not in ("/cuisine-preparation", "/pos") or response.status_code != 200 or response.mimetype != "text/html":
+        if request.path not in ("/cuisine-preparation", "/pos", "/historique-modification", "/administration") or response.status_code != 200 or response.mimetype != "text/html":
             return response
 
         html = response.get_data(as_text=True)
-        page = "pos" if request.path == "/pos" else "kitchen"
+        page = "kitchen" if request.path == "/cuisine-preparation" else "pos"
         addon = r'''
 <style>
 #phase6-site-order-notice{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50000;align-items:center;white-space:nowrap;font-size:16px;font-weight:900;color:#111;background:#ffd21f;border:2px solid #fff3a6;border-radius:10px;padding:11px 16px;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 10px 30px rgba(0,0,0,.45);pointer-events:none}
@@ -35,7 +35,11 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
- const LAST_KEY=PAGE==='pos'?'bechefaa_phase6_last_site_order_pos_v4':'bechefaa_phase6_last_ready_order_kitchen_v2';
+ const LAST_KEY='bechefaa_ready_notices_v5_'+PAGE;
+ const PRINT_ENABLED=__PRINT_ENABLED__;
+ let seen={};try{seen=JSON.parse(localStorage.getItem(LAST_KEY)||'{}')}catch(e){}
+ let initialized=Object.keys(seen).length>0;
+ let pendingBeep=false;
  let audioCtx=null;
  let wanted=true;
  let unlocking=false;
@@ -87,7 +91,9 @@ def register_order_notifications_phase33(app):
  }
  function beep(){
    try{
-     const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted||!ctx||ctx.state!=='running')return;
+     const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted)return;
+     if(!ctx||ctx.state!=='running'){pendingBeep=true;return;}
+     pendingBeep=false;
      const t=ctx.currentTime+.015,v=soundSettings.volume;
      tone(ctx,t,920,.22,v*.88);tone(ctx,t+.28,1080,.22,v*.95);tone(ctx,t+.56,920,.30,v);
    }catch(e){}
@@ -105,7 +111,7 @@ def register_order_notifications_phase33(app):
    try{
      const p=ctx.resume();
      if(p&&typeof p.then==='function'){
-       p.then(()=>{wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();}).catch(()=>updateButton());
+       p.then(()=>{wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();if(pendingBeep)beep();}).catch(()=>updateButton());
      }else{
        wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
      }
@@ -140,69 +146,44 @@ def register_order_notifications_phase33(app):
    clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
  }
 
- const SITE_PRINT_KEY='bechefaa_phase6_last_site_autoprint_v1';
+ const SITE_PRINT_KEY='bechefaa_site_prints_v2';
+ let printing=false;
  function autoPrintSiteOrder(order){
-   if(PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id)return;
-   const n=Number(order.num);if(!Number.isFinite(n))return;
-   const raw=localStorage.getItem(SITE_PRINT_KEY);
-   if(raw!==null){
-     const last=Number(raw);
-     if(Number.isFinite(last) && n<=last)return;
-   }
-   localStorage.setItem(SITE_PRINT_KEY,String(n));
-   let tries=0;
-   const launch=function(){
-     tries++;
-     if(typeof window.bechefaaPrintOrderPack==='function'){
-       window.bechefaaPrintOrderPack(order.id).catch(()=>{});
-       return;
-     }
-     if(tries<20)setTimeout(launch,150);
-   };
-   launch();
+   if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
+   let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
+   if(printed[order.id])return;
+   if(typeof window.bechefaaPrintOrderPack!=='function')return;
+   printing=true;
+   // Reserve this launch before leaving the page for Epson; other orders remain pending.
+   printed[order.id]=Date.now();localStorage.setItem(SITE_PRINT_KEY,JSON.stringify(printed));
+   Promise.resolve(window.bechefaaPrintOrderPack(order.id)).catch(e=>{
+     delete printed[order.id];localStorage.setItem(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
+     const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée';el.classList.add('show');}
+   });
  }
 
  function inspect(orders){
-   const all=(orders||[]).filter(o=>Number.isFinite(Number(o.num)));
-   if(!all.length)return;
-
-   if(PAGE==='pos'){
-     const site=all.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE');
-     if(!site.length)return;
-     const maxSeen=Math.max.apply(null,site.map(o=>Number(o.num)));
-     const storedRaw=localStorage.getItem(LAST_KEY);
-     if(storedRaw===null){
-       localStorage.setItem(LAST_KEY,String(maxSeen));
-       const newest=site.slice().sort((a,b)=>Number(a.num)-Number(b.num)).pop();
-       const ts=Number((newest&&newest.updated_at)||(newest&&newest.created_at)||0);
-       const recent=ts>0 && (Date.now()-ts)<10*60*1000;
-       if(recent){showSiteNotice(newest);beep();}
-       return;
-     }
-     const last=Number(storedRaw);
-     if(!Number.isFinite(last)||maxSeen<last){
-       localStorage.setItem(LAST_KEY,String(maxSeen));
-       const newest=site.slice().sort((a,b)=>Number(a.num)-Number(b.num)).pop();
-       const ts=Number((newest&&newest.updated_at)||(newest&&newest.created_at)||0);
-       const recent=ts>0 && (Date.now()-ts)<10*60*1000;
-       if(recent){showSiteNotice(newest);beep();}
-       return;
-     }
-     const newer=site.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
-     if(maxSeen>last)localStorage.setItem(LAST_KEY,String(maxSeen));
-     if(!newer.length)return;
-     const newest=newer[newer.length-1];showSiteNotice(newest);beep();autoPrintSiteOrder(newest);return;
+   const active=(orders||[]).filter(o=>o.id&&['À préparer','En préparation','Prête','Terminée'].includes(String(o.status||'').trim()));
+   const eligible=PAGE==='pos'?active.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE'):active.filter(o=>String(o.status||'').trim()==='À préparer');
+   const fresh=[];
+   for(const order of eligible){
+     if(seen[order.id])continue;
+     const ts=Number(order.updated_at||order.created_at||0);
+     if(initialized||(ts>0&&Date.now()-ts<10*60*1000))fresh.push(order);
+     seen[order.id]=Date.now();
    }
-
-   const ready=all.filter(o=>String(o.status||'').trim()==='À préparer');
-   if(!ready.length)return;
-   const maxReady=Math.max.apply(null,ready.map(o=>Number(o.num)));
-   const storedRaw=localStorage.getItem(LAST_KEY);
-   if(storedRaw===null){localStorage.setItem(LAST_KEY,String(maxReady));return}
-   const last=Number(storedRaw);
-   const newerReady=ready.filter(o=>Number(o.num)>last).sort((a,b)=>Number(a.num)-Number(b.num));
-   if(maxReady>last)localStorage.setItem(LAST_KEY,String(maxReady));
-   if(newerReady.length)beep();
+   // Track identities only after kitchen admission: order numbers need not arrive in order.
+   initialized=true;
+   const entries=Object.entries(seen).sort((a,b)=>b[1]-a[1]).slice(0,500);
+   seen=Object.fromEntries(entries);localStorage.setItem(LAST_KEY,JSON.stringify(seen));
+   if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1]);beep();}
+   if(PRINT_ENABLED){
+     // Retry unlaunched recent orders on return from Epson, not merely the newest order.
+     const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
+       const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
+     }).sort((a,b)=>Number(a.num)-Number(b.num));
+     for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}
+   }
  }
  async function poll(){
    try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);}catch(e){}
@@ -210,7 +191,7 @@ def register_order_notifications_phase33(app):
  installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
-'''.replace('__PAGE__', page)
+'''.replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false')
         html = html.replace("</body>", addon + "</body>")
         response.set_data(html)
         response.content_length = len(response.get_data())
