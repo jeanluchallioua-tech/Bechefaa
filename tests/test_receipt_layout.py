@@ -62,6 +62,22 @@ class ReceiptLayoutTests(unittest.TestCase):
                 if kind=='client':
                     self.assertTrue(any('Bacon Burger' in line and '17,50 €' in line for line in calls))
 
+    def test_kitchen_name_is_compact_and_country_removed(self):
+        from unittest.mock import patch
+        from clean_caisse.receipt_photo_layout import Paper
+        calls=[]
+        original=Paper.text
+        def record(paper,text='',**kwargs):
+            calls.append((str(text),kwargs));return original(paper,text,**kwargs)
+        with patch.object(Paper,'text',record):
+            render_receipt(self.order,'kitchen')
+            render_receipt(self.order,'client',{'address':'1 rue Émile Zola, France','city':'Fontenay-sous-Bois France'})
+        content='\n'.join(x[0] for x in calls)
+        self.assertNotIn('France',content)
+        title=[x for x in calls if 'Fait ton sandwich' in x[0]][0]
+        self.assertEqual(title[1].get('columns',48),48)
+        self.assertIn('sandwich"',title[0])
+
     def test_long_ticket_is_chunked_without_pixel_loss(self):
         self.order['items']*=30
         root=ET.fromstring(_client_xml(self.order))

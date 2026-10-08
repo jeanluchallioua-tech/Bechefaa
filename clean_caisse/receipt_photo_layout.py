@@ -6,6 +6,7 @@ No order or payment data is modified.
 import base64
 import io
 import re
+import textwrap
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -106,16 +107,21 @@ def render_receipt(order, kind, identity=None):
             p.text(order['customer_name'], center=True, bold=True)
         p.rule()
         for item in order.get('items') or []:
-            p.text(f"{item.get('qty') or 1} x {item.get('name') or ''}", columns=24, bold=True)
+            label = f"{item.get('qty') or 1} x {item.get('name') or ''}"
+            for line in textwrap.wrap(label, width=48, break_long_words=False, break_on_hyphens=False):
+                p.text(line, bold=True)
             for value in option_values(item):
                 p.text('  - ' + value)
             p.gap(12)
         p.rule()
     else:
         p.text(identity.get('name') or 'BECHEFAA', columns=24, center=True, height=2, bold=True)
-        if identity.get('address'):
-            p.text(identity['address'], center=True)
-        locality = ' '.join(str(identity.get(k) or '').strip() for k in ('postal_code','city')).strip()
+        def without_country(value):
+            return re.sub(r'(?:[,;\s]+)?France\s*$', '', str(value or '').strip(), flags=re.IGNORECASE).rstrip(' ,;')
+        address = without_country(identity.get('address'))
+        if address:
+            p.text(address, center=True)
+        locality = ' '.join(without_country(identity.get(k)) for k in ('postal_code','city')).strip()
         if locality: p.text(locality, center=True)
         if identity.get('phone'): p.text('Tel. ' + str(identity['phone']), center=True)
         if mode != 'LIVRAISON':
