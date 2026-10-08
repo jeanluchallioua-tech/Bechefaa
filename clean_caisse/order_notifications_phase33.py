@@ -103,7 +103,24 @@ def register_order_notifications_phase33(app):
    // Chrome/Android autorise l'audio dès la première interaction normale
    // (toucher, clic ou clavier) avec la Caisse ou la Cuisine.
  }
- function installButton(){}
+ function installButton(){
+   if(new URLSearchParams(location.search).get('test_notifications')!=='1')return;
+   const panel=document.createElement('section');
+   panel.style.cssText='position:fixed;bottom:18px;left:18px;z-index:50001;background:white;color:#111;padding:16px;border:3px solid #d99a18;border-radius:12px;max-width:340px;box-shadow:0 4px 20px #0004';
+   panel.innerHTML='<b>Test des alertes '+(PAGE==='pos'?'caisse':'cuisine')+'</b><p>Aucune commande enregistrée, aucun paiement, aucune impression.</p><button type="button">Simuler une arrivée</button> <button type="button">Fermer</button><p role="status"></p>';
+   const buttons=panel.querySelectorAll('button'),status=panel.querySelector('[role="status"]');
+   buttons[0].onclick=async function(){
+     buttons[0].disabled=true;
+     try{
+       await unlock(false);await loadSoundSettings();
+       const order={id:'notification-test-'+Date.now(),num:0,status:'À préparer',sales_channel:'SITE',customer_name:'TEST DES ALERTES',ticket_type:'À emporter',updated_at:Date.now()};
+       const detected=inspect([order],{simulation:true});
+       status.textContent=(detected?'Arrivée détectée. ':'Arrivée non détectée. ')+(soundSettings.enabled&&soundSettings.volume>0?(isAudioReady()?'Son déclenché : vérifiez que vous entendez le bip.':'Son bloqué par le navigateur. Touchez puis réessayez.'):'Son désactivé ou volume à zéro dans les réglages.');
+     }catch(e){status.textContent='Test impossible : '+e.message}
+     finally{buttons[0].disabled=false}
+   };
+   buttons[1].onclick=()=>panel.remove();document.body.appendChild(panel);
+ }
  function unlockOnInteraction(){
    if(!soundSettings.enabled||isAudioReady()||unlocking)return;
    const ctx=getCtx();
@@ -136,12 +153,12 @@ def register_order_notifications_phase33(app):
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
    el=document.createElement('span');el.id='phase6-site-order-notice';document.body.appendChild(el);return el;
  }
- function showSiteNotice(order){
+ function showSiteNotice(order,simulation=false){
    if(PAGE!=='pos')return;
    const el=ensureSiteNotice();if(!el)return;
    const name=String(order.customer_name||'Client').trim();
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.textContent='⚡ NOUVELLE COMMANDE SITE — '+name+' • '+mode;
+   el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE SITE — ')+name+' • '+mode;
    el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
    clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
  }
@@ -162,28 +179,33 @@ def register_order_notifications_phase33(app):
    });
  }
 
- function inspect(orders){
+ function inspect(orders,{simulation=false}={}){
+   const known=simulation?{}:seen;
+   const wasInitialized=simulation?false:initialized;
    const active=(orders||[]).filter(o=>o.id&&['À préparer','En préparation','Prête','Terminée'].includes(String(o.status||'').trim()));
    const eligible=PAGE==='pos'?active.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE'):active.filter(o=>String(o.status||'').trim()==='À préparer');
    const fresh=[];
    for(const order of eligible){
-     if(seen[order.id])continue;
+     if(known[order.id])continue;
      const ts=Number(order.updated_at||order.created_at||0);
-     if(initialized||(ts>0&&Date.now()-ts<10*60*1000))fresh.push(order);
-     seen[order.id]=Date.now();
+     if(wasInitialized||(ts>0&&Date.now()-ts<10*60*1000))fresh.push(order);
+     known[order.id]=Date.now();
    }
    // Track identities only after kitchen admission: order numbers need not arrive in order.
-   initialized=true;
-   const entries=Object.entries(seen).sort((a,b)=>b[1]-a[1]).slice(0,500);
-   seen=Object.fromEntries(entries);localStorage.setItem(LAST_KEY,JSON.stringify(seen));
-   if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1]);beep();}
-   if(PRINT_ENABLED){
+   if(!simulation){
+     initialized=true;
+     const entries=Object.entries(known).sort((a,b)=>b[1]-a[1]).slice(0,500);
+     seen=Object.fromEntries(entries);localStorage.setItem(LAST_KEY,JSON.stringify(seen));
+   }
+   if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1],simulation);beep();}
+   if(PRINT_ENABLED&&!simulation){
      // Retry unlaunched recent orders on return from Epson, not merely the newest order.
      const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
        const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
      }).sort((a,b)=>Number(a.num)-Number(b.num));
      for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}
    }
+   return fresh.length;
  }
  async function poll(){
    try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);}catch(e){}

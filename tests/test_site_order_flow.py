@@ -46,7 +46,7 @@ class SiteOrderFlowTests(unittest.TestCase):
 
     def test_notifications_track_admission_by_id_not_order_number(self):
         source=Path('clean_caisse/order_notifications_phase33.py').read_text()
-        inspect=source[source.index(' function inspect(orders){'):source.index(' async function poll(){')]
+        inspect=source[source.index(' function inspect(orders,'):source.index(' async function poll(){')]
         script='''const assert=require('assert');
 const LAST_KEY='test',PAGE='pos',PRINT_ENABLED=false;let seen={},initialized=false,printing=false,beeps=0,notices=[];
 const localStorage={setItem(){}};function beep(){beeps++}function showSiteNotice(o){notices.push(o.id)}function autoPrintSiteOrder(){}
@@ -63,8 +63,23 @@ inspect([make('draft',40,'À préparer')]);assert.equal(beeps,3);
 
     def test_first_recent_kitchen_order_alerts_and_repeat_does_not(self):
         source=Path('clean_caisse/order_notifications_phase33.py').read_text()
-        inspect=source[source.index(' function inspect(orders){'):source.index(' async function poll(){')]
+        inspect=source[source.index(' function inspect(orders,'):source.index(' async function poll(){')]
         script="const assert=require('assert');const LAST_KEY='test',PAGE='kitchen',PRINT_ENABLED=false;let seen={},initialized=false,printing=false,beeps=0;const localStorage={setItem(){}};function beep(){beeps++}function showSiteNotice(){}function autoPrintSiteOrder(){};"+inspect+"inspect([{id:'new',num:1,status:'À préparer',updated_at:Date.now()}]);assert.equal(beeps,1);inspect([{id:'new',num:1,status:'À préparer',updated_at:Date.now()}]);assert.equal(beeps,1);"
         subprocess.run(['node','-e',script],check=True,capture_output=True)
+
+    def test_simulation_uses_detection_without_printing_or_changing_seen_orders(self):
+        source=Path('clean_caisse/order_notifications_phase33.py').read_text()
+        inspect=source[source.index(' function inspect(orders,'):source.index(' async function poll(){')]
+        for page in ['pos','kitchen']:
+            script="const assert=require('assert');const LAST_KEY='test',PAGE="+json.dumps(page)+""",PRINT_ENABLED=true;
+let seen={existing:123},initialized=true,printing=false,beeps=0,prints=0,writes=0,notices=[];
+const localStorage={setItem(){writes++}};function beep(){beeps++}function showSiteNotice(o,simulation){notices.push(simulation)}function autoPrintSiteOrder(){prints++}
+"""+inspect+"""
+const order={id:'test-order',status:'À préparer',sales_channel:'SITE',updated_at:Date.now()};
+assert.equal(inspect([order],{simulation:true}),1);assert.equal(beeps,1);assert.equal(prints,0);assert.equal(writes,0);assert.deepEqual(seen,{existing:123});assert.equal(initialized,true);
+assert.equal(inspect([order],{simulation:true}),1);assert.equal(beeps,2);assert.equal(prints,0);assert.equal(writes,0);
+assert.equal(inspect([order]),1);assert.equal(beeps,3);assert.equal(prints,1);assert.equal(writes,1);assert(seen['test-order']);
+"""
+            subprocess.run(['node','-e',script],check=True,capture_output=True)
 
 if __name__=='__main__':unittest.main()
