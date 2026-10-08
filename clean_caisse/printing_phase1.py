@@ -89,55 +89,22 @@ def _option_lines(item):
 
 
 def register_printing_phase1(app, db, ensure_order_schema, order_payload):
-    @app.get("/impression/client/<order_id>")
-    def print_client(order_id):
-        try:
-            with db() as conn: order = _load_order(conn, ensure_order_schema, order_payload, order_id)
-            if not order: return "Commande introuvable", 404
-        except Exception as exc: return f"Impression indisponible : {escape(str(exc))}", 500
-        mode = order["ticket_type"]
-        mode_title = "COMPTOIR / EMPORTER" if mode == "Comptoir" else mode.upper()
-        preview = request.args.get("preview") == "1"
-        parts = []
-        if order.get("customer_name"): parts.append(escape(str(order["customer_name"])))
-        if order.get("phone"): parts.append("Tél. " + escape(str(order["phone"])))
-        if order.get("email"): parts.append(escape(str(order["email"])))
-        address = " ".join(x for x in [order.get("address"), order.get("postal_code"), order.get("city")] if x)
-        if address and (mode == "Livraison" or preview):
-            parts.append(escape(address))
-        client_block = '<div class="cclient">' + "<br>".join(parts) + '</div>' if parts else '<div class="cclient">Client comptoir</div>'
-        order_datetime = _format_order_datetime(order.get("created_at"))
-        delivery_datetime_block = (
-            '<div class="cdate">Commande du ' + escape(order_datetime) + '</div>'
-            if mode == "Livraison" and order_datetime else ''
-        )
-        items = order.get("items") or []
-        piece_count = sum(int(i.get("qty") or 0) for i in items)
-        items_html = "".join(f'''<div class="citem"><div class="cline"><span class="cname">{escape(str(i.get("qty",1)))}×&nbsp;&nbsp;{escape(str(i.get("name") or ""))}</span><span class="cprice">{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{_option_lines(i)}</div>''' for i in items)
-        try: rate_text = f"{float(order.get('tax_rate') or 10):g}".replace(".", ",")
-        except Exception: rate_text = "10"
+    def paper_page(kind, order_id):
+        from urllib.parse import quote
         preview = request.args.get("preview") == "1"
         auto = request.args.get("auto") == "1" and not preview
-        html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ctitle{{font-size:25px;font-weight:900;text-align:center}}.cmode{{text-align:center;font-size:16px;font-weight:900;margin:5px 0}}.cnum{{text-align:center;font-size:28px;font-weight:900;margin:6px 0}}.cclient{{text-align:center;font-size:14px;font-weight:900;margin:5px 0}}.cdate{{text-align:center;font-size:13px;font-weight:900;margin:5px 0}}.citem{{padding:5px 0}}.cline{{display:flex;justify-content:space-between;gap:5px}}.cname{{font-size:14px;font-weight:900}}.cprice{{font-size:13px;font-weight:800;white-space:nowrap}}.kopt{{font-size:14px;line-height:1.2;margin-top:2px;padding-left:0;word-break:normal;overflow-wrap:normal}}.kcontinuation{{padding-left:16mm}}.kgroup{{font-weight:900}}.cpieces{{font-weight:900;margin:4px 0}}.cfiscal{{font-size:13px;font-weight:700;padding:1px 0}}.ctotal{{font-size:20px;font-weight:900}}.thanks{{font-size:12px;font-weight:800;text-align:center;margin-top:8px}}
-</style></head><body><div class="ticket80"><div class="ctitle">BÉCHÉFAA</div><div class="sep"></div><div class="cmode">{escape(mode_title)}</div><div class="cnum">N° {escape(str(order['num']))}</div>{delivery_datetime_block}{client_block}<div class="sep"></div>{items_html}<div class="sep"></div><div class="cpieces">Nombre de pièces : {piece_count}</div><div class="sep"></div><div class="row cfiscal"><span>Total HT</span><span>{_money(order.get('total_ht'))}</span></div><div class="row cfiscal"><span>TVA {escape(rate_text)} %</span><span>{_money(order.get('tax_amount'))}</span></div><div class="row ctotal"><span>TOTAL TTC</span><span>{_money(order.get('total_ttc'))}</span></div><div class="row cfiscal"><span>Paiement</span><span>{escape(str(order.get('payment') or 'À ENCAISSER'))}</span></div><div class="sep"></div><div class="thanks">Merci</div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto and not preview else ''}</body></html>'''
-        return Response(html, content_type="text/html; charset=utf-8")
+        url = "/apercu/image-ticket/" + kind + "/" + quote(str(order_id), safe="")
+        action = '<div class="actions"><button onclick="window.print()">Imprimer</button></div>' if not preview else ''
+        script = '<script>document.getElementById("paper").addEventListener("load",()=>window.print());</script>' if auto else ''
+        return Response(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket</title>{_base_css()}<style>#paper{{width:72mm;height:auto;display:block;margin:auto}}</style></head><body><img id="paper" alt="Ticket" src="{url}">{action}{script}</body></html>', content_type="text/html; charset=utf-8")
+
+    @app.get("/impression/client/<order_id>")
+    def print_client(order_id):
+        return paper_page("client", order_id)
 
     @app.get("/impression/cuisine/<order_id>")
     def print_kitchen(order_id):
-        try:
-            with db() as conn: order = _load_order(conn, ensure_order_schema, order_payload, order_id)
-            if not order: return "Commande introuvable", 404
-        except Exception as exc: return f"Impression indisponible : {escape(str(exc))}", 500
-        mode = order["ticket_type"]; mode_title = "COMPTOIR / EMPORTER" if mode == "Comptoir" else mode.upper()
-        client_name = escape(str(order.get("customer_name") or "Client comptoir"))
-        items_html = "".join(f'''<div class="kitem"><div class="kline"><span class="kname"><span class="kqty">{escape(str(i.get("qty",1)))}×</span>&nbsp;&nbsp;{escape(str(i.get("name") or ""))}</span><span class="kprice">{_money(float(i.get("unit_price") or 0)*float(i.get("qty") or 1))}</span></div>{_option_lines(i)}</div>''' for i in order.get("items") or [])
-        preview = request.args.get("preview") == "1"
-        auto = request.args.get("auto") == "1" and not preview
-        html = f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Cuisine #{escape(str(order['num']))}</title>{_base_css()}<style>
-.ticket80{{width:72mm}}.ktitle{{font-size:25px;font-weight:900;text-align:center}}.ksolid{{border-top:1.5px solid #000;margin:5px 0 6px}}.kmode{{text-align:center;font-size:17px;font-weight:900}}.knum{{text-align:center;font-size:28px;font-weight:900;margin:7px 0 5px}}.kclient{{font-size:19px;font-weight:900;margin:5px 0 3px}}.kdots{{border-top:1px dotted #000;margin:4px 0 8px}}.kitem{{padding:2px 0 9px}}.kline{{display:flex;justify-content:space-between;gap:5px}}.kname{{font-size:16px;font-weight:900;max-width:54mm}}.kqty{{font-size:16px;font-weight:900}}.kprice{{font-size:15px;font-weight:900;white-space:nowrap}}.kopt{{font-size:15px;line-height:1.18;margin-top:2px;padding-left:0;word-break:normal;overflow-wrap:normal}}.kcontinuation{{padding-left:18mm}}.kgroup{{font-weight:900}}.ktotal{{display:flex;justify-content:space-between;font-size:24px;font-weight:900;margin-top:6px;padding-top:6px;border-top:2px solid #000}}
-</style></head><body><div class="ticket80"><div class="ktitle">BÉCHÉFAA</div><div class="ksolid"></div><div class="kmode">{escape(mode_title)}</div><div class="ksolid"></div><div class="knum">N° {escape(str(order['num']))}</div><div class="kclient">{client_name}</div><div class="kdots"></div>{items_html or '<div class="center">Aucun article</div>'}<div class="ktotal"><span>TOTAL</span><span>{_money(order.get('total_ttc'))}</span></div></div>{'' if preview else '<div class="actions"><button onclick="window.print()">Imprimer</button><button onclick="window.close()">Fermer</button></div>'}{'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),150));</script>' if auto else ''}</body></html>'''
-        return Response(html, content_type="text/html; charset=utf-8")
+        return paper_page("kitchen", order_id)
 
     @app.after_request
     def inject_print_buttons(response):

@@ -158,122 +158,13 @@ def _identity_lines(identity):
 
 
 def _kitchen_xml(order):
-    mode = _service_label(order)
-    parts = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
-        '<text align="center" font="font_a" width="2" height="2"/>',
-        _line("BECHEFAA"),
-        '<text width="1" height="1"/>',
-        _line("--------------------------------"),
-        '<text width="2" height="2" emphasized="true"/>',
-        _line(mode),
-        '<text width="1" height="1"/>',
-    ]
-    if order.get("table_number"):
-        parts.append('<text width="2" height="1" emphasized="true"/>')
-        parts.append(_line("TABLE " + str(order.get("table_number"))))
-        parts.append('<text width="1" height="1"/>')
-    parts.append('<text width="1" height="1"/>')
-    customer = str(order.get("customer_name") or "").strip()
-    if customer and customer.lower() not in {"client comptoir", "client livraison"}:
-        parts.append(_line(customer))
-    parts.append(_line("--------------------------------"))
-    parts.append('<text align="left"/>')
-
-    for item in order.get("items") or []:
-        qty = item.get("qty") or 1
-        name = str(item.get("name") or "")
-        parts.append('<text align="left" width="2" height="1" emphasized="true"/>')
-        parts.append(_wrapped_xml(f"{qty} x {name}", columns=24))
-        parts.append('<text align="left" width="1" height="1" emphasized="false"/>')
-        opts = _option_text(item)
-        if opts:
-            parts.append(_option_image_xml(opts))
-        parts.append('<feed line="1"/>')
-
-    parts.extend([
-        '<text align="left" width="1" height="1"/>',
-        _line("--------------------------------"),
-        '<feed line="3"/>',
-        '<cut type="feed"/>',
-        '</epos-print>',
-    ])
-    return "".join(parts)
+    from .receipt_photo_layout import receipt_xml
+    return receipt_xml(order, "kitchen")
 
 
 def _client_xml(order, identity=None):
-    ht, tax, total, rate = _tax_values(order)
-    identity = identity or {}
-    brand = str(identity.get("name") or "BECHEFAA").strip() or "BECHEFAA"
-    mode = _service_label(order)
-    parts = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">',
-        '<text align="center" font="font_a" width="2" height="2" emphasized="true"/>',
-        _line(brand),
-        '<text width="1" height="1" emphasized="false"/>',
-    ]
-    for line in _identity_lines(identity):
-        parts.append(_line(line))
-    parts.extend([
-        _line("--------------------------------"),
-        '<text width="2" height="1" emphasized="true"/>',
-        _line(mode),
-        '<text width="1" height="1" emphasized="false"/>',
-    ])
-    if order.get("table_number"):
-        parts.append(_line("Table " + str(order.get("table_number"))))
-
-    customer = str(order.get("customer_name") or "").strip()
-    if customer and customer.lower() not in {"client comptoir", "client livraison"}:
-        parts.append(_line(customer))
-    if mode == "LIVRAISON":
-        phone = str(order.get("phone") or "").strip()
-        address = str(order.get("address") or "").strip()
-        postal = str(order.get("postal_code") or "").strip()
-        city = str(order.get("city") or "").strip()
-        if phone:
-            parts.append(_line(phone))
-        if address:
-            parts.append(_line(address))
-        locality = " ".join(x for x in (postal, city) if x)
-        if locality:
-            parts.append(_line(locality))
-
-    parts.append(_line("--------------------------------"))
-    parts.append('<text align="left"/>')
-
-    for item in order.get("items") or []:
-        qty = item.get("qty") or 1
-        name = str(item.get("name") or "")
-        price = Decimal(str(item.get("unit_price") or 0)) * Decimal(str(qty))
-        parts.append('<text align="left" width="1" height="1" emphasized="true"/>')
-        parts.append(_priced_item_xml(f"{qty} x {name}", price))
-        parts.append('<text align="left" emphasized="false"/>')
-        opts = _option_text(item)
-        if opts:
-            parts.append(_option_image_xml(opts))
-        parts.append('<feed line="1"/>')
-
-    rate_text = f"{rate:g}".replace(".", ",")
-    parts.extend([
-        '<text align="left" width="1" height="1"/>',
-        _line("--------------------------------"),
-        _line("Total HT        " + _money(ht)),
-        _line("TVA " + rate_text + " %       " + _money(tax)),
-        '<text width="2" height="1" emphasized="true"/>',
-        _line("TOTAL TTC " + _money(total)),
-        '<text width="1" height="1" emphasized="false"/>',
-        _line("Paiement: " + str(order.get("payment") or "A ENCAISSER")),
-        _line("--------------------------------"),
-        '<text align="center"/>',
-        _line("Merci"),
-        '<feed line="3"/>',
-        '<cut type="feed"/>',
-        '</epos-print>',
-    ])
-    return "".join(parts)
+    from .receipt_photo_layout import receipt_xml
+    return receipt_xml(order, "client", identity)
 
 
 def _combined_xml(order, identity=None):
@@ -384,19 +275,35 @@ def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_paylo
 <title>Aperçu {title}</title><style>
 body{{font-family:Arial,sans-serif;background:#e5e7eb;margin:20px;color:#111827}}
 .tickets{{display:flex;gap:24px;flex-wrap:wrap}}section{{background:white;padding:16px;border-radius:8px}}
-iframe{{width:330px;height:1100px;border:0}}h2{{font-size:18px}}
+img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
 </style></head><body><h1>{title}</h1>
-<p>Aperçus uniquement : aucune impression ne se lance. Le rendu papier Epson peut légèrement différer.</p>
+<p>Aperçus uniquement : aucune impression ne se lance. Ces images utilisent le même rendu que les tickets Epson.</p>
 <div class="tickets"><section><h2>Ticket cuisine</h2>
-<iframe title="Ticket cuisine" src="/impression/cuisine/{order_id}?preview=1"></iframe></section>
+<img alt="Ticket cuisine" src="/apercu/image-ticket/kitchen/{order_id}"></section>
 <section><h2>Ticket client</h2>
-<iframe title="Ticket client" src="/impression/client/{order_id}?preview=1"></iframe></section></div>
+<img alt="Ticket client" src="/apercu/image-ticket/client/{order_id}"></section></div>
 </body></html>'''
             response = Response(html, content_type="text/html; charset=utf-8")
             response.headers["Cache-Control"] = "no-store"
             return response
         except Exception:
             app.logger.error("Receipt preview lookup failed")
+            return "Aperçu indisponible", 503
+
+    @app.get("/apercu/image-ticket/<kind>/<order_id>")
+    def receipt_image_preview(kind, order_id):
+        if kind not in {"kitchen", "client"}:
+            return "Ticket introuvable", 404
+        try:
+            from .receipt_photo_layout import receipt_png
+            with db() as conn:
+                order = _load_print_order(conn, order_id)
+                identity = _load_identity(conn)
+            if not order:
+                return "Commande introuvable", 404
+            return Response(receipt_png(order, kind, identity), mimetype="image/png", headers={"Cache-Control":"no-store"})
+        except Exception:
+            app.logger.exception("Receipt image preview failed")
             return "Aperçu indisponible", 503
 
     def _load_identity(conn):
