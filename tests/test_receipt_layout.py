@@ -75,7 +75,7 @@ class ReceiptLayoutTests(unittest.TestCase):
         content='\n'.join(x[0] for x in calls)
         self.assertNotIn('France',content)
         title=[x for x in calls if 'Fait ton sandwich' in x[0]][0]
-        self.assertEqual(title[1].get('columns',48),48)
+        self.assertEqual(title[1].get('columns',42),42)
         self.assertIn('sandwich"',title[0])
 
     def test_long_ticket_is_chunked_without_pixel_loss(self):
@@ -104,8 +104,8 @@ class ReceiptLayoutTests(unittest.TestCase):
                 Paper().option('Sans aubergine et sans choux blanc avec une sauce tehina')
             for detail in expected:
                 self.assertIn('  - '+detail,calls)
-            self.assertTrue(all(len(line)<=48 for line in calls if line.startswith('  ')))
-            self.assertIn('    sauce tehina',calls)
+            self.assertTrue(all(len(line)<=42 for line in calls if line.startswith('  ')))
+            self.assertIn('    avec une sauce tehina',calls)
 
     def test_browser_preview_never_auto_prints(self):
         app=Flask(__name__)

@@ -15,6 +15,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 ASSETS = Path(__file__).parent / 'print_assets'
 WIDTH = 576
+TEXT_COLUMNS = 42
+TEXT_HEIGHT = 28
+ROW_HEIGHT = 32
 
 
 def option_groups(item):
@@ -53,21 +56,21 @@ def option_values(item):
 class Paper:
     def __init__(self):
         self.rows = []
-        self.font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-receipt.ttf'), 24)
-        self.bold_font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-Bold-receipt.ttf'), 24)
+        self.font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-receipt.ttf'), TEXT_HEIGHT)
+        self.bold_font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-Bold-receipt.ttf'), TEXT_HEIGHT)
 
-    def text(self, text='', *, columns=48, center=False, height=1, bold=False):
-        # Match thermal character cells and automatic line endings in the photo.
+    def text(self, text='', *, columns=TEXT_COLUMNS, center=False, height=1, bold=False):
+        # Enlarge the printed character cells, rather than shrinking bigger fonts.
         text = str(text)
         font = self.bold_font if bold else self.font
         for start in range(0, max(1, len(text)), columns):
             line = text[start:start + columns]
-            cell = WIDTH // columns
-            row = Image.new('1', (WIDTH, 28 * height), 0)
+            cell = WIDTH / columns
+            row = Image.new('1', (WIDTH, ROW_HEIGHT * height), 0)
             if line:
-                glyph = Image.new('L', (max(1, int(font.getlength(line)) + 2), 28), 0)
+                glyph = Image.new('L', (max(1, int(font.getlength(line)) + 2), ROW_HEIGHT), 0)
                 ImageDraw.Draw(glyph).text((0, 0), line, font=font, fill=255, anchor='lt')
-                glyph = glyph.resize((len(line) * cell, 24 * height), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
+                glyph = glyph.resize((round(len(line) * cell), TEXT_HEIGHT * height), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
                 row.paste(glyph, ((WIDTH - glyph.width)//2 if center else 0, 0))
             self.rows.append(row)
 
@@ -75,7 +78,7 @@ class Paper:
         self.rows.append(Image.new('1', (WIDTH, dots), 0))
 
     def option(self, value):
-        lines = textwrap.wrap(str(value), width=44, break_long_words=False,
+        lines = textwrap.wrap(str(value), width=TEXT_COLUMNS - 4, break_long_words=False,
                               break_on_hyphens=False)
         for index, line in enumerate(lines):
             self.text(('  - ' if index == 0 else '    ') + line)
@@ -85,11 +88,11 @@ class Paper:
 
     def price(self, label, value, bold=False):
         amount = f'{Decimal(str(value or 0)):.2f}'.replace('.', ',') + ' €'
-        available = 48 - len(amount) - 1
+        available = TEXT_COLUMNS - len(amount) - 1
         while len(label) > available:
             self.text(label[:available])
             label = label[available:]
-        self.text(label + ' ' * (48 - len(label) - len(amount)) + amount, bold=bold)
+        self.text(label + ' ' * (TEXT_COLUMNS - len(label) - len(amount)) + amount, bold=bold)
 
     def image(self):
         self.gap(60)
@@ -117,7 +120,7 @@ def render_receipt(order, kind, identity=None):
         p.rule()
         for item in order.get('items') or []:
             label = f"{item.get('qty') or 1} x {item.get('name') or ''}"
-            for line in textwrap.wrap(label, width=48, break_long_words=False, break_on_hyphens=False):
+            for line in textwrap.wrap(label, width=TEXT_COLUMNS, break_long_words=False, break_on_hyphens=False):
                 p.text(line, bold=True)
             for value in option_values(item):
                 p.option(value)
