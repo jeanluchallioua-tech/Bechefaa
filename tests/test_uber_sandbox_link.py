@@ -91,6 +91,30 @@ class UberSandboxLinkTests(unittest.TestCase):
             self.assertEqual(response.status_code, 502)
             self.assertNotIn('unit-secret', response.text)
 
+    def test_diagnostic_distinguishes_authentication_from_store_access(self):
+        for responses, expected in [
+            ([UberFailure('HTTP 403')], 'authentification Uber (client_credentials)'),
+            ([{'access_token':'private-token'}, UberFailure('HTTP 403')], 'Authentification réussie. Étape : lecture'),
+        ]:
+            with patch('clean_caisse.uber_sandbox_link.call_uber', side_effect=responses):
+                result = self.client.post('/administration/uber-sandbox/check', data={'csrf':'unit-csrf'})
+                self.assertEqual(result.status_code, 502)
+                self.assertIn(expected, result.text)
+                refreshed = self.client.get('/administration/uber-sandbox')
+                self.assertIn(expected, refreshed.text)
+                self.assertNotIn('private-token', refreshed.text)
+
+    def test_activation_diagnostic_identifies_failed_stage(self):
+        cases = [
+            ([{'access_token':'private-token'}, UberFailure('HTTP 403')], 'recherche des restaurants'),
+            ([{'access_token':'private-token'}, {'stores':[{'store_id':STORE_ID}]}, UberFailure('HTTP 403')], 'activation de la liaison'),
+        ]
+        for responses, expected in cases:
+            with patch('clean_caisse.uber_sandbox_link.call_uber', side_effect=responses):
+                response = self.callback()
+                self.assertEqual(response.status_code, 502)
+                self.assertIn(expected, response.text)
+
 
 if __name__ == '__main__':
     unittest.main()

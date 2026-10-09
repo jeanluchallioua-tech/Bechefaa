@@ -54,9 +54,12 @@ def get_token(grant, **extra):
     secret = os.environ.get('BECHEFAA_UBER_CLIENT_SECRET', '')
     if not secret:
         raise UberFailure('La clé Uber est absente de la configuration serveur.')
-    result = call_uber(AUTH + '/token', 'POST', form={
-        'client_id': CLIENT_ID, 'client_secret': secret, 'grant_type': grant, **extra,
-    })
+    try:
+        result = call_uber(AUTH + '/token', 'POST', form={
+            'client_id': CLIENT_ID, 'client_secret': secret, 'grant_type': grant, **extra,
+        })
+    except UberFailure as error:
+        raise UberFailure('Étape : authentification Uber (' + grant + '). ' + str(error)) from None
     token = result.get('access_token')
     if not isinstance(token, str) or not token:
         raise UberFailure('Uber n’a pas fourni de jeton d’accès.')
@@ -64,7 +67,11 @@ def get_token(grant, **extra):
 
 
 def register_uber_sandbox_link(app):
-    def page(message='', status=200):
+    def page(message=None, status=200):
+        if message is not None:
+            session['uber_sandbox_last_result'] = message
+        else:
+            message = session.get('uber_sandbox_last_result', '')
         if not session.get('uber_sandbox_csrf'):
             session['uber_sandbox_csrf'] = secrets.token_urlsafe(32)
         html = render_template_string('''<!doctype html><html lang="fr"><meta charset="utf-8">
@@ -105,7 +112,10 @@ def register_uber_sandbox_link(app):
             return Response('Accès refusé. Rouvrez la page depuis votre session caisse.', status=403)
         try:
             token = get_token('client_credentials', scope='eats.store')
-            details = call_uber(API + '/pos_data', token=token)
+            try:
+                details = call_uber(API + '/pos_data', token=token)
+            except UberFailure as error:
+                raise UberFailure('Authentification réussie. Étape : lecture de la liaison du restaurant de test. ' + str(error)) from None
             if details.get('store_id') != STORE_ID:
                 raise UberFailure('Uber n’a pas confirmé l’identifiant du restaurant attendu.')
             message = 'Liaison confirmée par Uber.' if details.get('integration_enabled') is True else 'Le restaurant est accessible, mais la liaison est désactivée. Lancez l’autorisation Uber.'
@@ -140,11 +150,17 @@ def register_uber_sandbox_link(app):
         try:
             token = get_token('authorization_code', code=code, redirect_uri=CALLBACK)
             # Verify that the authorizing account owns the exact test restaurant.
-            stores = call_uber('https://test-api.uber.com/v1/eats/stores', token=token)
+            try:
+                stores = call_uber('https://test-api.uber.com/v1/eats/stores', token=token)
+            except UberFailure as error:
+                raise UberFailure('Autorisation reçue. Étape : recherche des restaurants du compte de test. ' + str(error)) from None
             if not any(isinstance(s, dict) and (s.get('store_id') or s.get('id')) == STORE_ID for s in stores.get('stores', [])):
                 raise UberFailure('Ce compte Uber n’autorise pas notre restaurant de test. Utilisez le compte fourni par Uber.')
             # Observe-only until order retrieval and acceptance are implemented.
-            call_uber(API + '/pos_data?' + urlencode({'is_order_manager': 'false', 'integrator_store_id': 'bechefaa-test'}), 'POST', token=token, body={})
+            try:
+                call_uber(API + '/pos_data?' + urlencode({'is_order_manager': 'false', 'integrator_store_id': 'bechefaa-test'}), 'POST', token=token, body={})
+            except UberFailure as error:
+                raise UberFailure('Restaurant de test retrouvé. Étape : activation de la liaison. ' + str(error)) from None
             return page('Uber a accepté la demande de liaison du restaurant de test. Cliquez sur « Vérifier la liaison du restaurant » pour confirmer son état.')
         except UberFailure as error:
             return page(str(error), 502)
