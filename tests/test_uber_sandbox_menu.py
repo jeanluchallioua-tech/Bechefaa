@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 from flask import Flask
 from clean_caisse.uber_sandbox_link import register_uber_sandbox_link, STORE_ID, API, UberFailure
-from clean_caisse.uber_sandbox_menu import build_menu, verified_menu, MENU_API
+from clean_caisse.uber_sandbox_menu import build_menu, verified_menu, menu_differences, MENU_API
 
 
 def catalogue():
@@ -57,6 +57,25 @@ class UberMenuTests(unittest.TestCase):
             if change == 'required': data['products'][0]['options'][0]['choices'] = []
             if change == 'category': data['categories'] = []
             with self.assertRaises(ValueError): build_menu(data, 15)
+
+    def test_diagnostic_identifies_real_price_and_constraint_differences(self):
+        payload = build_menu(self.data, 15)[0]
+        actual = copy.deepcopy(payload)
+        actual['items'][-1]['price_info']['price'] = 0
+        actual['modifier_groups'][0]['quantity_info']['quantity']['max_permitted'] = 2
+        actual['access_token'] = 'must-never-display'
+        report = '\n'.join(menu_differences(payload, actual))
+        self.assertIn('Bacon Burger — prix en centimes', report)
+        self.assertIn('2013', report)
+        self.assertIn('Cuisson — max_permitted', report)
+        self.assertNotIn('must-never-display', report)
+        with patch('clean_caisse.uber_sandbox_menu.get_token', return_value='token'), patch('clean_caisse.uber_sandbox_menu.call_uber', return_value=actual) as network:
+            response = self.client.post('/administration/uber-sandbox/menu/verify', data={'csrf':'csrf'})
+            self.assertIn('Différences relevées', response.text)
+            self.assertIn('prix en centimes', response.text)
+            self.assertNotIn('must-never-display', response.text)
+            self.assertEqual(network.call_args.args, (MENU_API,))
+            self.assertNotIn('body', network.call_args.kwargs)
 
     def test_pin_and_csrf_protect_all_operations(self):
         with patch('clean_caisse.uber_sandbox_menu.call_uber') as network, patch('clean_caisse.uber_sandbox_menu.get_token') as token:

@@ -148,32 +148,56 @@ def read_source():
     return data, row['percentage'] if row else 15
 
 
-def verified_menu(expected, actual):
-    """Check exported IDs, prices and option constraints, tolerating provider metadata."""
-    for key in ('menus', 'categories', 'items', 'modifier_groups'):
+def menu_differences(expected, actual):
+    """Report only known menu fields, never arbitrary provider response data."""
+    differences = []
+
+    def add(message):
+        if len(differences) < 8:
+            differences.append(message)
+
+    def short(value):
+        rendered = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+        return rendered[:300] + ('…' if len(rendered) > 300 else '')
+
+    labels = {'menus': 'Menus', 'categories': 'Catégories', 'items': 'Articles et options', 'modifier_groups': 'Groupes d’options'}
+    for key, label in labels.items():
         target = {obj['id']: obj for obj in expected[key]}
-        found = {obj.get('id'): obj for obj in actual.get(key, []) if isinstance(obj, dict)}
+        found = {obj.get('id'): obj for obj in (actual.get(key) or []) if isinstance(obj, dict)}
         if set(target) != set(found):
-            return False
-        for oid, obj in target.items():
-            other = found[oid]
+            missing, extra = set(target) - set(found), set(found) - set(target)
+            add(label + ' : attendu ' + str(len(target)) + ', Uber ' + str(len(found)) +
+                '. Identifiants absents : ' + short(sorted(missing)) +
+                '. Identifiants supplémentaires : ' + short(sorted(str(x) for x in extra)))
+        for oid in target:
+            if oid not in found:
+                continue
+            obj, other = target[oid], found[oid]
+            name = next(iter(obj['title']['translations'].values()))
             fields = {'menus': ('category_ids', 'service_availability'), 'categories': ('entities',),
                 'items': ('modifier_group_ids',), 'modifier_groups': ('modifier_options',)}[key]
             for field in fields:
                 if field == 'modifier_group_ids':
-                    if (obj.get(field) or {}).get('ids', []) != (other.get(field) or {}).get('ids', []):
-                        return False
-                elif obj[field] != other.get(field):
-                    return False
+                    left = (obj.get(field) or {}).get('ids', [])
+                    right = (other.get(field) or {}).get('ids', [])
+                else:
+                    left, right = obj[field], other.get(field)
+                if left != right:
+                    add(name + ' — ' + field + ' : attendu ' + short(left) + ' ; Uber ' + short(right))
             if not set(obj['title']['translations'].values()).issubset(set((other.get('title') or {}).get('translations', {}).values())):
-                return False
+                add(name + ' — libellé différent chez Uber.')
             if key == 'items' and obj['price_info']['price'] != (other.get('price_info') or {}).get('price'):
-                return False
+                add(name + ' — prix en centimes : attendu ' + short(obj['price_info']['price']) + ' ; Uber ' + short((other.get('price_info') or {}).get('price')))
             if key == 'modifier_groups':
                 quantity = (other.get('quantity_info') or {}).get('quantity', {})
-                if any(quantity.get(k, 0) != v for k, v in obj['quantity_info']['quantity'].items()):
-                    return False
-    return True
+                for field, value in obj['quantity_info']['quantity'].items():
+                    if quantity.get(field, 0) != value:
+                        add(name + ' — ' + field + ' : attendu ' + str(value) + ' ; Uber ' + short(quantity.get(field)))
+    return differences
+
+
+def verified_menu(expected, actual):
+    return not menu_differences(expected, actual)
 
 
 def register_uber_sandbox_menu(app):
@@ -194,7 +218,7 @@ def register_uber_sandbox_menu(app):
         session['uber_menu_preview'] = {'digest': fingerprint(payload), 'nonce': nonce}
         session.setdefault('uber_sandbox_csrf', secrets.token_urlsafe(32))
         html = render_template_string('''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Carte Uber Eats — test</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;color:#17212b}button{font-size:18px;padding:16px;margin:8px 0;cursor:pointer}.result{background:#fff4ce;padding:16px}article{border-bottom:1px solid #ddd;padding:16px 0}img{width:120px;height:90px;object-fit:contain;float:right}summary{cursor:pointer}li{margin:6px 0}</style>
+        <title>Carte Uber Eats — test</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;color:#17212b}button{font-size:18px;padding:16px;margin:8px 0;cursor:pointer}.result{background:#fff4ce;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}article{border-bottom:1px solid #ddd;padding:16px 0}img{width:120px;height:90px;object-fit:contain;float:right}summary{cursor:pointer}li{margin:6px 0}</style>
         <h1>Carte Uber Eats — restaurant de test</h1><p>BÉCHÉFAA Test Store · {{ count }} articles · {{ group_count }} groupes d’options<br>Majoration Uber enregistrée : {{ markup }} %.</p>
         <p>Pour les essais, cette carte de test est disponible tous les jours de 00 h 00 à 23 h 59. Les horaires du restaurant réel restent indépendants.</p>
         {% if message %}<p class="result">{{ message }}</p>{% endif %}
@@ -248,7 +272,8 @@ def register_uber_sandbox_menu(app):
             payload, _rows = build_menu(data, markup)
             token = get_token('client_credentials', scope='eats.store')
             actual = call_uber(MENU_API, token=token, response_limit=4 * 1024 * 1024)
-            message = 'Carte confirmée chez Uber : articles, prix et options correspondent à l’aperçu.' if verified_menu(payload, actual) else 'La carte lue chez Uber ne correspond pas encore à l’aperçu. Aucun nouvel envoi effectué.'
+            differences = menu_differences(payload, actual)
+            message = 'Carte confirmée chez Uber : articles, prix et options correspondent à l’aperçu.' if not differences else 'Différences relevées lors de la lecture du menu Uber (aucun nouvel envoi) :\n' + '\n'.join(differences)
             return page(message)
         except (UberFailure, ValueError) as error:
             return page('Vérification non aboutie. ' + str(error), 502)
