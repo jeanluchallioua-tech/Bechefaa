@@ -7,6 +7,27 @@ from pathlib import Path
 from unittest.mock import patch
 
 class SiteOrderFlowTests(unittest.TestCase):
+    def test_cashier_send_kitchen_redirects_to_both_tickets_after_database_update(self):
+        from clean_caisse import app as backend
+        for status in ['Enregistrée','À préparer']:
+            writes=[]
+            class Result:
+                def fetchone(self):
+                    return {'id':'local-test-order','num':1,'status':status,'total':17.5,'source':'COMPTOIR'}
+            class Conn:
+                @contextmanager
+                def transaction(self):yield
+                def execute(self,sql,params=()):
+                    if sql.lstrip().startswith('UPDATE'):writes.append(params)
+                    return Result()
+            @contextmanager
+            def db():yield Conn()
+            with patch.object(backend,'db',db):
+                response=backend.app.test_client().post('/send-kitchen-classic/local-test-order')
+            self.assertEqual(response.status_code,303)
+            self.assertEqual(response.headers['Location'],'/epson/print-order-pack/local-test-order')
+            self.assertEqual(len(writes),1 if status=='Enregistrée' else 0)
+
     def test_notification_test_target_survives_pin_and_normal_page_stays_normal(self):
         from flask import Flask
         from clean_caisse.access_pin_phase6 import register_access_pin_phase6

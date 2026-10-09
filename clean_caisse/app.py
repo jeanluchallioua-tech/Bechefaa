@@ -5,7 +5,7 @@ import time
 import uuid
 from decimal import Decimal, InvalidOperation
 
-from flask import Flask, jsonify, Response, request, send_from_directory
+from flask import Flask, jsonify, Response, request, send_from_directory, redirect
 from PIL import Image, ImageFile
 import io
 
