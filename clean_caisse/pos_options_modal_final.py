@@ -338,6 +338,7 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
  })
 })();
 </script>
+<script src="/static/pos-pending-edit.js?v=1" defer></script>
 '''
 
     def pos_options_modal_view(*args, **kwargs):

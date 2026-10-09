@@ -27,6 +27,7 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
     @app.put("/api/orders/<order_id>")
     def update_order(order_id):
         payload = request.get_json(silent=True) or {}
+        pending_edit = payload.get('edit_context') == 'pos_before_kitchen'
         raw_items = payload.get("items")
         if not isinstance(raw_items, list) or not raw_items:
             return jsonify({"ok": False, "error": "La commande doit contenir au moins un article"}), 400
@@ -77,10 +78,18 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 with conn.transaction():
                     ensure_order_schema(conn)
                     order = conn.execute(
-                        "SELECT id, num, status FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
+                        "SELECT id, num, status, paid_amount, payment_status, z_closure_id, sales_channel FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
                     ).fetchone()
                     if not order:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
+                    if pending_edit and (
+                        order['status'] != 'Enregistrée'
+                        or Decimal(str(order.get('paid_amount') or 0)) != 0
+                        or str(order.get('payment_status') or 'À ENCAISSER').upper() not in {'À ENCAISSER', 'A ENCAISSER', 'NON PAYÉE', 'NON PAYEE'}
+                        or order.get('z_closure_id') is not None
+                        or str(order.get('sales_channel') or '').upper() == 'SITE'
+                    ):
+                        return jsonify({'ok': False, 'error': 'Cette commande est déjà envoyée, réglée ou clôturée. Utilisez le parcours habituel dans l’historique.'}), 409
                     if order["status"] == "Terminée":
                         return jsonify({"ok": False, "error": "Une commande terminée en cuisine ne peut plus être modifiée"}), 409
 
@@ -88,8 +97,8 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                     # Une modification depuis l'historique est une nouvelle instruction
                     # pour la cuisine. Toute commande non terminée repart donc dans
                     # « À préparer », y compris si son ancien statut était Enregistrée.
-                    sent_to_kitchen = True
-                    new_status = "À préparer"
+                    sent_to_kitchen = not pending_edit
+                    new_status = "Enregistrée" if pending_edit else "À préparer"
 
                     conn.execute("DELETE FROM caisse_order_items WHERE order_id=%s", (order_id,))
                     for line in normalized:
@@ -104,18 +113,18 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                             ),
                         )
                     summary = {
-                        "reason": "Modification depuis historique",
+                        "reason": "Modification caisse avant envoi" if pending_edit else "Modification depuis historique",
                         "previous_status": old_status,
                         "new_status": new_status,
-                        "kitchen_resend": True,
+                        "kitchen_resend": sent_to_kitchen,
                         "item_count": len(normalized),
                     }
                     conn.execute(
                         """UPDATE caisse_orders
-                           SET total=%s, status=%s, modification_flag=TRUE,
+                           SET total=%s, status=%s, modification_flag=%s,
                                change_summary=%s::jsonb, updated_at=%s, modified_at=%s
                            WHERE id=%s""",
-                        (total, new_status, json.dumps(summary, ensure_ascii=False), now, now, order_id),
+                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, order_id),
                     )
             return jsonify({
                 "ok": True,

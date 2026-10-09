@@ -95,6 +95,8 @@ def register_paid_order_reopen_isolated_phase5(app, db, ensure_order_schema):
 
     def update_order_paid_reopen_phase5(order_id, *args, **kwargs):
         payload = request.get_json(silent=True) or {}
+        if payload.get('edit_context') == 'pos_before_kitchen':
+            return original_update(order_id, *args, **kwargs)
 
         # Prélecture : les commandes non terminées restent intégralement gérées
         # par le flux historique déjà validé.
