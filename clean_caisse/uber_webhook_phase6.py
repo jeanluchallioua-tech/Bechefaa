@@ -8,6 +8,9 @@ from flask import Response, jsonify, request
 
 
 def register_uber_webhook_phase6(app, db):
+    from .uber_sandbox_link import register_uber_sandbox_link
+    register_uber_sandbox_link(app)
+
     @app.post('/api/uber/webhook')
     def uber_webhook_phase6():
         secret = os.environ.get('BECHEFAA_UBER_CLIENT_SECRET', '')
