@@ -26,7 +26,7 @@ class UberFailure(Exception):
     pass
 
 
-def call_uber(url, method='GET', token=None, form=None, body=None):
+def call_uber(url, method='GET', token=None, form=None, body=None, response_limit=1024 * 1024):
     headers = {'Accept': 'application/json'}
     data = None
     if token:
@@ -39,7 +39,9 @@ def call_uber(url, method='GET', token=None, form=None, body=None):
         headers['Content-Type'] = 'application/json'
     try:
         with build_opener(NoRedirect()).open(Request(url, data=data, headers=headers, method=method), timeout=15) as response:
-            raw = response.read(1024 * 1024)
+            raw = response.read(response_limit + 1)
+            if len(raw) > response_limit:
+                raise ValueError('response too large')
             result = json.loads(raw) if raw else {}
             if not isinstance(result, dict):
                 raise ValueError('invalid response')
@@ -67,6 +69,8 @@ def get_token(grant, **extra):
 
 
 def register_uber_sandbox_link(app):
+    from .uber_sandbox_menu import register_uber_sandbox_menu
+    register_uber_sandbox_menu(app)
     def page(message=None, status=200):
         if message is not None:
             session['uber_sandbox_last_result'] = message
@@ -84,6 +88,7 @@ def register_uber_sandbox_link(app):
         <form method="post" action="/administration/uber-sandbox/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Autoriser la liaison sur Uber</button></form>
         <p>Connectez-vous avec le compte du restaurant de test fourni par Uber. La liaison concerne exclusivement ce restaurant de test.</p>
         <p>La réception des webhooks est disponible. La récupération et l’acceptation des commandes sont encore en développement. Aucun test effectué ici ne crée de vente dans la caisse.</p>
+        <p><a href="/administration/uber-sandbox/menu">Préparer et envoyer la carte de test</a></p>
         <a href="/pos">Retour à la caisse</a></html>''', store=STORE_ID, callback=CALLBACK,
             message=message, csrf=session['uber_sandbox_csrf'])
         response = Response(html, status=status, content_type='text/html; charset=utf-8')
