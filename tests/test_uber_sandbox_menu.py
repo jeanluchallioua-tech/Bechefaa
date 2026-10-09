@@ -58,6 +58,27 @@ class UberMenuTests(unittest.TestCase):
             if change == 'category': data['categories'] = []
             with self.assertRaises(ValueError): build_menu(data, 15)
 
+    def test_uber_omitted_item_reference_types_are_equivalent_but_changes_are_rejected(self):
+        expected = build_menu(self.data, 15)[0]
+        actual = copy.deepcopy(expected)
+        for category in actual['categories']:
+            for entry in category['entities']: entry.pop('type')
+        for group in actual['modifier_groups']:
+            for entry in group['modifier_options']: entry.pop('type')
+        self.assertEqual(menu_differences(expected, actual), [])
+        wrong = copy.deepcopy(actual)
+        wrong['categories'][0]['entities'][0]['type'] = 'MODIFIER_GROUP'
+        self.assertFalse(verified_menu(expected, wrong))
+        wrong = copy.deepcopy(actual)
+        wrong['modifier_groups'][0]['modifier_options'][0]['id'] = 'different-choice'
+        self.assertFalse(verified_menu(expected, wrong))
+        wrong = copy.deepcopy(actual)
+        wrong['categories'][0]['entities'].append(copy.deepcopy(wrong['categories'][0]['entities'][0]))
+        self.assertFalse(verified_menu(expected, wrong))
+        wrong = copy.deepcopy(actual)
+        wrong['items'][0]['price_info']['price'] += 1
+        self.assertFalse(verified_menu(expected, wrong))
+
     def test_diagnostic_identifies_real_price_and_constraint_differences(self):
         payload = build_menu(self.data, 15)[0]
         actual = copy.deepcopy(payload)

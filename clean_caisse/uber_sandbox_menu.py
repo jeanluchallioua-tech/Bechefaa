@@ -180,6 +180,14 @@ def menu_differences(expected, actual):
                 if field == 'modifier_group_ids':
                     left = (obj.get(field) or {}).get('ids', [])
                     right = (other.get(field) or {}).get('ids', [])
+                elif field in ('entities', 'modifier_options'):
+                    # Uber readback omits ITEM for these item-only references.
+                    def item_references(values):
+                        if not isinstance(values, list):
+                            return values
+                        return [(entry.get('id'), entry.get('type', 'ITEM')) if isinstance(entry, dict) else entry for entry in values]
+                    left = item_references(obj[field])
+                    right = item_references(other.get(field))
                 else:
                     left, right = obj[field], other.get(field)
                 if left != right:
