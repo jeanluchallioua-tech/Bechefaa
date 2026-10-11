@@ -224,7 +224,7 @@ def register_site_orders_bridge_isolated_phase6(app):
             subtotal=sum(float(i.get("unit_price") or 0)*int(i.get("qty") or 1) for i in (internal.get("items") or []))
             try:
                 with db() as conn:
-                    quote,error=quote_coupon(conn,coupon_code,subtotal)
+                    quote,error=quote_coupon(conn,coupon_code,subtotal,sales_channel=internal.get("sales_channel"),service_mode=internal.get("ticket_type"))
                 if error:
                     return jsonify({"ok":False,"error":error}),409
             except Exception as exc:

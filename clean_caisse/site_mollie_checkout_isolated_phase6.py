@@ -63,7 +63,7 @@ def register_site_mollie_checkout_isolated_phase6(app):
             try:
                 from clean_caisse.app import db
                 with db() as conn:
-                    quote,error=quote_coupon(conn,coupon_code,subtotal)
+                    quote,error=quote_coupon(conn,coupon_code,subtotal,sales_channel=internal.get("sales_channel"),service_mode=internal.get("ticket_type"))
                 if error:
                     return jsonify({"ok":False,"error":error}),409
             except Exception as exc:
