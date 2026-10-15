@@ -3,6 +3,7 @@ import os
 import base64
 import time
 import uuid
+import threading
 from decimal import Decimal, InvalidOperation
 
 from flask import Flask, jsonify, Response, request, send_from_directory, redirect
@@ -188,18 +189,35 @@ def ensure_order_schema(conn):
     )""")
 
 
+_catalog_read_lock = threading.Lock()
+_catalog_read_cache = {"version": None, "json": None}
+
+
 def load_catalog():
-    with db() as conn:
-        row = conn.execute(
-            "SELECT data_json::text AS data_json, updated_at FROM catalog_admin_v2 WHERE id=1"
-        ).fetchone()
-    if not row:
-        return None, 0
+    # Check the database version on every read; never reuse outdated prices/options.
+    # Keep serialized data so callers always receive their own mutable dictionary.
+    with _catalog_read_lock:
+        with db() as conn:
+            version = conn.execute(
+                "SELECT updated_at FROM catalog_admin_v2 WHERE id=1"
+            ).fetchone()
+            if not version:
+                _catalog_read_cache.update(version=None, json=None)
+                return None, 0
+            if (_catalog_read_cache["json"] is None
+                    or _catalog_read_cache["version"] != version["updated_at"]):
+                row = conn.execute(
+                    "SELECT data_json::text AS data_json, updated_at FROM catalog_admin_v2 WHERE id=1"
+                ).fetchone()
+                if not row:
+                    return None, 0
+                _catalog_read_cache.update(version=row["updated_at"], json=row["data_json"] or "{}")
+            raw, updated_at = _catalog_read_cache["json"], _catalog_read_cache["version"]
     try:
-        data = json.loads(row["data_json"] or "{}")
+        data = json.loads(raw)
     except Exception:
         data = None
-    return data, row["updated_at"]
+    return data, updated_at
 
 
 def ticket_type(source):
@@ -588,6 +606,10 @@ def orders_history():
                 """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
                    FROM caisse_orders
                    WHERE (UPPER(COALESCE(sales_channel,'')) <> 'SITE' OR status <> 'Enregistrée' OR COALESCE(paid_amount,0) > 0)
+                     AND created_at >= EXTRACT(EPOCH FROM (date_trunc('day', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')) * 1000
+                     AND created_at < EXTRACT(EPOCH FROM ((date_trunc('day', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris') + INTERVAL '1 day') AT TIME ZONE 'Europe/Paris')) * 1000
+                     AND COALESCE(cancellation_hidden, FALSE) = FALSE
+                     AND UPPER(COALESCE(status, '')) <> 'ANNULÉE' 
                    ORDER BY created_at DESC
                    LIMIT 150"""
             ).fetchall()
@@ -826,3 +848,4 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
+

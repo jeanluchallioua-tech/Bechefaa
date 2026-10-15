@@ -123,9 +123,9 @@ def register_history_identity_phase44(app):
       const o=(window.ORDERS||ORDERS||[]).find(x=>String(x.id)===String(id));if(!o)return;
       const info=card.querySelector('.info');if(!info)return;
       let date=info.querySelector('.history-clean-date');if(!date){date=document.createElement('div');date.className='history-clean-date';info.appendChild(date)}
-      date.textContent=dt(o.created_at);
+      const dateLabel=dt(o.created_at);if(date.textContent!==dateLabel)date.textContent=dateLabel;
       const view=[...card.querySelectorAll('.btn')].find(b=>String(b.textContent||'').trim()==='Voir');
-      if(view)view.textContent='Voir';
+      if(view&&view.textContent!=='Voir')view.textContent='Voir';
     });
   }
   ready(function(){
@@ -180,3 +180,4 @@ def register_history_identity_phase44(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

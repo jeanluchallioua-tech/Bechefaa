@@ -193,7 +193,20 @@ UI = r"""
      try{
        const d=await fetch('/api/catalog/summary',{cache:'no-store'}).then(r=>r.json());
        const items=(d&&d.items)||[];
-       for(const p of items){if(p&&p.id)fetch('/api/catalog/product/'+encodeURIComponent(p.id)+'/options').catch(()=>{})}
+       // Warm offline options once per catalogue revision, with bounded concurrency.
+       // Previously every return launched all product requests at once.
+       const warmKey='bechefaa-options-warmed-v1',revision=String(d.updatedAt||'');
+       let warmed=null;try{warmed=JSON.parse(localStorage.getItem(warmKey)||'null')}catch(_){}
+       if(warmed&&revision&&warmed.revision===revision&&Date.now()-warmed.at<10*60*1000)return;
+       let cursor=0,complete=true;
+       async function worker(){
+         while(cursor<items.length){
+           const p=items[cursor++];if(!p||!p.id)continue;
+           try{const r=await fetch('/api/catalog/product/'+encodeURIComponent(p.id)+'/options');if(!r.ok)complete=false;}catch(_){complete=false;}
+         }
+       }
+       await Promise.all([worker(),worker()]);
+       if(complete&&revision){try{localStorage.setItem(warmKey,JSON.stringify({revision,at:Date.now()}))}catch(_){}}
      }catch(e){}
    }).catch(()=>{});
  }
@@ -238,3 +251,4 @@ def register_offline_mode_phase6(app):
 def request_path_is_pos(response):
     from flask import request
     return request.path == "/pos" and response.status_code == 200 and response.mimetype == "text/html"
+
