@@ -140,6 +140,7 @@ from clean_caisse.deliveroo_menu_builder_phase6 import register_deliveroo_menu_b
 from clean_caisse.deliveroo_menu_upload_phase6 import register_deliveroo_menu_upload_phase6
 from clean_caisse.marketplace_markup_phase6 import register_marketplace_markup_phase6
 from clean_caisse.site_coupons_phase6 import register_site_coupons_phase6
+from clean_caisse.site_popup_phase6 import register_site_popup_phase6
 
 register_catalog_summary_fast_phase32(app, load_catalog)
 register_kitchen_checklist(app, db, ensure_order_schema, order_payload)
@@ -162,6 +163,7 @@ register_deliveroo_menu_builder_phase6(app, db)
 register_deliveroo_menu_upload_phase6(app, db)
 register_marketplace_markup_phase6(app, db)
 register_site_coupons_phase6(app, db)
+register_site_popup_phase6(app, db)
 register_religious_calendar_phase6(app, db)
 register_site_order_hours_phase6(app, db)
 register_public_catalog_bridge_isolated_phase6(app, load_catalog)
