@@ -27,7 +27,7 @@ def register_order_notifications_phase33(app):
         page = "kitchen" if request.path == "/cuisine-preparation" else "pos"
         addon = r'''
 <style>
-#phase6-site-order-notice{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50000;align-items:center;white-space:nowrap;font-size:16px;font-weight:900;color:#111;background:#ffd21f;border:2px solid #fff3a6;border-radius:10px;padding:11px 16px;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 10px 30px rgba(0,0,0,.45);pointer-events:none}
+#phase6-site-order-notice{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483000;align-items:center;white-space:normal;max-width:calc(100vw - 24px);text-align:center;font-size:16px;font-weight:900;color:#111;background:#ffd21f;border:2px solid #fff3a6;border-radius:10px;padding:11px 16px;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 10px 30px rgba(0,0,0,.45);pointer-events:auto;cursor:pointer}
 #phase6-site-order-notice.show{display:inline-flex;animation:phase6SiteTextPulse .8s ease-in-out 4}
 @keyframes phase6SiteTextPulse{0%,100%{filter:none}50%{filter:brightness(1.18);box-shadow:0 0 0 5px rgba(255,90,54,.28),0 12px 34px rgba(0,0,0,.5)}}
 </style>
@@ -35,16 +35,19 @@ def register_order_notifications_phase33(app):
 (function(){
  const PAGE='__PAGE__';
  const SOUND_KEY='bechefaa_phase33_sound';
+ function safeSet(key,value){try{localStorage.setItem(key,value)}catch(_){}}
+ const PENDING_NOTICE='bechefaa_pending_notice_'+PAGE;
  const LAST_KEY='bechefaa_ready_notices_v5_'+PAGE;
  const PRINT_ENABLED=__PRINT_ENABLED__;
  let seen={};try{seen=JSON.parse(localStorage.getItem(LAST_KEY)||'{}')}catch(e){}
+ if(!seen||typeof seen!=='object'||Array.isArray(seen))seen={};
  let initialized=Object.keys(seen).length>0;
  let pendingBeep=false;
  let audioCtx=null;
  let wanted=true;
  let unlocking=false;
  let soundSettings={enabled:true,volume:.82};
- localStorage.setItem(SOUND_KEY,'1');
+ safeSet(SOUND_KEY,'1');
 
  async function loadSoundSettings(){
    try{
@@ -71,13 +74,13 @@ def register_order_notifications_phase33(app):
    try{
      if(ctx.state!=='running'){
        const p=ctx.resume();
-       if(p&&typeof p.then==='function')await p;
+       if(p&&typeof p.then==='function')await Promise.race([p,new Promise(resolve=>setTimeout(resolve,1200))]);
      }
    }catch(e){}
    unlocking=false;
    if(ctx.state!=='running'){updateButton();return false}
-   wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
-   if(test)beep();
+   wanted=true;safeSet(SOUND_KEY,'1');updateButton();
+   if(test||pendingBeep)beep();
    return true;
  }
  function tone(ctx,start,freq,duration,volume){
@@ -92,16 +95,16 @@ def register_order_notifications_phase33(app):
  function beep(){
    try{
      const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted)return;
-     if(!ctx||ctx.state!=='running'){pendingBeep=true;return;}
-     pendingBeep=false;
+     if(!ctx||ctx.state!=='running'){pendingBeep=true;updateButton();return;}
+     pendingBeep=false;updateButton();
      const t=ctx.currentTime+.015,v=soundSettings.volume;
      tone(ctx,t,920,.22,v*.88);tone(ctx,t+.28,1080,.22,v*.95);tone(ctx,t+.56,920,.30,v);
    }catch(e){}
  }
  function updateButton(){
-   // Aucun bouton à cliquer : le son est toujours demandé par défaut.
-   // Chrome/Android autorise l'audio dès la première interaction normale
-   // (toucher, clic ou clavier) avec la Caisse ou la Cuisine.
+   let button=document.getElementById('bechefaa-audio-wait');
+   if(!pendingBeep||isAudioReady()||!soundSettings.enabled||soundSettings.volume<=0){if(button)button.remove();return;}
+   if(!button){button=document.createElement('button');button.id='bechefaa-audio-wait';button.type='button';button.style.cssText='position:fixed;bottom:14px;left:14px;z-index:2147483001;max-width:calc(100vw - 28px);padding:12px;background:#ffd21f;color:#111;border:2px solid white;border-radius:10px;font-weight:900';button.textContent='Alerte reçue — toucher pour activer le son';button.onclick=()=>unlock(true);document.body.appendChild(button);}
  }
  function installButton(){
    if(!__TEST_MODE__)return;
@@ -128,9 +131,9 @@ def register_order_notifications_phase33(app):
    try{
      const p=ctx.resume();
      if(p&&typeof p.then==='function'){
-       p.then(()=>{wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();if(pendingBeep)beep();}).catch(()=>updateButton());
+       p.then(()=>{wanted=true;safeSet(SOUND_KEY,'1');updateButton();if(pendingBeep)beep();}).catch(()=>updateButton());
      }else{
-       wanted=true;localStorage.setItem(SOUND_KEY,'1');updateButton();
+       wanted=true;safeSet(SOUND_KEY,'1');updateButton();
      }
    }catch(e){updateButton()}
  }
@@ -151,7 +154,7 @@ def register_order_notifications_phase33(app):
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
-   el=document.createElement('span');el.id='phase6-site-order-notice';document.body.appendChild(el);return el;
+   el=document.createElement('span');el.id='phase6-site-order-notice';el.setAttribute('role','button');el.setAttribute('aria-live','assertive');el.tabIndex=0;function dismiss(){el.classList.remove('show');try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}}el.addEventListener('click',dismiss);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')dismiss();});document.body.appendChild(el);return el;
  }
  function showSiteNotice(order,simulation=false){
    if(PAGE!=='pos')return;
@@ -160,11 +163,11 @@ def register_order_notifications_phase33(app):
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
    el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE SITE — ')+name+' • '+mode;
    el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
-   clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>el.classList.remove('show'),12000);
+   if(!simulation){try{sessionStorage.setItem(PENDING_NOTICE,JSON.stringify({order:{id:order.id,customer_name:order.customer_name,ticket_type:order.ticket_type},at:Date.now()}))}catch(_){}}
  }
 
  const SITE_PRINT_KEY='bechefaa_site_prints_v2';
- let printing=false;
+ let printing=false,printTimer=null;
  function autoPrintSiteOrder(order){
    if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
    let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
@@ -172,9 +175,9 @@ def register_order_notifications_phase33(app):
    if(typeof window.bechefaaPrintOrderPack!=='function')return;
    printing=true;
    // Reserve this launch before leaving the page for Epson; other orders remain pending.
-   printed[order.id]=Date.now();localStorage.setItem(SITE_PRINT_KEY,JSON.stringify(printed));
+   printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
    Promise.resolve(window.bechefaaPrintOrderPack(order.id)).catch(e=>{
-     delete printed[order.id];localStorage.setItem(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
+     delete printed[order.id];safeSet(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
      const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée';el.classList.add('show');}
    });
  }
@@ -195,7 +198,7 @@ def register_order_notifications_phase33(app):
    if(!simulation){
      initialized=true;
      const entries=Object.entries(known).sort((a,b)=>b[1]-a[1]).slice(0,500);
-     seen=Object.fromEntries(entries);localStorage.setItem(LAST_KEY,JSON.stringify(seen));
+     seen=Object.fromEntries(entries);safeSet(LAST_KEY,JSON.stringify(seen));
    }
    if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1],simulation);beep();}
    if(PRINT_ENABLED&&!simulation){
@@ -203,13 +206,24 @@ def register_order_notifications_phase33(app):
      const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
        const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
      }).sort((a,b)=>Number(a.num)-Number(b.num));
-     for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}
+     if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}},1200);
    }
    return fresh.length;
  }
+ let pollBusy=false;
  async function poll(){
-   try{const r=await fetch('/api/kitchen/board',{cache:'no-store'}),d=await r.json();if(r.ok&&d&&d.ok&&Array.isArray(d.orders))inspect(d.orders);}catch(e){}
+   if(pollBusy)return;pollBusy=true;
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+   try{const r=await fetch('/api/kitchen/board',{cache:'no-store',signal:controller.signal}),d=await r.json();if(!r.ok||!d||!d.ok||!Array.isArray(d.orders))throw Error('Alertes indisponibles');inspect(d.orders);const warning=document.getElementById('bechefaa-alert-connection');if(warning)warning.remove();}
+   catch(e){let warning=document.getElementById('bechefaa-alert-connection');if(!warning){warning=document.createElement('div');warning.id='bechefaa-alert-connection';warning.style.cssText='position:fixed;bottom:60px;left:14px;z-index:2147483001;background:#991b1b;color:white;padding:10px;border-radius:8px;max-width:90vw';document.body.appendChild(warning);}warning.textContent='Connexion aux alertes interrompue — reconnexion automatique…';}
+   finally{clearTimeout(timer);pollBusy=false;}
  }
+ function resumeAlerts(){if(document.hidden)return;printing=false;retryUnlockIfAllowed();loadSoundSettings();poll();}
+ window.addEventListener('bechefaa:print-return',resumeAlerts);
+ window.addEventListener('pageshow',resumeAlerts);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeAlerts();});
+ try{const pending=JSON.parse(sessionStorage.getItem(PENDING_NOTICE)||'null');if(pending&&pending.order&&Date.now()-pending.at<15*60*1000){showSiteNotice(pending.order);pendingBeep=true;updateButton();}}catch(_){}
+
  installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>

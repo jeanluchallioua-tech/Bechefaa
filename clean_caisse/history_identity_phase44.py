@@ -131,13 +131,23 @@ def register_history_identity_phase44(app):
   ready(function(){
     const overlay=document.getElementById('history-clean-overlay'),title=document.getElementById('history-clean-title'),sub=document.getElementById('history-clean-sub'),lines=document.getElementById('history-clean-lines'),total=document.getElementById('history-clean-total'),actions=document.getElementById('history-clean-actions');
     if(!overlay)return;
-    let moved=[];
+    let moved=[],previewId=null;
+    const deliveryAddress=document.createElement('div');
+    deliveryAddress.style.cssText='display:none;margin:8px 0;font-size:17px;line-height:1.45;font-weight:700;color:#111827;white-space:pre-line';
+    title.insertAdjacentElement('afterend',deliveryAddress);
+    function showDeliveryAddress(o){
+      const delivery=['LIVRAISON','DELIVERY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase().includes('livraison');
+      const text=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join('\n'):'';
+      deliveryAddress.textContent=text;deliveryAddress.style.display=text?'block':'none';
+    }
     function restore(){moved.forEach(x=>{if(x.node&&x.card)x.card.appendChild(x.node)});moved=[]}
-    function close(){restore();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');actions.innerHTML=''}
+    function close(){previewId=null;restore();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');actions.innerHTML=''}
     overlay.querySelector('.history-clean-close').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});
 
     window.viewOrder=function(id){
       const o=(window.ORDERS||ORDERS||[]).find(x=>String(x.id)===String(id));if(!o)return;
+      previewId=String(id);showDeliveryAddress(o);
+      fetch('/api/orders/'+encodeURIComponent(id),{cache:'no-store'}).then(async r=>{if(!r.ok)return;const d=await r.json();if(d.ok&&d.order&&previewId===String(id))showDeliveryAddress({...o,...d.order});}).catch(()=>{});
       restore();actions.innerHTML='';
       title.textContent=(typeof historyIdentity==='function'?historyIdentity(o):String(o.customer_name||'Commande'));
       sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':o.ticket_type].filter(Boolean).join(' · ');

@@ -14,13 +14,16 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 ensure_order_schema(conn)
                 conn.commit()
                 row = conn.execute(
-                    """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
+                    """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at, address, postal_code, city
                        FROM caisse_orders WHERE id=%s""",
                     (order_id,),
                 ).fetchone()
                 if not row:
                     return jsonify({"ok": False, "error": "Commande introuvable"}), 404
-                return jsonify({"ok": True, "order": order_payload(conn, row)})
+                order = order_payload(conn, row)
+                for key in ("address", "postal_code", "city"):
+                    order[key] = row.get(key) or ""
+                return jsonify({"ok": True, "order": order})
         except Exception as exc:
             return jsonify({"ok": False, "error": "Lecture commande impossible", "detail": str(exc)}), 500
 
@@ -146,11 +149,17 @@ let ORDERS=[],EDIT=null,VIEW=null;const esc=s=>String(s??'').replace(/[&<>"']/g,
 function money(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
 function render(){let q=document.getElementById('search').value.toLowerCase().trim(),st=document.getElementById('status').value;let rows=ORDERS.filter(o=>(!st||o.status===st)&&(!q||String(o.num).includes(q)||String(o.customer_name||'').toLowerCase().includes(q)));document.getElementById('list').innerHTML=rows.length?rows.map(o=>`<div class="order"><div class="info"><div class="num">#${esc(o.num)} · ${esc(o.customer_name)} </div><div class="meta">${esc(o.status)} · ${esc(o.ticket_type)} · ${money(o.total)}</div><div class="items">${esc((o.items||[]).map(i=>i.qty+'× '+i.name).join(' • '))}</div></div><button class="btn" onclick="viewOrder('${esc(o.id)}')">👁 Aperçu</button>${o.status==='Terminée'?'<button class="btn locked" disabled>Terminée</button>':`<button class="btn edit" onclick="editOrder('${esc(o.id)}')">Modifier</button>`}</div>`).join(''):'<div class="empty">Aucune commande</div>'}
 async function load(){let r=await fetch('/api/orders/history');let d=await r.json();if(!r.ok||!d.ok){document.getElementById('list').innerHTML='<div class="error">'+esc(d.detail||d.error||'Erreur')+'</div>';return}ORDERS=d.orders||[];render()}
+function renderViewMeta(o){
+ const delivery=String(o.ticket_type||o.source||'').toLowerCase().includes('livraison');
+ const address=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join(' · '):'';
+ document.getElementById('vmeta').innerHTML='<div style="font-size:17px;font-weight:800">'+esc(o.customer_name||'')+'</div>'+(address?'<div style="font-size:16px;line-height:1.45;color:#111827;margin:6px 0">'+esc(address)+'</div>':'')+'<div>'+esc(o.status||'')+' · '+money(o.total)+'</div>';
+}
 function viewOrder(id){
  let o=ORDERS.find(x=>x.id===id);if(!o)return;
  VIEW=o;
  document.getElementById('vtitle').innerHTML='<span class="eye">👁</span>Aperçu ticket client #'+esc(o.num);
- document.getElementById('vmeta').textContent=(o.customer_name||'')+' · '+o.status+' · '+money(o.total);
+ renderViewMeta(o);
+ fetch('/api/orders/'+encodeURIComponent(id),{cache:'no-store'}).then(async r=>{if(!r.ok)return;const d=await r.json();if(d.ok&&d.order&&VIEW&&VIEW.id===id)renderViewMeta({...o,...d.order});}).catch(()=>{});
  document.getElementById('ticket-preview').src='/impression/client/'+encodeURIComponent(o.id)+'?preview=1&t='+Date.now();
  document.getElementById('view-modal').classList.add('open');
 }
@@ -161,7 +170,8 @@ function closeView(){
 }
 function printViewedClient(){
  if(!VIEW)return;
- window.location.href='/epson/print-client/'+encodeURIComponent(VIEW.id);
+ if(typeof window.bechefaaPrintClient==='function')window.bechefaaPrintClient(VIEW.id).catch(e=>alert(e.message||'Impression impossible'));
+ else window.location.href='/epson/print-client/'+encodeURIComponent(VIEW.id);
 }
 function editOrder(id){let o=ORDERS.find(x=>x.id===id);if(!o||o.status==='Terminée')return;EDIT=JSON.parse(JSON.stringify(o));document.getElementById('mtitle').textContent='Modifier commande #'+o.num;document.getElementById('mmsg').innerHTML='<div class="notice">Après modification, cette commande sera replacée dans À préparer et renvoyée en cuisine.</div>';document.getElementById('modal').classList.add('open');renderEdit()}
 function closeModal(){document.getElementById('modal').classList.remove('open');EDIT=null}

@@ -237,6 +237,8 @@ def _assistant_launch_html(xml, title="Epson"):
         "&data-type=eposprintxml"
         "&data=" + quote(xml, safe="")
         + "&timeout=30000"
+        + "&success=" + quote(request.url_root.rstrip("/") + "/pos?epson=success", safe="")
+        + "&error=" + quote(request.url_root.rstrip("/") + "/pos?epson=error", safe="")
         + "&error-dialog=yes"
     )
     safe_url = assistant_url.replace("\\", "\\\\").replace("'", "\\'")
@@ -556,6 +558,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 (function(){
  const box=document.getElementById('epson-status');
  let cfg=null, nativeFetch=window.fetch.bind(window), printed=new Set();
+ let assistantPending=false,assistantHidden=false;
+ function assistantReturn(){if(!assistantPending||document.hidden||!assistantHidden)return;assistantPending=false;assistantHidden=false;status('ok','Epson : retour à la caisse');window.dispatchEvent(new Event('bechefaa:print-return'));}
+ document.addEventListener('visibilitychange',()=>{if(document.hidden&&assistantPending)assistantHidden=true;else assistantReturn();});
+ window.addEventListener('focus',assistantReturn);
 
  function status(kind,msg){box.className=kind||'';box.textContent=msg}
  function epsonDiag(stage){
@@ -578,16 +584,18 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  }
 
  async function openPrintAssistant(xml,label,orderId){
-   if(xml.length>180000)throw new Error('Ticket trop volumineux pour TM Print Assistant');
    const assistantUrl='tmprintassistant://tmprintassistant.epson.com/print?'
      +'ver=1'
      +'&data-type=eposprintxml'
      +'&data='+encodeURIComponent(xml)
      +'&timeout=30000'
+     +'&success='+encodeURIComponent(window.location.origin+window.location.pathname+'?epson=success')
+     +'&error='+encodeURIComponent(window.location.origin+window.location.pathname+'?epson=error')
      +'&error-dialog=yes';
    if(orderId)printed.add(String(label)+':'+String(orderId));
    epsonDiag('before-assistant');
    status('work','Epson : ouverture TM Print Assistant…');
+   assistantPending=true;assistantHidden=false;
    window.location.href=assistantUrl;
    return true;
  }
@@ -595,10 +603,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printClient(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket client…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-client/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/client-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket client introuvable');
    const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'client',orderId);
    window.location.href='/impression/client/'+encodeURIComponent(orderId);
    return true;
  }
@@ -606,10 +614,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printOrderPack(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation cuisine + client…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-order-pack/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/order-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Tickets cuisine/client introuvables');
    const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'order-pack',orderId);
 
 
    const c=await getConfig();
@@ -638,10 +646,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printKitchen(orderId){
    if(!orderId)return true;
    status('work','Epson : préparation du ticket…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-kitchen/'+encodeURIComponent(orderId)+'?v=20261008v3&t='+Date.now();return true;}
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
    const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'kitchen',orderId);
 
    // Android / Samsung Internet : méthode officielle Epson TM Print Assistant.
    // L'application reçoit l'ePOS-Print XML via le schéma URL et relaie
@@ -678,13 +686,13 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    if(!orderId)return true;
    const n=Math.max(1,Math.min(99,parseInt(persons||1,10)||1));
    status('work','Epson : préparation de la note de frais…');
-   if(/Android/i.test(navigator.userAgent||'')){window.location.href='/epson/print-expense-note/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n);return true;}
    const xr=await nativeFetch('/api/epson/expense-note-xml/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n),{cache:'no-store'});
    if(!xr.ok){
      const detail=await xr.text().catch(()=> '');
      throw new Error(detail||'Note de frais introuvable');
    }
    const xml=await xr.text();
+   if(/Android/i.test(navigator.userAgent||''))return openPrintAssistant(xml,'expense-note',orderId);
    window.location.href='/impression/note-de-frais/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n);
    return true;
  }
@@ -729,9 +737,10 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    epsonDiag('success-return');
    let d=null;try{d=JSON.parse(sessionStorage.getItem('bechefaa_epson_diag')||'null')}catch(e){}
    const standalone=window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches;
-   status(standalone?'ok':'err','DIAG EPSON : retour '+(standalone?'dans la PWA':'dans le navigateur'));
+   status('ok','Epson : impression terminée • retour à la caisse');
  }
- testConnection();
+ if(new URLSearchParams(window.location.search).get('epson')==='error')status('err','Epson : impression non confirmée. Vérifiez l’imprimante avant de relancer.');
+ else if(new URLSearchParams(window.location.search).get('epson')!=='success')testConnection();
 })();
 </script>'''
         html = html.replace("</body>", addon + "</body>")
