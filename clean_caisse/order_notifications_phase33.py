@@ -210,13 +210,32 @@ def register_order_notifications_phase33(app):
    }
    return fresh.length;
  }
- let pollBusy=false;
+ let pollBusy=false,connectionFailures=0,connectionFailureSince=0;
+ function connectionRecovered(){
+   connectionFailures=0;connectionFailureSince=0;
+   const warning=document.getElementById('bechefaa-alert-connection');if(warning)warning.remove();
+ }
+ function connectionFailed(){
+   connectionFailures++;
+   if(connectionFailures===1)connectionFailureSince=Date.now();
+   // A single failed request does not mean that alerts have stopped.
+   if(connectionFailures<3||Date.now()-connectionFailureSince<8000)return;
+   let warning=document.getElementById('bechefaa-alert-connection');
+   if(!warning){warning=document.createElement('div');warning.id='bechefaa-alert-connection';warning.setAttribute('role','status');warning.style.cssText='position:fixed;bottom:60px;left:14px;z-index:2147483001;background:#991b1b;color:white;padding:10px;border-radius:8px;max-width:90vw';document.body.appendChild(warning);}
+   warning.textContent='Connexion aux alertes interrompue — reconnexion automatique…';
+ }
  async function poll(){
    if(pollBusy)return;pollBusy=true;
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
-   try{const r=await fetch('/api/kitchen/board',{cache:'no-store',signal:controller.signal}),d=await r.json();if(!r.ok||!d||!d.ok||!Array.isArray(d.orders))throw Error('Alertes indisponibles');inspect(d.orders);const warning=document.getElementById('bechefaa-alert-connection');if(warning)warning.remove();}
-   catch(e){let warning=document.getElementById('bechefaa-alert-connection');if(!warning){warning=document.createElement('div');warning.id='bechefaa-alert-connection';warning.style.cssText='position:fixed;bottom:60px;left:14px;z-index:2147483001;background:#991b1b;color:white;padding:10px;border-radius:8px;max-width:90vw';document.body.appendChild(warning);}warning.textContent='Connexion aux alertes interrompue — reconnexion automatique…';}
+   let orders;
+   try{
+     const r=await fetch('/api/kitchen/board',{cache:'no-store',signal:controller.signal}),d=await r.json();
+     if(!r.ok||!d||!d.ok||!Array.isArray(d.orders))throw Error('Alertes indisponibles');
+     orders=d.orders;connectionRecovered();
+   }catch(e){connectionFailed();}
    finally{clearTimeout(timer);pollBusy=false;}
+   // Rendering errors must not be reported as a lost server connection.
+   if(orders){try{inspect(orders);}catch(e){console.error('Affichage des alertes impossible',e);}}
  }
  function resumeAlerts(){if(document.hidden)return;printing=false;retryUnlockIfAllowed();loadSoundSettings();poll();}
  window.addEventListener('bechefaa:print-return',resumeAlerts);
