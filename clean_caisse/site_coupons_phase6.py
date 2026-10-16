@@ -137,20 +137,28 @@ def register_site_coupons_phase6(app, db):
             minimum=Decimal(str(p.get("minimum_order") or 0)).quantize(Decimal("0.01"))
         except (InvalidOperation,ValueError,TypeError):
             return jsonify({"ok":False,"error":"Montant ou pourcentage invalide"}),400
-        if value<=0 or minimum<0:return jsonify({"ok":False,"error":"Valeurs invalides"}),400
+        if not value.is_finite() or not minimum.is_finite() or value<=0 or minimum<0:return jsonify({"ok":False,"error":"Valeurs invalides"}),400
         if dtype=="PERCENT" and value>100:return jsonify({"ok":False,"error":"La remise en pourcentage ne peut pas dépasser 100 %"}),400
         starts_at=p.get("starts_at") or None;ends_at=p.get("ends_at") or None;active=bool(p.get("active",True));allow_edenred=bool(p.get("allow_edenred",False))
         if starts_at and ends_at and str(ends_at) <= str(starts_at):
             return jsonify({"ok":False,"error":"La date de fin doit être postérieure à la date de début"}),400
         cid=p.get("id")
+        if cid is not None:
+            try:
+                cid=int(cid)
+                if cid<=0:raise ValueError()
+            except (ValueError,TypeError):
+                return jsonify({"ok":False,"error":"Identifiant coupon invalide"}),400
         try:
             with db() as conn:
                 with conn.transaction():
                     ensure(conn)
                     if cid:
-                        conn.execute("""UPDATE site_coupons SET code=%s,label=%s,discount_type=%s,discount_value=%s,
-                            minimum_order=%s,starts_at=%s,ends_at=%s,active=%s,allow_edenred=%s,updated_at=NOW() WHERE id=%s""",
-                            (code,label,dtype,value,minimum,starts_at,ends_at,active,allow_edenred,int(cid)))
+                        updated=conn.execute("""UPDATE site_coupons SET code=%s,label=%s,discount_type=%s,discount_value=%s,
+                            minimum_order=%s,starts_at=%s,ends_at=%s,active=%s,allow_edenred=%s,updated_at=NOW() WHERE id=%s RETURNING id""",
+                            (code,label,dtype,value,minimum,starts_at,ends_at,active,allow_edenred,cid)).fetchone()
+                        if not updated:
+                            return jsonify({"ok":False,"error":"Coupon introuvable. Rechargez la liste."}),404
                     else:
                         conn.execute("""INSERT INTO site_coupons(code,label,discount_type,discount_value,minimum_order,starts_at,ends_at,active,allow_edenred)
                             VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
@@ -193,9 +201,57 @@ def register_site_coupons_phase6(app, db):
     @app.get("/administration/coupons-site")
     def coupons_page_phase6():
         return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Coupons site</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#14213d;font-family:Arial}.w{max-width:1100px;margin:25px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:16px;padding:20px;margin-bottom:16px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}label{display:block;font-weight:800;font-size:13px;margin-bottom:5px}input,select,button{width:100%;min-height:44px;border:1px solid #ccd5e2;border-radius:9px;padding:9px;font-size:15px}button{background:#111827;color:#fff;font-weight:900;cursor:pointer}.row{display:grid;grid-template-columns:1.1fr 1.4fr .8fr .8fr .8fr .8fr;gap:8px;padding:10px 0;border-bottom:1px solid #eee;align-items:center}.del{background:#b42318}.m{color:#667085;font-size:13px}.s{font-weight:800;margin-top:10px}@media(max-width:760px){.g{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr}}</style></head><body><div class="w"><div class="b"><h1>Coupons de réduction du site</h1><p class="m">Codes valables uniquement sur bechefaa.fr pour les commandes à emporter. Période de validité et minimum de commande configurables.</p><div class="g"><div><label>Code *</label><input id="code" placeholder="EX: RENTREE10"></div><div><label>Libellé / événement</label><input id="label" placeholder="Ex: Rentrée, Pourim, anniversaire"></div><div><label>Type</label><select id="type"><option value="PERCENT">Pourcentage</option><option value="AMOUNT">Montant €</option></select></div><div><label>Valeur *</label><input id="value" type="number" min="0" step="0.01"></div><div><label>Minimum commande €</label><input id="min" type="number" min="0" step="0.01" value="0"></div><div><label>Début</label><input id="start" type="datetime-local"></div><div><label>Fin</label><input id="end" type="datetime-local"></div><div><label>Actif</label><select id="active"><option value="1">Oui</option><option value="0">Non</option></select></div><div><label>Autoriser avec Edenred</label><select id="edenred"><option value="0">Non</option><option value="1">Oui</option></select></div></div><button style="margin-top:16px" onclick="save()">Enregistrer le coupon</button><div id="msg" class="s"></div></div><div class="b"><h2>Coupons existants</h2><div id="list"></div></div></div><script>
-const $=x=>document.getElementById(x);let coupons=[];function euro(v){return Number(v||0).toFixed(2)+' €'}function fmt(v){if(!v)return '—';return new Date(v).toLocaleString('fr-FR')}
-async function load(){let r=await fetch('/api/admin/site-coupons-phase6',{cache:'no-store'}),j=await r.json();if(!r.ok||!j.ok){$('msg').textContent='Erreur : '+(j.error||'lecture impossible');return}coupons=j.coupons;$('list').innerHTML=coupons.length?coupons.map(c=>'<div class="row"><b>'+c.code+'</b><span>'+((c.label||'')||'—')+'</span><span>'+(c.discount_type==='PERCENT'?c.discount_value+' %':euro(c.discount_value))+'</span><span>Min. '+euro(c.minimum_order)+'</span><span>'+fmt(c.starts_at)+'<br>'+fmt(c.ends_at)+'</span><span>'+(c.active?'Actif':'Inactif')+'<br><button class="del" onclick="del('+c.id+')">Supprimer</button></span></div>').join(''):'Aucun coupon.'}
-async function save(){let body={code:$('code').value,label:$('label').value,discount_type:$('type').value,discount_value:$('value').value,minimum_order:$('min').value,starts_at:$('start').value||null,ends_at:$('end').value||null,active:$('active').value==='1',allow_edenred:$('edenred').value==='1'};$('msg').textContent='Enregistrement…';let r=await fetch('/api/admin/site-coupons-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),j=await r.json();if(!r.ok||!j.ok){$('msg').textContent='Erreur : '+(j.error||'impossible');return}$('msg').textContent='Coupon enregistré.';$('code').value='';$('label').value='';$('value').value='';await load()}
-async function del(id){if(!confirm('Supprimer ce coupon ?'))return;let r=await fetch('/api/admin/site-coupons-phase6/'+id,{method:'DELETE'}),j=await r.json();if(r.ok&&j.ok)await load();else $('msg').textContent='Suppression impossible.'}load();
+*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#14213d;font-family:Arial}.w{max-width:1100px;margin:25px auto;padding:18px}.b{background:#fff;border:1px solid #e5eaf1;border-radius:16px;padding:20px;margin-bottom:16px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}label{display:block;font-weight:800;font-size:13px;margin-bottom:5px}input,select,button{width:100%;min-height:44px;border:1px solid #ccd5e2;border-radius:9px;padding:9px;font-size:15px}button{background:#111827;color:#fff;font-weight:900;cursor:pointer}.row{display:grid;grid-template-columns:1.1fr 1.4fr .8fr .8fr .8fr .8fr;gap:8px;padding:10px 0;border-bottom:1px solid #eee;align-items:center}.del{background:#b42318}.m{color:#667085;font-size:13px}.s{font-weight:800;margin-top:10px}@media(max-width:760px){.g{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr}}</style></head><body><div class="w"><div class="b"><h1>Coupons de réduction du site</h1><p class="m">Codes valables uniquement sur bechefaa.fr pour les commandes à emporter. Période de validité et minimum de commande configurables.</p><h2 id="editor-title">Créer un coupon</h2><div class="g"><div><label>Code *</label><input id="code" placeholder="EX: RENTREE10"></div><div><label>Libellé / événement</label><input id="label" placeholder="Ex: Rentrée, Pourim, anniversaire"></div><div><label>Type</label><select id="type"><option value="PERCENT">Pourcentage</option><option value="AMOUNT">Montant €</option></select></div><div><label>Valeur *</label><input id="value" type="number" min="0" step="0.01"></div><div><label>Minimum commande €</label><input id="min" type="number" min="0" step="0.01" value="0"></div><div><label>Début</label><input id="start" type="datetime-local"></div><div><label>Fin</label><input id="end" type="datetime-local"></div><div><label>Actif</label><select id="active"><option value="1">Oui</option><option value="0">Non</option></select></div><div><label>Autoriser avec Edenred</label><select id="edenred"><option value="0">Non</option><option value="1">Oui</option></select></div></div><button id="save-coupon" style="margin-top:16px" onclick="save()">Enregistrer le coupon</button><button type="button" id="cancel-edit" hidden style="margin-top:8px;background:#667085" onclick="resetEditor()">Annuler la modification</button><div id="msg" class="s"></div></div><div class="b"><h2>Coupons existants</h2><div id="list"></div></div></div><script>
+const $=x=>document.getElementById(x);let coupons=[],editingId=null,busy=false;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function euro(v){return Number(v||0).toFixed(2)+' €'}
+function fmt(v){return v?new Date(v).toLocaleString('fr-FR'):'—'}
+function localDate(v){if(!v)return '';const d=new Date(v);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
+function isoDate(id){return $(id).value?new Date($(id).value).toISOString():null}
+function resetEditor(){
+ $('msg').textContent='';
+ editingId=null;['code','label','value','start','end'].forEach(id=>$(id).value='');
+ $('type').value='PERCENT';$('min').value='0';$('active').value='1';$('edenred').value='0';
+ $('editor-title').textContent='Créer un coupon';$('save-coupon').textContent='Enregistrer le coupon';$('cancel-edit').hidden=true;
+}
+function edit(id){
+ if(busy)return;
+ const c=coupons.find(c=>Number(c.id)===Number(id));if(!c)return;
+ editingId=c.id;
+ for(const [field,key] of Object.entries({code:'code',label:'label',type:'discount_type',value:'discount_value',min:'minimum_order'}))$(field).value=c[key]??'';
+ $('start').value=localDate(c.starts_at);$('end').value=localDate(c.ends_at);
+ $('active').value=c.active?'1':'0';$('edenred').value=c.allow_edenred?'1':'0';
+ $('editor-title').textContent='Modifier le coupon '+c.code;$('save-coupon').textContent='Enregistrer les modifications';$('cancel-edit').hidden=false;
+ $('msg').textContent='Modification du coupon existant.';$('editor-title').scrollIntoView({behavior:'smooth',block:'start'});$('code').focus({preventScroll:true});
+}
+async function load(){
+ const r=await fetch('/api/admin/site-coupons-phase6',{cache:'no-store'}),j=await r.json();
+ if(!r.ok||!j.ok)throw Error(j.error||'Lecture impossible');
+ coupons=j.coupons;
+ $('list').innerHTML=coupons.length?coupons.map(c=>'<div class="row"><b>'+esc(c.code)+'</b><span>'+esc(c.label||'—')+'</span><span>'+(c.discount_type==='PERCENT'?esc(c.discount_value)+' %':euro(c.discount_value))+'</span><span>Min. '+euro(c.minimum_order)+'</span><span>'+fmt(c.starts_at)+'<br>'+fmt(c.ends_at)+'</span><span>'+(c.active?'Actif':'Inactif')+'<br><button type="button" onclick="edit('+Number(c.id)+')">Modifier</button><button type="button" class="del" onclick="del('+Number(c.id)+')">Supprimer</button></span></div>').join(''):'Aucun coupon.';
+}
+async function save(){
+ if(busy)return;busy=true;$('save-coupon').disabled=true;$('cancel-edit').disabled=true;
+ try{
+  const body={code:$('code').value,label:$('label').value,discount_type:$('type').value,discount_value:$('value').value,minimum_order:$('min').value,starts_at:isoDate('start'),ends_at:isoDate('end'),active:$('active').value==='1',allow_edenred:$('edenred').value==='1'};
+  if(editingId!==null)body.id=editingId;
+  $('msg').textContent='Enregistrement…';
+  const r=await fetch('/api/admin/site-coupons-phase6',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),j=await r.json();
+  if(!r.ok||!j.ok)throw Error(j.error||'Enregistrement impossible');
+  const wasEditing=editingId!==null;
+  resetEditor();$('msg').textContent=wasEditing?'Coupon modifié.':'Coupon créé.';
+  try{await load()}catch(e){$('msg').textContent+=' Actualisation de la liste impossible : rechargez la page.'}
+ }catch(e){$('msg').textContent='Erreur : '+e.message}
+ finally{busy=false;$('save-coupon').disabled=false;$('cancel-edit').disabled=false}
+}
+async function del(id){
+ if(busy||!confirm('Supprimer ce coupon ?'))return;
+ try{
+  const r=await fetch('/api/admin/site-coupons-phase6/'+id,{method:'DELETE'}),j=await r.json();
+  if(!r.ok||!j.ok)throw Error(j.error||'Suppression impossible');
+  if(Number(editingId)===Number(id))resetEditor();await load();
+ }catch(e){$('msg').textContent=e.message}
+}
+load().catch(e=>$('msg').textContent='Erreur : '+e.message);
 </script></body></html>''',content_type="text/html; charset=utf-8")
+
