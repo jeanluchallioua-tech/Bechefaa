@@ -3,10 +3,26 @@
   function install() {
     const message = document.getElementById('order-message');
     if (!message || typeof renderOrder !== 'function' || typeof saveOrder !== 'function') return;
-    const state = { editing: null, busy: false };
+    const state = { editing: null, busy: false, generation: 0 };
+    const pendingKey = 'bechefaa_pending_saved_order_v1';
     const originalRender = renderOrder, originalSave = saveOrder;
     const esc = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const money = value => Number(value || 0).toFixed(2).replace('.', ',') + ' €';
+    function remember(order) {
+      try { sessionStorage.setItem(pendingKey, JSON.stringify({id:order.id, at:Date.now()})); } catch (_) {}
+    }
+    function savedSummary() {
+      if (state.editing || ORDER.length || !LAST_SAVED_ORDER || LAST_SAVED_ORDER.status !== 'Enregistrée') return;
+      const container = document.getElementById('order');
+      if (!container) return;
+      const order = LAST_SAVED_ORDER;
+      container.innerHTML = '<div class="notice"><b>Commande enregistrée — en attente de cuisine</b></div>' +
+        (order.items || []).map(item => '<div class="order-line"><div class="order-line-head"><span>' +
+          esc(item.qty + ' × ' + item.name) + '</span><span>' + money(Number(item.unit_price) * Number(item.qty)) +
+          '</span></div><div class="order-opts">' + esc(item.options_text || (item.options || []).map(o => o.name || o.label || '').filter(Boolean).join(' • ')) +
+          '</div></div>').join('') + '<div class="order-total"><span>Total</span><span>' + money(order.total) + '</span></div>';
+      remember(order);
+    }
 
     function savedActions(order) {
       const label = typeof posOrderIdentity === 'function' ? posOrderIdentity(order) : order.customer_name || 'Commande';
@@ -15,6 +31,7 @@
         ' • En attente d’envoi en cuisine</div><button type="button" class="action kitchen" data-action="send-kitchen" data-order-id="' +
         esc(order.id) + '" data-order-num="' + esc(order.num) + '">Envoyer en cuisine</button>';
       decorate();
+      savedSummary();
     }
     function decorate() {
       if (state.editing || !LAST_SAVED_ORDER || LAST_SAVED_ORDER.status !== 'Enregistrée') return;
@@ -35,6 +52,7 @@
           save.textContent = 'Enregistrer les modifications'; save.disabled = state.busy;
         }
       }
+      else savedSummary();
       return result;
     };
     async function read(url) {
@@ -77,7 +95,7 @@
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw Error(data.error || 'Modification impossible');
-        LAST_SAVED_ORDER = {...LAST_SAVED_ORDER, ...state.editing, ...data};
+        LAST_SAVED_ORDER = {...LAST_SAVED_ORDER, ...state.editing, ...data, items};
         state.editing = null; ORDER = []; savedActions(LAST_SAVED_ORDER);
       } catch (error) { alert(error.message); }
       finally { state.busy = false; renderOrder(); }
@@ -90,6 +108,18 @@
     saveOrder = function () {
       return state.editing ? savePending() : originalSave.apply(this, arguments);
     };
+    window.addEventListener('click', function (event) {
+      const product = event.target.closest('.product');
+      const startsOver = event.target.closest('.pos-cancel-current,a.pos-v3-nav[href="/pos"],.ticket-choice [data-ticket],#svc-current');
+      if (typeof SAVE_IN_FLIGHT !== 'undefined' && SAVE_IN_FLIGHT && (product || startsOver)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        alert('Veuillez attendre la confirmation de l’enregistrement.'); return;
+      }
+      if (product && !state.editing && !ORDER.length && LAST_SAVED_ORDER && LAST_SAVED_ORDER.status === 'Enregistrée') {
+        event.preventDefault(); event.stopImmediatePropagation();
+        open().then(() => { if (state.editing) product.click(); });
+      }
+    }, true);
     document.addEventListener('click', function (event) {
       const target = event.target;
       if (target.closest('[data-pos-edit-pending]')) {
@@ -103,6 +133,25 @@
         alert('Enregistrez ou abandonnez les modifications avant de poursuivre.');
       }
     }, true);
+    document.addEventListener('bechefaa:order-saved', function () {
+      if (LAST_SAVED_ORDER && LAST_SAVED_ORDER.status === 'Enregistrée') savedActions(LAST_SAVED_ORDER);
+    });
+    document.addEventListener('bechefaa:new-order', function () {
+      state.generation++;
+      try { sessionStorage.removeItem(pendingKey); } catch (_) {}
+    });
+    // Restore the server order after a reload, never create a replacement order.
+    try {
+      const pending = JSON.parse(sessionStorage.getItem(pendingKey) || 'null');
+      const generation = state.generation;
+      if (pending && pending.id && Date.now() - pending.at < 12 * 60 * 60 * 1000) {
+        read('/api/orders/' + encodeURIComponent(pending.id)).then(order => {
+          if (generation === state.generation && !ORDER.length && !LAST_SAVED_ORDER && !state.editing && order.status === 'Enregistrée') {
+            LAST_SAVED_ORDER = order; renderOrder(); savedActions(order);
+          }
+        }).catch(() => {});
+      }
+    } catch (_) {}
     window.addEventListener('beforeunload', event => {
       if (state.editing) { event.preventDefault(); event.returnValue = ''; }
     });

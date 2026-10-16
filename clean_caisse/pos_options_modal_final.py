@@ -205,140 +205,19 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      setTimeout(()=>openOptions(p.dataset.name||''),0);
    },true);
 
-   let upsellFlow=false;
-   let upsellPhase='drink';
-   let waitingUpsellProduct=false;
-   let savingAfterUpsell=false;
-
-   /* Clone la modale upsell pour supprimer tous les anciens listeners empilés. */
-   let oldUpsell=document.querySelector('.pos-ref-upsell-overlay');
-   let upsell=null,upsellList=null,upsellNo=null,upsellTitle=null;
-   if(oldUpsell){
-     upsell=oldUpsell.cloneNode(true);
-     oldUpsell.replaceWith(upsell);
-     upsell.classList.remove('open');
-     upsellList=upsell.querySelector('.pos-ref-upsell-list');
-     upsellNo=upsell.querySelector('.pos-ref-no');
-     upsellTitle=upsell.querySelector('.pos-ref-modal h2');
-   }
-
-   function upsellItems(category){
-     try{
-       if(typeof DATA==='undefined'||!DATA||!Array.isArray(DATA.items)||typeof ORDER==='undefined')return[];
-       const inCart=new Set((ORDER||[]).map(x=>String(x.product_id||'')));
-       return DATA.items.filter(p=>p&&p.active!==false&&!inCart.has(String(p.id||''))&&norm(p.category)===category);
-     }catch(e){return[]}
-   }
-   function renderUpsell(){
-     if(!upsell||!upsellList||!upsellNo)return;
-     const cat=upsellPhase==='drink'?'boissons':'desserts';
-     if(upsellTitle)upsellTitle.textContent=upsellPhase==='drink'?'Une boisson avec votre commande ?':'Un dessert pour terminer ?';
-     upsellNo.textContent='Non merci';
-     const items=upsellItems(cat);
-     upsellList.innerHTML=items.length?items.map(p=>'<button type="button" class="pos-ref-upsell-item" data-final-upsell-id="'+esc(p.id)+'" data-final-upsell-name="'+esc(p.name)+'">'+(p.photo?'<img src="'+esc(p.photo)+'" alt="">':'')+'<b>'+esc(p.name)+'</b><span class="pos-ref-upsell-price">'+euro(p.price)+'</span></button>').join(''):'<div style="color:#a7adb4;padding:12px">Aucun produit disponible.</div>';
-   }
-   function cartHasCategory(category){
-     try{
-       if(typeof DATA==='undefined'||!DATA||!Array.isArray(DATA.items)||typeof ORDER==='undefined'||!Array.isArray(ORDER))return false;
-       const byId=new Map(DATA.items.map(p=>[String(p.id||''),norm(p.category)]));
-       return ORDER.some(line=>byId.get(String(line.product_id||''))===category);
-     }catch(e){return false}
-   }
-   function openUpsellPhase(){
-     if(upsellPhase==='drink'&&cartHasCategory('boissons')){upsellPhase='dessert';openUpsellPhase();return}
-     if(upsellPhase==='dessert'&&cartHasCategory('desserts')){finishUpsellAndSave();return}
-     if(!upsell){finishUpsellAndSave();return}
-     upsellFlow=true;upsell.classList.add('open');setTimeout(renderUpsell,0);
-   }
-   function advanceUpsell(){
-     if(upsellPhase==='drink'){upsellPhase='dessert';setTimeout(openUpsellPhase,60)}
-     else finishUpsellAndSave();
-   }
-   function finishUpsellAndSave(){
-     if(savingAfterUpsell)return;
-     savingAfterUpsell=true;upsellFlow=false;if(upsell)upsell.classList.remove('open');
-     setTimeout(()=>{try{if(typeof saveOrder==='function')saveOrder()}finally{setTimeout(()=>{savingAfterUpsell=false},350)}},40);
-   }
-
-   /* Ajout normal depuis la modale produit. Si c'est un produit upsell, avance ensuite. */
+   /* Add the selected product once, without any drink/dessert upsell flow. */
    options.addEventListener('click',function(e){
      const add=e.target.closest('[data-action="add-current"]');
      if(!add)return;
      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
      const before=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:0;
      if(typeof addCurrent==='function')addCurrent();
-     const after=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:before;
-     if(after>before){
-       closeOptions();
-       if(waitingUpsellProduct){waitingUpsellProduct=false;advanceUpsell()}
-     }
-   },true);
-
-   async function chooseUpsellProduct(id,name){
-     if(!id)return;
-     try{
-       const r=await fetch('/api/catalog/product/'+encodeURIComponent(id)+'/options',{cache:'no-store'});
-       const d=await r.json();
-       if(!r.ok||!d||!d.ok)throw new Error('Produit indisponible');
-       const groups=Array.isArray(d.groups)?d.groups:[];
-       if(groups.length){
-         waitingUpsellProduct=true;
-         if(typeof showOptions==='function')showOptions(id,name);
-         setTimeout(()=>openOptions(name),0);
-         return;
-       }
-       /* Sans option : ajout immédiat au panier puis étape suivante. */
-       if(typeof ORDER!=='undefined'&&Array.isArray(ORDER)){
-         const p=d.product||{};
-         ORDER.push({line_id:'line-'+Date.now()+'-'+Math.random().toString(16).slice(2),product_id:String(p.id||id),name:String(p.name||name||''),qty:1,unit_price:Number(Number(p.price||0).toFixed(2)),options:[]});
-         if(typeof renderOrder==='function')renderOrder();
-       }
-       advanceUpsell();
-     }catch(err){
-       waitingUpsellProduct=true;
-       if(typeof showOptions==='function')showOptions(id,name);
-       setTimeout(()=>openOptions(name),0);
-     }
-   }
-
-   if(upsell){
-     upsell.addEventListener('click',function(e){
-       const item=e.target.closest('[data-final-upsell-id]');
-       if(item){
-         e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-         upsell.classList.remove('open');
-         chooseUpsellProduct(item.dataset.finalUpsellId,item.dataset.finalUpsellName);
-         return;
-       }
-       if(e.target.closest('.pos-ref-no')){
-         e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-         upsell.classList.remove('open');advanceUpsell();
-       }
-     },true);
-   }
-
-   /* SEUL déclencheur upsell : Enregistrer la commande. */
-   document.addEventListener('click',function(e){
-     const save=e.target.closest('[data-action="save-order"]');
-     if(!save||savingAfterUpsell)return;
-     if(typeof ORDER==='undefined'||!Array.isArray(ORDER)||!ORDER.length)return;
-     const activeService=document.querySelector('.ticket-choice [data-ticket].active');
-     if(!activeService)return;
-     const service=String(activeService.dataset.ticket||'').toLowerCase();
-     const first=(document.getElementById('cust-first')?.value||'').trim();
-     const last=(document.getElementById('cust-last')?.value||'').trim();
-     const phone=(document.getElementById('cust-phone')?.value||'').trim();
-     const address=(document.getElementById('cust-address')?.value||'').trim();
-     const city=(document.getElementById('cust-city')?.value||'').trim();
-     if(service==='emporter' && !(first||last))return;
-     if(service==='livraison' && (!(first||last)||!phone||!address||!city))return;
-     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-     upsellPhase='drink';waitingUpsellProduct=false;upsellFlow=true;openUpsellPhase();
+     if(typeof ORDER!=='undefined'&&ORDER.length>before)closeOptions();
    },true);
  })
 })();
 </script>
-<script src="/static/pos-pending-edit.js?v=1" defer></script>
+<script src="/static/pos-pending-edit.js?v=2" defer></script>
 '''
 
     def pos_options_modal_view(*args, **kwargs):

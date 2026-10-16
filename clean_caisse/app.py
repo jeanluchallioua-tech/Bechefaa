@@ -735,7 +735,24 @@ function toggleOption(gi,vi){let info=groupInfo(currentGroups[gi],gi),key=select
 function showOptions(id,name){document.getElementById('side-title').textContent='Options • '+name;document.getElementById('options').innerHTML='<div class="empty">Chargement…</div>';selections={};fetch('/api/catalog/product/'+encodeURIComponent(id)+'/options').then(r=>r.json()).then(d=>{if(!d.ok){document.getElementById('options').innerHTML='<div class="empty">Produit introuvable.</div>';return}currentProduct=d.product||{id:id,name:name,price:0};currentGroups=Array.isArray(d.groups)?d.groups:[];renderOptions()}).catch(()=>{document.getElementById('options').innerHTML='<div class="empty">Impossible de lire les options.</div>'})}
 function addCurrent(){if(!currentProduct)return;if(requiredMissing()){document.getElementById('order-message').innerHTML='<div class="error">Sélectionnez les options obligatoires.</div>';return}let opts=selectedOptions(),unit=Number(currentProduct.price||0)+totalExtra();ORDER.push({line_id:'line-'+Date.now()+'-'+Math.random().toString(16).slice(2),product_id:String(currentProduct.id||''),name:String(currentProduct.name||''),qty:1,unit_price:Number(unit.toFixed(2)),options:opts});document.getElementById('order-message').innerHTML='';selections={};renderOptions();renderOrder()}
 function renderOrder(){let el=document.getElementById('order');if(!ORDER.length){el.innerHTML='<div class="empty">Commande vide</div>';return}let total=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);el.innerHTML=ORDER.map((l,i)=>`<div class="order-line"><div class="order-line-head"><span>${esc(l.name)}</span><span>${Number(l.unit_price).toFixed(2).replace('.',',')} €</span></div>${l.options.length?`<div class="order-opts">${esc(l.options.map(o=>o.name).join(' • '))}</div>`:''}<button class="remove" data-action="remove-line" data-index="${i}">Retirer</button></div>`).join('')+`<div class="order-total"><span>Total</span><span>${total.toFixed(2).replace('.',',')} €</span></div><button class="action save" data-action="save-order">Enregistrer la commande ${esc(TICKET_TYPE)}</button>`}
-function saveOrder(){if(!ORDER.length)return;let btn=document.querySelector('[data-action="save-order"]');if(btn){btn.disabled=true;btn.textContent='Enregistrement…'}document.getElementById('order-message').innerHTML='';fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:ORDER,ticket_type:TICKET_TYPE})}).then(async r=>{let d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');LAST_SAVED_ORDER=d;ORDER=[];renderOrder();document.getElementById('order-message').innerHTML=`<div class="success"><b>Commande #${esc(d.num)} enregistrée • ${esc(d.ticket_type)}</b><br>Total ${Number(d.total||0).toFixed(2).replace('.',',')} € • ${esc(d.status)}</div><button class="action kitchen" data-action="send-kitchen" data-order-id="${esc(d.id)}" data-order-num="${esc(d.num)}">Envoyer en cuisine</button>`}).catch(err=>{document.getElementById('order-message').innerHTML=`<div class="error"><b>Commande non enregistrée.</b><br>${esc(err.message)}</div>`;renderOrder()})}
+let SAVE_IN_FLIGHT=null;
+function saveOrder(){
+ if(SAVE_IN_FLIGHT)return SAVE_IN_FLIGHT;
+ if(!ORDER.length)return Promise.resolve(null);
+ const items=JSON.parse(JSON.stringify(ORDER));
+ let btn=document.querySelector('[data-action="save-order"]');if(btn){btn.disabled=true;btn.textContent='Enregistrement…'}
+ document.getElementById('order-message').innerHTML='<div class="notice">Enregistrement en cours…</div>';
+ SAVE_IN_FLIGHT=fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items,ticket_type:TICKET_TYPE})}).then(async r=>{
+   const d=await r.json();if(!r.ok||!d.ok||!d.id)throw new Error(d.detail||d.error||'Enregistrement non confirmé');
+   LAST_SAVED_ORDER={...d,items};ORDER=[];renderOrder();
+   document.getElementById('order-message').innerHTML=`<div class="success"><b>Commande #${esc(d.num)} enregistrée • ${esc(d.ticket_type)}</b><br>Total ${Number(d.total||0).toFixed(2).replace('.',',')} € • ${esc(d.status)}</div><button type="button" class="action kitchen" data-action="send-kitchen" data-order-id="${esc(d.id)}" data-order-num="${esc(d.num)}">Envoyer en cuisine</button>`;
+   document.dispatchEvent(new CustomEvent('bechefaa:order-saved',{detail:LAST_SAVED_ORDER}));
+   return LAST_SAVED_ORDER;
+ }).catch(err=>{
+   document.getElementById('order-message').innerHTML=`<div class="error"><b>Enregistrement non confirmé — panier conservé.</b><br>${esc(err.message)}<br>Vérifiez les commandes avant de réessayer si la connexion a été coupée.</div>`;renderOrder();return null;
+ }).finally(()=>{SAVE_IN_FLIGHT=null});
+ return SAVE_IN_FLIGHT;
+}
 function sendKitchen(orderId,orderNum){
  if(!orderId)return;
  let btn=document.querySelector('[data-action="send-kitchen"]');
@@ -848,4 +865,3 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
-
