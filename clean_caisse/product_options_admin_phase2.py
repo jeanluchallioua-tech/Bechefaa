@@ -590,8 +590,8 @@ def register_product_options_admin_phase2(app, db):
     @app.get('/administration/options-produits')
     def options_admin_page():
         return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Options par produit</title><style>
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.drag-handle{cursor:grab;font-size:18px;color:#7b8490;padding:2px 5px;user-select:none}.dragging{opacity:.45}.group-title{cursor:pointer}.group-title:after{content:' ✎';font-size:12px;color:#8a94a3;font-weight:700}.max-choice-wrap{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#667085}.max-choice-wrap input{width:58px;padding:6px 7px;border:1px solid #cfd4dc;border-radius:7px;font-size:14px;text-align:center}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}.secondary{border:1px solid #111827;border-radius:10px;padding:13px 18px;background:#fff;color:#111827;font-weight:900;font-size:14px;cursor:pointer}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.price-editor{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:16px;margin-top:12px}.price-editor h3{margin:0 0 6px}.price-grid{display:grid;grid-template-columns:1fr 1.4fr 150px auto;gap:9px;align-items:end}.price-status{margin-top:10px;font-size:13px;font-weight:800}.price-status.good{color:#146c3a}.price-status.err{color:#9d261d}@media(max-width:850px){.price-grid{grid-template-columns:1fr 1fr}}@media(max-width:560px){.price-grid{grid-template-columns:1fr}}.delete-option{margin-left:auto;background:#fff0ee;color:#b42318;border:1px solid #f4b9b4;border-radius:7px;padding:4px 8px;font-weight:900;cursor:pointer}.delete-option:hover{background:#fee4e2}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
-</style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes avec ↑ / ↓.</p>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{background:#111;color:#fff;padding:15px 22px}.wrap{max-width:1180px;margin:auto;padding:24px 18px 42px}h1{margin:0 0 6px;font-size:30px}.intro{margin:0 0 18px;color:#667085}.card{background:#fff;border:1px solid #e1e4e8;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #00000008}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:220px}.category-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.catbtn{border:1px solid #cfd4dc;background:#fff;color:#20242a;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.catbtn:hover{border-color:#d6a62d;background:#fffaf0}.catbtn.active{background:#111;color:#fff;border-color:#111}label{display:block;font-weight:800;font-size:13px;margin:0 0 6px}select,input{width:100%;padding:11px;border:1px solid #cfd4dc;border-radius:9px;background:#fff;font-size:15px}.status{margin:10px 0}.ok{background:#eaf7ee;color:#146c3a;border:1px solid #cdebd8;padding:10px 12px;border-radius:9px}.bad{background:#fff0ee;color:#9d261d;border:1px solid #ffd5cf;padding:10px 12px;border-radius:9px}.groups{display:flex;flex-direction:column;gap:12px}.group{border:1px solid #dfe3e8;border-radius:12px;background:#fff;overflow:hidden}.grouphead{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafafa;border-bottom:1px solid #e8eaed}.grouphead b{font-size:17px;flex:1}.move{display:flex;gap:6px}.move button{width:38px;height:36px;border:1px solid #cfd4dc;background:#fff;border-radius:8px;font-size:18px;font-weight:900;cursor:pointer}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}.choice{display:flex;align-items:center;gap:9px;border:1px solid #e3e6ea;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-height:48px}.choice input{width:20px;height:20px;flex:0 0 auto}.choice span{font-weight:700}.choice small{margin-left:auto;color:#8a6b1a;font-weight:800}.drag-handle{cursor:grab;font-size:18px;color:#7b8490;padding:10px;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}.dragging{opacity:.45}.touch-drop-target{outline:3px solid #d99a18;outline-offset:-3px}.group-title{cursor:pointer}.group-title:after{content:' ✎';font-size:12px;color:#8a94a3;font-weight:700}.max-choice-wrap{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#667085}.max-choice-wrap input{width:58px;padding:6px 7px;border:1px solid #cfd4dc;border-radius:7px;font-size:14px;text-align:center}.choice.on{background:#fff8e5;border-color:#d9a62b}.savebar{position:sticky;bottom:10px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}.secondary{border:1px solid #111827;border-radius:10px;padding:13px 18px;background:#fff;color:#111827;font-weight:900;font-size:14px;cursor:pointer}.primary{border:0;border-radius:10px;padding:13px 20px;background:#111;color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 5px 14px #0002;transition:background .18s ease,transform .12s ease,box-shadow .18s ease}.primary:active{transform:scale(.98)}.primary.saving{background:#6b7280!important;color:#fff!important}.primary.saved{background:#15803d!important;color:#fff!important;box-shadow:0 0 0 3px rgba(21,128,61,.16),0 5px 14px #0002}.gold{background:#d99a18;color:#111}.addgrid{display:grid;grid-template-columns:1fr 1.3fr 150px auto;gap:9px;align-items:end}.hint{font-size:13px;color:#667085;line-height:1.45}.advanced{margin-top:18px}.advanced summary{cursor:pointer;font-weight:800;color:#667085}.advanced iframe{width:100%;border:0;height:720px;margin-top:10px}.price-editor{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:16px;margin-top:12px}.price-editor h3{margin:0 0 6px}.price-grid{display:grid;grid-template-columns:1fr 1.4fr 150px auto;gap:9px;align-items:end}.price-status{margin-top:10px;font-size:13px;font-weight:800}.price-status.good{color:#146c3a}.price-status.err{color:#9d261d}@media(max-width:850px){.price-grid{grid-template-columns:1fr 1fr}}@media(max-width:560px){.price-grid{grid-template-columns:1fr}}.delete-option{margin-left:auto;background:#fff0ee;color:#b42318;border:1px solid #f4b9b4;border-radius:7px;padding:4px 8px;font-weight:900;cursor:pointer}.delete-option:hover{background:#fee4e2}.empty{padding:18px;color:#667085;text-align:center}@media(max-width:850px){.options{grid-template-columns:repeat(2,minmax(0,1fr))}.addgrid{grid-template-columns:1fr 1fr}.addgrid .primary{width:100%}}@media(max-width:560px){.options{grid-template-columns:1fr}.wrap{padding:18px 10px 30px}h1{font-size:25px}.addgrid{grid-template-columns:1fr}}
+</style></head><body><div class="top"><b>BÉCHÉFAA • Options & suppléments</b></div><main class="wrap"><h1>Options par produit</h1><p class="intro">Choisissez un produit, cochez simplement les options proposées au client et classez les groupes en faisant glisser les petits traits, avec la souris ou le doigt.</p>
 <div class="card"><label>1. Choisir une catégorie</label><div id="category-buttons" class="category-buttons"></div><div class="field" style="margin-top:14px"><label>2. Choisir un produit</label><select id="product" disabled><option value="">Choisissez d’abord une catégorie…</option></select></div><div id="status" class="status"></div></div>
 <div class="card"><h2 style="margin-top:0">Ajouter une nouvelle option</h2><p class="hint">Exemple : groupe « Suppléments », nom « Double bacon », prix 3,00 €.</p><div class="addgrid"><div><label>Groupe</label><select id="add-group"></select></div><div><label>Nom</label><input id="add-name" placeholder="Double bacon"></div><div><label>Prix supplémentaire</label><input id="add-price" type="number" min="0" step="0.01" value="0.00"></div><button class="primary gold" id="add-option" type="button">Ajouter</button></div></div>
 <div class="card"><h2 style="margin-top:0">Choix proposés au client</h2><div id="groups" class="groups"><div class="empty">Choisissez d’abord un produit.</div></div><div class="savebar"><button class="secondary" id="apply-family-order" type="button" disabled>Appliquer le modèle à la catégorie</button><button class="primary" id="save" type="button" disabled>Enregistrer les options et l’ordre</button></div></div>
@@ -652,8 +652,75 @@ $('groups').addEventListener('click',async e=>{
    g.name=name;render();status('Titre renommé « '+name+' ».');
  }catch(err){status(err.message,false)}
 });
+// Native HTML drag/drop is unreliable on Android: handle touch/pen pointers explicitly.
+let touchSort=null;
+const sortContainer=$('groups');
+function clearTouchSort(){
+ const active=touchSort;touchSort=null;
+ if(active&&active.frame)cancelAnimationFrame(active.frame);
+ document.querySelectorAll('.dragging,.touch-drop-target').forEach(el=>el.classList.remove('dragging','touch-drop-target'));
+ if(active&&active.handle.hasPointerCapture(active.id))active.handle.releasePointerCapture(active.id);
+}
+function touchSortTarget(x,y){
+ const hit=document.elementFromPoint(x,y);
+ if(!hit||!touchSort)return null;
+ const target=hit.closest(touchSort.type==='group'?'[data-group-drag]':'[data-choice-drag]');
+ if(!target||!sortContainer.contains(target))return null;
+ if(touchSort.type==='choice'&&Number(target.dataset.choiceDrag.split(':')[0])!==touchSort.gi)return null;
+ return target;
+}
+function paintTouchTarget(){
+ document.querySelectorAll('.touch-drop-target').forEach(el=>el.classList.remove('touch-drop-target'));
+ const target=touchSortTarget(touchSort.x,touchSort.y);
+ if(target)target.classList.add('touch-drop-target');
+}
+function scrollTouchSort(){
+ if(!touchSort)return;
+ if(touchSort.moved){
+  const y=touchSort.y;
+  if(y<80)window.scrollBy(0,-12);
+  else if(y>window.innerHeight-80)window.scrollBy(0,12);
+  paintTouchTarget();
+ }
+ touchSort.frame=requestAnimationFrame(scrollTouchSort);
+}
+sortContainer.addEventListener('pointerdown',e=>{
+ if(e.pointerType==='mouse'||!e.isPrimary)return;
+ const handle=e.target.closest('.drag-handle');if(!handle)return;
+ const choice=handle.closest('[data-choice-drag]'),group=handle.closest('[data-group-drag]');
+ if(!group)return;
+ e.preventDefault();
+ const source=choice||group;
+ const indices=choice?choice.dataset.choiceDrag.split(':').map(Number):[Number(group.dataset.groupDrag)];
+ touchSort={id:e.pointerId,handle,source,type:choice?'choice':'group',gi:indices[0],oi:indices[1],x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};
+ handle.setPointerCapture(e.pointerId);source.classList.add('dragging');
+ touchSort.frame=requestAnimationFrame(scrollTouchSort);
+});
+sortContainer.addEventListener('pointermove',e=>{
+ if(!touchSort||touchSort.id!==e.pointerId)return;
+ e.preventDefault();touchSort.x=e.clientX;touchSort.y=e.clientY;
+ if(Math.hypot(e.clientX-touchSort.startX,e.clientY-touchSort.startY)>6)touchSort.moved=true;
+ if(touchSort.moved)paintTouchTarget();
+});
+sortContainer.addEventListener('pointerup',e=>{
+ if(!touchSort||touchSort.id!==e.pointerId)return;
+ e.preventDefault();
+ const active=touchSort,target=active.moved?touchSortTarget(e.clientX,e.clientY):null;
+ clearTouchSort();if(!target)return;
+ if(active.type==='group'){
+  const to=Number(target.dataset.groupDrag);if(to===active.gi)return;
+  groups.splice(to,0,groups.splice(active.gi,1)[0]);
+ }else{
+  const to=Number(target.dataset.choiceDrag.split(':')[1]);if(to===active.oi)return;
+  const options=groups[active.gi].options;options.splice(to,0,options.splice(active.oi,1)[0]);
+ }
+ render();status('Ordre modifié. Cliquez sur « Enregistrer les options et l’ordre ».');
+});
+sortContainer.addEventListener('pointercancel',e=>{if(touchSort&&touchSort.id===e.pointerId)clearTouchSort()});
+sortContainer.addEventListener('lostpointercapture',e=>{if(touchSort&&touchSort.id===e.pointerId)clearTouchSort()});
 let dragData=null;
 $('groups').addEventListener('dragstart',e=>{
+ if(touchSort){e.preventDefault();return}
  if(e.target.closest('input')||e.target.closest('[data-delete-option]')){e.preventDefault();return}
  const choice=e.target.closest('[data-choice-drag]');
  if(choice){const [gi,oi]=choice.dataset.choiceDrag.split(':').map(Number);dragData={type:'choice',gi,oi};choice.classList.add('dragging');e.stopPropagation();return}
@@ -755,3 +822,4 @@ $('edit-price-save').onclick=async()=>{
 };
 (async()=>{try{await Promise.all([loadProducts(),loadAddGroups()]);status('Choisissez une catégorie, puis un produit à configurer.')}catch(e){status(e.message,false)}})();
 </script></body></html>''',content_type='text/html; charset=utf-8')
+
