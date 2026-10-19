@@ -669,7 +669,7 @@ def _deliveroo_remake_view(conn, orders):
             item["platform_reference"] = refs.get(str(item["id"]), "")
         if str(item["id"]) in remake_ids:
             item["is_deliveroo_remake"] = True
-            item["customer_name"] = "Deliveroo — commande refaite"
+            item["customer_name"] = "Deliveroo"
         visible.append(item)
     return visible
 
