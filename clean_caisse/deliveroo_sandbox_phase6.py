@@ -465,6 +465,46 @@ def register_deliveroo_sandbox_phase6(app, db):
             "last_error": _last_webhooks["last_error"],
         })
 
+    @app.get("/api/deliveroo/diagnostic-doublons")
+    def deliveroo_diagnostic_doublons():
+        """Read-only sandbox webhook/order correlation; preproduction only."""
+        if os.environ.get("CC_APP_ID") != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return Response(status=404)
+        expected = (os.environ.get("BECHEFAA_CAISSE_PIN") or "").strip()
+        supplied = (request.headers.get("X-Diagnostic-Pin") or "").strip()
+        if not expected or not hmac.compare_digest(expected, supplied):
+            return jsonify({"ok": False, "error": "PIN incorrect"}), 403
+        import uuid
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""SELECT sequence_guid, order_id, received_at
+                        FROM deliveroo_sandbox_events
+                        WHERE event = 'order.new'
+                        ORDER BY received_at DESC LIMIT 40""")
+                    events = cur.fetchall()
+                    cur.execute("""SELECT id, num, created_at
+                        FROM caisse_orders WHERE source = 'DELIVEROO'
+                        ORDER BY created_at DESC LIMIT 40""")
+                    orders = cur.fetchall()
+            index = {str(o["id"]): o for o in orders}
+            rows = []
+            for e in events:
+                external = str(e["order_id"] or "")
+                pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external).hex if external else None
+                matched = index.get(pos_id)
+                rows.append({
+                    "deliveroo_order_id": external,
+                    "sequence_guid": e["sequence_guid"],
+                    "received_at_utc": e["received_at"].isoformat() if e["received_at"] else None,
+                    "ticket": matched["num"] if matched else None
+                })
+            return jsonify({"ok": True, "events": rows,
+                "tickets": [{"num": o["num"], "id": o["id"], "created_at": o["created_at"]} for o in orders]})
+        except Exception:
+            app.logger.exception("Deliveroo diagnostic read failed")
+            return jsonify({"ok": False, "error": "Lecture impossible"}), 500
+
     @app.get("/api/deliveroo/status-phase6")
     def deliveroo_status_phase6():
         client_id=(os.environ.get("BECHEFAA_DELIVEROO_CLIENT_ID") or "").strip()
