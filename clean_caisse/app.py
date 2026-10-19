@@ -623,6 +623,13 @@ def _deliveroo_remake_view(conn, orders):
     except Exception:
         app.logger.exception("Deliveroo remake grouping unavailable; preserving all orders")
         return orders
+    # Sandbox scenario 2 sends the remake ~10s after the initial order.
+    # Hold brand-new Deliveroo entries briefly so kitchen/cashier never
+    # present two successive preparation alerts for the same remake pair.
+    import time as _time
+    cutoff_ms = int(_time.time() * 1000) - 15000
+    orders = [o for o in orders if str(o.get("source") or "").upper() != "DELIVEROO"
+              or int(o.get("created_at") or 0) <= cutoff_ms]
     present = {str(o["id"]) for o in orders}
     hidden = set()
     remake_ids = set()
@@ -824,13 +831,15 @@ async function checkDeliveroo(){
  if(!r.ok||!d.ok)return;
  const orders=(d.orders||[]).filter(o=>String(o.source||'').toUpperCase()==='DELIVEROO');
  const ids=new Set(orders.map(o=>String(o.id)));
- const fresh=deliverooSeen===null?[]:orders.filter(o=>!deliverooSeen.has(String(o.id)));
+ const fresh=deliverooSeen===null
+   ? orders.filter(o=>Date.now()-Number(o.created_at||0)<90000)
+   : orders.filter(o=>!deliverooSeen.has(String(o.id)));
  deliverooSeen=ids;
  if(fresh.length){
   const banner=document.getElementById('deliveroo-alert');
   if(banner){
    banner.classList.add('visible');
-   banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>'#'+o.num).join(', ')+' • Voir la cuisine / historique';
+   banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>o.platform_reference?'réf. '+o.platform_reference:'commande Deliveroo').join(', ')+' • Voir la cuisine / historique';
   }
   soundDeliveroo();
  }
