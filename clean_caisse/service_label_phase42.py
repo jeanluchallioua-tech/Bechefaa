@@ -29,7 +29,7 @@ def register_service_label_phase42(app):
                     customer = str(order.get("customer_name") or "").strip()
                     if table_label:
                         label = table_label
-                    elif source in ("LIVRAISON", "DELIVERY"):
+                    elif source in ("LIVRAISON", "DELIVERY", "DELIVEROO", "UBER_EATS", "UBEREATS", "UBER EATS"):
                         label = customer or "Livraison"
                     else:
                         label = "À emporter"
