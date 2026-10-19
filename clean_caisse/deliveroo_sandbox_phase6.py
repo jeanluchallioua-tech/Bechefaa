@@ -497,7 +497,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -553,6 +553,18 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         })
                 signature = hashlib.sha256(json.dumps(signature_items,sort_keys=True,default=str).encode()).hexdigest()[:12]
                 rows.append({
+                    "order_fields": ", ".join(sorted(k for k in order.keys() if k in {
+                        "id", "order_id", "created_at", "placed_at", "scheduled_at",
+                        "status", "type", "fulfilment_type", "restaurant_id",
+                        "site_id", "brand_id", "reference", "display_id",
+                    })),
+                    "body_fields": ", ".join(sorted(k for k in body.keys() if k in {
+                        "order", "order_id", "id", "event_id", "timestamp",
+                        "scenario", "scenario_id", "test_id", "site_id",
+                    })),
+                    "order_status": str(order.get("status") or "")[:40],
+                    "order_type": str(order.get("type") or order.get("fulfilment_type") or "")[:40],
+                    "order_created_at": str(order.get("created_at") or order.get("placed_at") or "")[:50],
                     "item_count": len(items),
                     "item_signature": signature,
                     "event_type": str(payload.get("event") or "") if isinstance(payload, dict) else "",
