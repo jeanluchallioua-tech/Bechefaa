@@ -426,7 +426,10 @@ $("newClient").onclick=()=>$("clientModal").classList.remove("hidden");$("closeC
  const address=$("caddress").value.trim();
  const postalCode=$("cpostal")?.value.trim()||"";
  const city=$("ccity")?.value.trim()||"";
- if(!name||!phone)return alert("Nom et téléphone requis.");
+ if(!name||!firstName)return alert("Nom et prénom requis.");
+ // En caisse (à emporter), les coordonnées complémentaires sont facultatives.
+ // Pour les autres canaux, conserver la validation du téléphone existante.
+ if(ch!=="CAISSE"&&!phone)return alert("Téléphone requis.");
  const fullName=(name+" "+firstName).trim();
  const c={id:Date.now(),name:fullName,lastName:name,firstName,phone,email,address,postalCode,city};
  clients.unshift(c);saveC();rClients();
