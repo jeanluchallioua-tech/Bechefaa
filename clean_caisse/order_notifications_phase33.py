@@ -151,6 +151,15 @@ def register_order_notifications_phase33(app):
  window.addEventListener('focus',retryUnlockIfAllowed);
  document.addEventListener('visibilitychange',function(){if(!document.hidden)retryUnlockIfAllowed();});
 
+ let siteNoticeTimer=null;
+ function scheduleSiteNoticeDismiss(el){
+   if(siteNoticeTimer)clearTimeout(siteNoticeTimer);
+   siteNoticeTimer=setTimeout(()=>{
+     el.classList.remove('show');
+     try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}
+     siteNoticeTimer=null;
+   },8000);
+ }
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
@@ -163,6 +172,7 @@ def register_order_notifications_phase33(app):
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
    el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE SITE — ')+name+' • '+mode;
    el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
+   scheduleSiteNoticeDismiss(el);
    if(!simulation){try{sessionStorage.setItem(PENDING_NOTICE,JSON.stringify({order:{id:order.id,customer_name:order.customer_name,ticket_type:order.ticket_type},at:Date.now()}))}catch(_){}}
  }
 
