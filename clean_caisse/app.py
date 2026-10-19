@@ -872,3 +872,70 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+# Import ponctuel du catalogue uniquement sur l'application de préproduction.
+# Le verrou par identifiant d'application empêche l'activation sur la caisse originale.
+@app.route("/preproduction/catalog/import", methods=["GET", "POST"])
+def preproduction_catalog_import():
+    import hmac
+    from html import escape
+    if os.getenv("CC_APP_ID", "") != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+        return jsonify({"error": "Indisponible hors préproduction"}), 404
+    if request.method == "GET":
+        page = """<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Import catalogue préproduction</title>
+        <body style="font:16px system-ui;max-width:600px;margin:45px auto;padding:16px">
+        <h2>BÉCHÉFAA — Import catalogue (préproduction)</h2>
+        <p>Importer uniquement le catalogue. Aucune commande ni fiche client n'est transférée.</p>
+        <form method="post" enctype="multipart/form-data">
+        <p><label>Code PIN de préproduction <input name="pin" type="password" required autocomplete="off"></label></p>
+        <p><label>Fichier catalogue-bechefaa.json <input name="catalogue" type="file" accept=".json,application/json" required></label></p>
+        <button type="submit">Importer le catalogue</button></form></body></html>"""
+        return Response(page, content_type="text/html; charset=utf-8")
+    expected = os.getenv("BECHEFAA_CAISSE_PIN", "")
+    submitted = request.form.get("pin", "")
+    if not expected or not hmac.compare_digest(submitted, expected):
+        return jsonify({"error": "PIN de préproduction incorrect"}), 403
+    uploaded = request.files.get("catalogue")
+    if not uploaded:
+        return jsonify({"error": "Fichier JSON manquant"}), 400
+    raw = uploaded.read(30 * 1024 * 1024 + 1)
+    if len(raw) > 30 * 1024 * 1024:
+        return jsonify({"error": "Fichier trop volumineux (maximum 30 Mo)"}), 413
+    try:
+        payload = json.loads(raw.decode("utf-8-sig"))
+        data = payload.get("data") if isinstance(payload, dict) and "data" in payload else payload
+        if not isinstance(data, dict):
+            raise ValueError("Objet catalogue manquant")
+        categories, products = data.get("categories"), data.get("products")
+        if not isinstance(categories, list) or not isinstance(products, list) or not categories or not products:
+            raise ValueError("Catégories ou produits absents")
+        if any(not isinstance(x, dict) or not str(x.get("id", "")).strip() for x in products):
+            raise ValueError("Identifiant produit invalide")
+        ids = [str(x["id"]) for x in products]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Identifiants produits dupliqués")
+    except (UnicodeError, ValueError, TypeError) as exc:
+        return jsonify({"error": "Catalogue invalide", "detail": str(exc)}), 400
+    now = int(time.time() * 1000)
+    with db() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS catalog_admin_v2 (
+            id INTEGER PRIMARY KEY CHECK (id=1),
+            data_json JSONB NOT NULL,
+            updated_at BIGINT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS catalog_admin_v2_import_backup (
+            backed_up_at BIGINT NOT NULL,
+            data_json JSONB NOT NULL,
+            updated_at BIGINT NOT NULL
+        )""")
+        conn.execute("""INSERT INTO catalog_admin_v2_import_backup(backed_up_at,data_json,updated_at)
+            SELECT %s,data_json,updated_at FROM catalog_admin_v2 WHERE id=1""", (now,))
+        conn.execute("""INSERT INTO catalog_admin_v2(id,data_json,updated_at)
+            VALUES(1,%s::jsonb,%s)
+            ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,updated_at=excluded.updated_at""",
+            (json.dumps(data, ensure_ascii=False), now))
+    with _catalog_read_lock:
+        _catalog_read_cache.update(version=None, json=None)
+    return jsonify({"ok": True, "environment": "preproduction",
+                    "categories": len(categories), "products": len(products),
+                    "updatedAt": now})
