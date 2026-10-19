@@ -161,6 +161,78 @@ def register_deliveroo_sandbox_phase6(app, db):
                 ))
             conn.commit()
 
+    def _bridge_order_new(payload):
+        """Import an order.new into the isolated preproduction POS, once per Deliveroo ID.
+
+        Opt-in only: no production writes and no kitchen printing until validated.
+        """
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return "not_preproduction"
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
+            return "disabled"
+        body = payload.get("body") if isinstance(payload, dict) else None
+        order = body.get("order") if isinstance(body, dict) else None
+        if not isinstance(order, dict):
+            raise ValueError("order.new missing body.order")
+        external_id = str(order.get("id") or order.get("order_id") or "").strip()
+        if not external_id:
+            raise ValueError("order.new missing order id")
+        items = order.get("items")
+        if not isinstance(items, list) or not items:
+            raise ValueError("order.new missing items")
+        from decimal import Decimal
+        import time
+        import uuid
+        from clean_caisse.app import ensure_order_schema
+        normalized = []
+        total = Decimal("0")
+        for position, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError("invalid order item")
+            name = str(item.get("name") or "").strip()
+            qty = int(item.get("quantity") or 0)
+            price = item.get("total_price")
+            fractional = price.get("fractional") if isinstance(price, dict) else None
+            if not name or qty <= 0 or fractional is None:
+                raise ValueError("order item missing name/quantity/total_price")
+            amount = Decimal(str(fractional)) / Decimal("100")
+            if amount < 0:
+                raise ValueError("negative item price")
+            modifiers = item.get("modifiers") or []
+            if not isinstance(modifiers, list):
+                raise ValueError("invalid modifiers")
+            options = []
+            for modifier in modifiers:
+                if isinstance(modifier, dict):
+                    label = str(modifier.get("name") or "").strip()
+                    if label:
+                        options.append({"name": label, "plu": str(modifier.get("pos_item_id") or "")})
+            unit = amount / qty
+            normalized.append((str(item.get("pos_item_id") or ""), name, qty, unit, options, position))
+            total += amount
+        now = int(time.time() * 1000)
+        pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
+        with db() as conn:
+            with conn.transaction():
+                ensure_order_schema(conn)
+                conn.execute("LOCK TABLE caisse_orders IN EXCLUSIVE MODE")
+                existing = conn.execute("SELECT id FROM caisse_orders WHERE id=%s", (pos_id,)).fetchone()
+                if existing:
+                    return "duplicate"
+                num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
+                conn.execute("""INSERT INTO caisse_orders
+                    (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at)
+                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','Enregistrée',%s,%s,%s)""",
+                    (pos_id,num,"Client Deliveroo",total,now,now))
+                for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
+                    conn.execute("""INSERT INTO caisse_order_items
+                        (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,FALSE,%s)""",
+                        (pos_id,str(position),plu or None,name,qty,unit,
+                         json.dumps(options,ensure_ascii=False),
+                         " • ".join(o["name"] for o in options),position))
+        return "created"
+
     def _send_sync_status(order_id):
         token=_oauth_token()
         api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
@@ -244,6 +316,14 @@ def register_deliveroo_sandbox_phase6(app, db):
                     except Exception:
                         sync_error=str(exc)[:300]
                     app.logger.exception("Deliveroo sync status failed order=%s: %s", order_id, exc)
+
+        if kind=="orders" and event.strip().lower()=="order.new":
+            try:
+                bridge_result=_bridge_order_new(payload)
+                app.logger.info("Deliveroo preproduction bridge result=%s order=%s",bridge_result,order_id)
+            except Exception as exc:
+                app.logger.exception("Deliveroo preproduction order bridge failed: %s",exc)
+                return Response(status=500)
 
         _last_webhooks["last_error"]=None
         _persist_diag(kind, accepted=True, error=None, event=event, guid=guid, payload_type=payload_type, version=version)
