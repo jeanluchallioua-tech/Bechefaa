@@ -132,6 +132,9 @@ def db():
 
 
 def ensure_order_schema(conn):
+    # Serialize schema initialization across concurrent uWSGI workers.
+    # Transaction-scoped lock is released on commit/rollback by the caller.
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (2026101901,))
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_clients (
         id TEXT PRIMARY KEY,
         first_name TEXT NOT NULL DEFAULT '',
