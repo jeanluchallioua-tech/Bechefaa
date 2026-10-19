@@ -630,7 +630,10 @@ def _deliveroo_remake_view(conn, orders):
     cutoff_ms = int(_time.time() * 1000) - 15000
     orders = [o for o in orders if str(o.get("source") or "").upper() != "DELIVEROO"
               or int(o.get("created_at") or 0) <= cutoff_ms]
-    present = {str(o["id"]) for o in orders}
+    # Suppress the original as soon as its linked remake webhook exists,
+    # even while the replacement is inside the 15-second presentation hold.
+    # Checking only visible children briefly exposed the original and then
+    # its replacement as two successive operational kitchen orders.
     hidden = set()
     remake_ids = set()
     for event in events:
@@ -640,9 +643,8 @@ def _deliveroo_remake_view(conn, orders):
             continue
         child_pos = "deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, child).hex
         parent_pos = "deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, parent).hex
-        if child_pos in present:
-            remake_ids.add(child_pos)
-            hidden.add(parent_pos)
+        remake_ids.add(child_pos)
+        hidden.add(parent_pos)
     refs = {}
     for event in events:
         child = str(event["order_id"] or "").strip()
