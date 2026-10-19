@@ -465,6 +465,44 @@ def register_deliveroo_sandbox_phase6(app, db):
             "last_error": _last_webhooks["last_error"],
         })
 
+    @app.get("/api/deliveroo/diagnostic-doublons-page")
+    def deliveroo_diagnostic_page():
+        """Small preproduction-only UI; PIN stays in the browser."""
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED") != "1":
+            return Response(status=404)
+        from flask import render_template_string
+        return render_template_string("""
+<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnostic Deliveroo — Préproduction</title>
+<style>body{font-family:system-ui,sans-serif;max-width:850px;margin:35px auto;padding:0 18px;color:#193342}
+input,button{font:inherit;padding:12px;border-radius:8px}button{background:#143d53;color:white;border:0;cursor:pointer}
+input{border:1px solid #aaa}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6f8;padding:16px;border-radius:8px}
+table{border-collapse:collapse;width:100%}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left}
+small{color:#53636c}</style></head><body>
+<h1>Diagnostic Deliveroo</h1><p>Préproduction uniquement — consultation en lecture seule.</p>
+<form id="form"><label for="pin">PIN de la caisse</label>
+<input id="pin" type="password" autocomplete="off" required>
+<button type="submit">Afficher le diagnostic</button></form>
+<p id="state" role="status"></p><div id="result"></div>
+<script>
+const form=document.getElementById('form'),state=document.getElementById('state'),out=document.getElementById('result');
+function cell(row,value){const td=document.createElement('td');td.textContent=value==null?'—':String(value);row.appendChild(td)}
+function table(title,rows,columns){const h=document.createElement('h2');h.textContent=title;out.appendChild(h);
+const t=document.createElement('table'),head=document.createElement('tr');
+columns.forEach(c=>{const th=document.createElement('th');th.textContent=c[0];head.appendChild(th)});t.appendChild(head);
+rows.forEach(item=>{const tr=document.createElement('tr');columns.forEach(c=>cell(tr,item[c[1]]));t.appendChild(tr)});out.appendChild(t)}
+form.addEventListener('submit',async e=>{e.preventDefault();out.replaceChildren();state.textContent='Chargement…';
+const pin=document.getElementById('pin').value;document.getElementById('pin').value='';
+try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
+const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
+state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket']]);
+table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
+}catch(err){state.textContent='Erreur de chargement : '+err.message}});
+</script></body></html>
+""")
+
     @app.get("/api/deliveroo/diagnostic-doublons")
     def deliveroo_diagnostic_doublons():
         """Read-only sandbox webhook/order correlation; preproduction only."""
