@@ -819,7 +819,7 @@ function soundDeliveroo(){
    const o=deliverooAudio.createOscillator(),g=deliverooAudio.createGain(),at=t+i*.2;
    o.type='sine';o.frequency.value=hz;
    g.gain.setValueAtTime(.0001,at);
-   g.gain.exponentialRampToValueAtTime(.18,at+.025);
+   g.gain.exponentialRampToValueAtTime(.48,at+.025);
    g.gain.exponentialRampToValueAtTime(.0001,at+.17);
    o.connect(g);g.connect(deliverooAudio.destination);o.start(at);o.stop(at+.18);
   });
