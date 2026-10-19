@@ -172,6 +172,10 @@ def ensure_order_schema(conn):
         updated_at BIGINT NOT NULL,
         modified_at BIGINT NULL
     )""")
+    # Minimal compatibility for history queries on a fresh preproduction database.
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'RESTO'")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS cancellation_hidden BOOLEAN NOT NULL DEFAULT FALSE")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS offline_sync_key TEXT NULL")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_number INTEGER NULL")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS table_label TEXT NULL")
