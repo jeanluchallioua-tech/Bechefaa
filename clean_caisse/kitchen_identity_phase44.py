@@ -30,7 +30,7 @@ def register_kitchen_identity_phase44(app):
   let channel=String(o.sales_channel||'').toUpperCase();
   let customer=String(o.customer_name||'').trim();
   let generic=/^client\s+(comptoir|livraison)$/i.test(customer);
-  if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
+  if(source==='DELIVEROO')return 'LIVRAISON — DELIVEROO'+(o.platform_reference?' · Réf. '+o.platform_reference:'');\n  if(source==='UBER_EATS'||source==='UBEREATS'||source==='UBER EATS')return 'LIVRAISON — UBER EATS';\n  if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
   if(channel==='SITE'&&!generic&&customer)return customer;
   return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
 }
