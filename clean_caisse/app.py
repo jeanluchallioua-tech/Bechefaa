@@ -730,7 +730,30 @@ def pos():
 *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#17191c}.top{min-height:64px;background:#111827;color:white;display:flex;align-items:center;padding:10px 22px;gap:10px;flex-wrap:wrap}.top b{font-size:22px}.status{font-size:13px}.navlink{color:white;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:700;font-size:13px}.navlink.active{background:#14804a}.navspacer{flex:1}.layout{display:grid;grid-template-columns:190px 1fr 370px;height:calc(100vh - 64px)}.cats{background:#fff;border-right:1px solid #ddd;padding:12px;overflow:auto}.cat{width:100%;padding:13px 10px;margin:4px 0;border:0;border-radius:8px;background:#f0f1f3;text-align:left;font-weight:700;cursor:pointer}.cat.active{background:#111827;color:#fff}.main{padding:18px;overflow:auto}.title{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}.product{background:#fff;border:1px solid #ddd;border-radius:12px;padding:14px;min-height:118px;cursor:pointer;display:flex;flex-direction:column}.product:hover{box-shadow:0 2px 10px #0002}.product-photo{width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:10px}.name{font-weight:800;font-size:16px}.meta{font-size:12px;color:#666;margin-top:7px}.price{font-size:20px;font-weight:800;margin-top:auto;padding-top:10px}.cart{background:#fff;border-left:1px solid #ddd;padding:18px;overflow:auto}.cart h2{margin:0 0 10px}.empty{color:#777;padding:24px 0;text-align:center}.badge{font-size:11px;background:#e8eefc;border-radius:20px;padding:4px 8px;margin-top:8px;display:inline-block;width:max-content}.note{font-size:12px;color:#666;margin-top:20px;border-top:1px solid #eee;padding-top:12px}.opt-group{border-top:1px solid #eee;padding-top:12px;margin-top:12px}.opt-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:7px}.opt-head b{display:block}.rule{font-size:11px;color:#777}.opt-value{width:100%;font-size:13px;background:#f4f5f7;border:1px solid #e3e5e8;border-radius:8px;padding:9px;margin:5px 0;cursor:pointer;text-align:left;display:flex;justify-content:space-between;gap:8px}.opt-value:hover{background:#eceff3}.opt-value.selected{background:#111827;color:#fff;border-color:#111827}.selection-summary{background:#f7f8fa;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px}.selection-summary b{display:block;margin-bottom:5px}.selection-price{font-size:18px;font-weight:800;margin-top:8px}.action{width:100%;border:0;border-radius:9px;padding:12px 10px;font-weight:800;cursor:pointer}.add{background:#111827;color:white;margin-top:12px}.save{background:#14804a;color:white;margin-top:12px}.kitchen{background:#d97706;color:white;margin-top:10px}.order-box{border-top:2px solid #111827;margin-top:18px;padding-top:16px}.order-line{border-bottom:1px solid #eee;padding:9px 0}.order-line-head{display:flex;justify-content:space-between;gap:8px;font-weight:700}.order-opts{font-size:11px;color:#666;margin-top:4px}.remove{border:0;background:transparent;color:#b42318;cursor:pointer;padding:3px 0;font-size:12px}.order-total{display:flex;justify-content:space-between;font-size:20px;font-weight:800;margin-top:12px}.success{background:#e8f7ee;border:1px solid #b9e2c8;border-radius:9px;padding:10px;margin:10px 0;font-size:13px}.error{background:#fff0ee;border:1px solid #f3c0ba;border-radius:9px;padding:10px;margin:10px 0;font-size:13px;color:#9d261d}.deliveroo-alert{display:none;background:#00CCBC;color:#063a37;padding:12px 20px;font-weight:900;border-bottom:3px solid #008f86}.deliveroo-alert.visible{display:block}.deliveroo-alert a{color:#063a37;text-decoration:underline}.ticket-choice{display:flex;gap:8px;margin:8px 0 12px}.ticket-choice button{flex:1;border:1px solid #ccd1d8;background:#fff;border-radius:8px;padding:9px;cursor:pointer;font-weight:700}.ticket-choice button.active{background:#111827;color:#fff;border-color:#111827}@media(max-width:900px){.layout{grid-template-columns:150px 1fr}.cart{display:none}}
 </style></head><body><div class="top"><b>BÉCHÉFAA-Caisse</b><a class="navlink active" href="/pos">Caisse</a><a class="navlink" href="/cuisine">Cuisine</a><a class="navlink" href="/historique">Historique</a><span class="navspacer"></span><span class="status" id="status">Chargement…</span></div><div class="deliveroo-alert" id="deliveroo-alert" role="status" aria-live="polite"></div><div class="layout"><aside class="cats" id="cats"></aside><main class="main"><div class="title"><h2 id="title">Catalogue</h2><span id="count"></span></div><div class="grid" id="grid"></div></main><aside class="cart"><h2 id="side-title">Options produit</h2><div class="ticket-choice"><button class="active" data-ticket="Comptoir">Comptoir</button><button data-ticket="Livraison">Livraison</button></div><div id="options"><div class="empty">Cliquez sur un produit pour sélectionner ses options.</div></div><div class="order-box"><h2>Commande</h2><div id="order-message"></div><div id="order"><div class="empty">Commande vide</div></div></div><div class="note">Phase 1 • Étape 4A : accès <b>Cuisine</b> et <b>Historique</b>. Les commandes restent uniquement dans PostgreSQL.</div></aside></div>
 <script>
-let deliverooSeen=null;
+let deliverooSeen=null,deliverooAudio=null;
+function unlockDeliverooAudio(){
+ try{
+  deliverooAudio=deliverooAudio||new (window.AudioContext||window.webkitAudioContext)();
+  if(deliverooAudio.state==='suspended')deliverooAudio.resume();
+ }catch(e){console.warn('Audio Deliveroo indisponible',e)}
+}
+document.addEventListener('pointerdown',unlockDeliverooAudio,{passive:true});
+document.addEventListener('keydown',unlockDeliverooAudio);
+function soundDeliveroo(){
+ try{
+  unlockDeliverooAudio();
+  if(!deliverooAudio||deliverooAudio.state!=='running')return;
+  const t=deliverooAudio.currentTime;
+  [880,1175,880].forEach((hz,i)=>{
+   const o=deliverooAudio.createOscillator(),g=deliverooAudio.createGain(),at=t+i*.2;
+   o.type='sine';o.frequency.value=hz;
+   g.gain.setValueAtTime(.0001,at);
+   g.gain.exponentialRampToValueAtTime(.18,at+.025);
+   g.gain.exponentialRampToValueAtTime(.0001,at+.17);
+   o.connect(g);g.connect(deliverooAudio.destination);o.start(at);o.stop(at+.18);
+  });
+ }catch(e){console.warn('Son Deliveroo',e)}
+}
 async function checkDeliveroo(){
  try{
  const r=await fetch('/api/orders/history',{cache:'no-store'}),d=await r.json();
@@ -740,9 +763,12 @@ async function checkDeliveroo(){
  const fresh=deliverooSeen===null?[]:orders.filter(o=>!deliverooSeen.has(String(o.id)));
  deliverooSeen=ids;
  if(fresh.length){
- const banner=document.getElementById('deliveroo-alert');
- banner.classList.add('visible');
- banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>'#'+o.num).join(', ')+' • Voir la cuisine / historique';
+  const banner=document.getElementById('deliveroo-alert');
+  if(banner){
+   banner.classList.add('visible');
+   banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>'#'+o.num).join(', ')+' • Voir la cuisine / historique';
+  }
+  soundDeliveroo();
  }
  }catch(e){console.warn('Deliveroo history check',e)}
 }
