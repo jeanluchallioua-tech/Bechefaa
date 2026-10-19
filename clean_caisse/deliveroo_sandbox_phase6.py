@@ -497,7 +497,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -516,7 +516,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
         try:
             with db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""SELECT sequence_guid, order_id, received_at
+                    cur.execute("""SELECT sequence_guid, order_id, received_at, payload
                         FROM deliveroo_sandbox_events
                         WHERE event = 'order.new'
                         ORDER BY received_at DESC LIMIT 40""")
@@ -531,7 +531,31 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                 external = str(e["order_id"] or "")
                 pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external).hex if external else None
                 matched = index.get(pos_id)
+                payload = e.get("payload") or {}
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                body = payload.get("body") if isinstance(payload, dict) else {}
+                order = body.get("order") if isinstance(body, dict) else {}
+                if not isinstance(order, dict):
+                    order = {}
+                items = order.get("items") or []
+                if not isinstance(items, list):
+                    items = []
+                # Hash of item structure only, never expose names, addresses or payload.
+                signature_items = []
+                for item in items:
+                    if isinstance(item, dict):
+                        modifiers = item.get("modifiers") or []
+                        signature_items.append({
+                            "quantity": item.get("quantity"),
+                            "total_price": item.get("total_price"),
+                            "modifier_count": len(modifiers) if isinstance(modifiers, list) else 0,
+                        })
+                signature = hashlib.sha256(json.dumps(signature_items,sort_keys=True,default=str).encode()).hexdigest()[:12]
                 rows.append({
+                    "item_count": len(items),
+                    "item_signature": signature,
+                    "event_type": str(payload.get("event") or "") if isinstance(payload, dict) else "",
                     "deliveroo_order_id": external,
                     "sequence_guid": e["sequence_guid"],
                     "received_at_utc": e["received_at"].isoformat() if e["received_at"] else None,
