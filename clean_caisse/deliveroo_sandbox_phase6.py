@@ -468,7 +468,7 @@ def register_deliveroo_sandbox_phase6(app, db):
     @app.get("/api/deliveroo/diagnostic-doublons")
     def deliveroo_diagnostic_doublons():
         """Read-only sandbox webhook/order correlation; preproduction only."""
-        if os.environ.get("CC_APP_ID") != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED") != "1":
             return Response(status=404)
         expected = (os.environ.get("BECHEFAA_CAISSE_PIN") or "").strip()
         supplied = (request.headers.get("X-Diagnostic-Pin") or "").strip()
