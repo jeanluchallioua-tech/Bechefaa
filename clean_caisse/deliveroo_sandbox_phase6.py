@@ -497,11 +497,32 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
 """)
+
+    def _diagnostic_field_paths(root, keywords):
+        """Field names only: never return values or customer-identifying data."""
+        found = set()
+        def visit(value, prefix="", depth=0):
+            if depth > 4 or len(found) >= 80:
+                return
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    key = str(key)
+                    path = (prefix + "." + key) if prefix else key
+                    if any(term in key.lower() for term in keywords):
+                        found.add(path[:120])
+                    if isinstance(child, (dict, list)):
+                        visit(child, path, depth + 1)
+            elif isinstance(value, list):
+                for child in value[:2]:
+                    if isinstance(child, (dict, list)):
+                        visit(child, prefix + "[]", depth + 1)
+        visit(root)
+        return found
 
     @app.get("/api/deliveroo/diagnostic-doublons")
     def deliveroo_diagnostic_doublons():
@@ -570,6 +591,8 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                     "order_status": str(order.get("status") or "")[:40],
                     "order_type": str(order.get("type") or order.get("fulfilment_type") or "")[:40],
                     "order_created_at": str(order.get("created_at") or order.get("placed_at") or "")[:50],
+                    "customer_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("customer", "consumer", "recipient", "contact", "name", "phone", "first_name", "last_name", "telephone", "mobile", "email")))),
+                    "delivery_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("delivery", "address", "postcode", "postal_code", "city", "instructions", "notes", "fulfilment", "location", "street", "building", "apartment")))),
                     "item_count": len(items),
                     "item_signature": signature,
                     "event_type": str(payload.get("event") or "") if isinstance(payload, dict) else "",
