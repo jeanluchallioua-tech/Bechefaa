@@ -222,7 +222,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
                 conn.execute("""INSERT INTO caisse_orders
                     (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at)
-                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','Enregistrée',%s,%s,%s)""",
+                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
                     (pos_id,num,"Client Deliveroo",total,now,now))
                 for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
