@@ -605,6 +605,48 @@ def send_order_to_kitchen_classic(order_id):
     return redirect("/epson/print-order-pack/" + str(order_id), code=303)
 
 
+def _deliveroo_remake_view(conn, orders):
+    """Preproduction-only presentation grouping; never changes stored orders."""
+    import os as _os
+    import uuid as _uuid
+    if _os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+        return orders
+    if _os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED") != "1":
+        return orders
+    try:
+        events = conn.execute("""
+            SELECT order_id, payload #>> '{body,order,remake_details,parent_order_id}' AS parent_id
+            FROM deliveroo_sandbox_events
+            WHERE event='order.new'
+              AND payload #>> '{body,order,remake_details,parent_order_id}' IS NOT NULL
+        """).fetchall()
+    except Exception:
+        app.logger.exception("Deliveroo remake grouping unavailable; preserving all orders")
+        return orders
+    present = {str(o["id"]) for o in orders}
+    hidden = set()
+    remake_ids = set()
+    for event in events:
+        child = str(event["order_id"] or "").strip()
+        parent = str(event["parent_id"] or "").strip()
+        if not child or not parent or child == parent:
+            continue
+        child_pos = "deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, child).hex
+        parent_pos = "deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, parent).hex
+        if child_pos in present:
+            remake_ids.add(child_pos)
+            hidden.add(parent_pos)
+    visible = []
+    for item in orders:
+        if str(item["id"]) in hidden:
+            continue
+        if str(item["id"]) in remake_ids:
+            item["is_deliveroo_remake"] = True
+            item["customer_name"] = "Deliveroo — commande refaite"
+        visible.append(item)
+    return visible
+
+
 @app.get("/api/orders/history")
 def orders_history():
     try:
@@ -664,6 +706,7 @@ def orders_history():
                 "updated_at": row["updated_at"],
                 "items": items_by_order.get(row["id"], []),
             } for row in rows]
+            orders = _deliveroo_remake_view(conn, orders)
     except Exception as exc:
         return jsonify({"ok": False, "error": "Historique indisponible", "detail": str(exc)}), 500
     return jsonify({"ok": True, "orders": orders, "count": len(orders)})
@@ -683,6 +726,7 @@ def kitchen_orders():
                    LIMIT 100"""
             ).fetchall()
             orders = [order_payload(conn, row) for row in rows]
+            orders = _deliveroo_remake_view(conn, orders)
     except Exception as exc:
         return jsonify({"ok": False, "error": "Cuisine indisponible", "detail": str(exc)}), 500
     return jsonify({"ok": True, "orders": orders, "count": len(orders)})
