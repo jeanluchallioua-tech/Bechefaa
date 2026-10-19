@@ -229,8 +229,8 @@ def load_catalog():
 
 def ticket_type(source):
     value = str(source or "").upper()
-    if value == "DELIVEROO":
-        return "Deliveroo"
+    if value in {"DELIVEROO", "UBER_EATS", "UBEREATS", "UBER EATS"}:
+        return "Livraison"
     if value in {"LIVRAISON", "DELIVERY"}:
         return "Livraison"
     if value in {"SALLE", "SUR PLACE", "SUR_PLACE"}:
@@ -636,10 +636,30 @@ def _deliveroo_remake_view(conn, orders):
         if child_pos in present:
             remake_ids.add(child_pos)
             hidden.add(parent_pos)
+    refs = {}
+    for event in events:
+        child = str(event["order_id"] or "").strip()
+        if child:
+            refs["deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, child).hex] = child
+    try:
+        display_rows = conn.execute("""
+            SELECT order_id, payload #>> '{body,order,display_id}' AS display_id
+            FROM deliveroo_sandbox_events WHERE event='order.new'
+        """).fetchall()
+        for event in display_rows:
+            external = str(event["order_id"] or "").strip()
+            if external:
+                refs["deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, external).hex] = str(event["display_id"] or "").strip()
+    except Exception:
+        app.logger.exception("Deliveroo display references unavailable")
     visible = []
     for item in orders:
         if str(item["id"]) in hidden:
             continue
+        if str(item.get("source") or "").upper() == "DELIVEROO":
+            item["ticket_type"] = "Livraison"
+            item["platform"] = "Deliveroo"
+            item["platform_reference"] = refs.get(str(item["id"]), "")
         if str(item["id"]) in remake_ids:
             item["is_deliveroo_remake"] = True
             item["customer_name"] = "Deliveroo — commande refaite"
@@ -950,7 +970,7 @@ document.addEventListener('pointerdown',()=>{try{audioCtx=audioCtx||new (window.
 async function load(){try{let r=await fetch('/api/kitchen/orders',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');const ids=new Set(d.orders.filter(o=>String(o.source||'').toUpperCase()==='DELIVEROO').map(o=>String(o.id)));
 if(seenDeliveroo!==null && [...ids].some(id=>!seenDeliveroo.has(id)))deliverooTone();
 seenDeliveroo=ids;
-document.getElementById('count').textContent=d.count+' commande(s)';document.getElementById('error').innerHTML='';document.getElementById('grid').innerHTML=d.orders.length?d.orders.map(o=>`<article class="ticket ${String(o.source||'').toUpperCase()==='DELIVEROO'?'deliveroo':''}"><div class="head"><div><div class="num">#${esc(o.num)}</div><div class="meta">${esc(clock(o.updated_at))} • ${esc(o.status)}</div></div><span class="kind">${String(o.source||'').toUpperCase()==='DELIVEROO'?'DELIVEROO':esc(o.ticket_type)}</span></div><div class="items">${o.items.map(i=>`<div class="item"><b>${esc(i.qty)} × ${esc(i.name)}</b>${i.options_text?`<div class="opts">${esc(i.options_text)}</div>`:''}</div>`).join('')}</div></article>`).join(''):'<div class="empty">Aucune commande à préparer.</div>'}catch(e){document.getElementById('error').innerHTML=`<div class="error">Cuisine indisponible : ${esc(e.message)}</div>`}}load();setInterval(load,5000);
+document.getElementById('count').textContent=d.count+' commande(s)';document.getElementById('error').innerHTML='';document.getElementById('grid').innerHTML=d.orders.length?d.orders.map(o=>`<article class="ticket ${String(o.source||'').toUpperCase()==='DELIVEROO'?'deliveroo':''}"><div class="head"><div><div class="num">${o.platform_reference?'Réf. '+esc(o.platform_reference):''}</div><div class="meta">${esc(clock(o.updated_at))} • ${esc(o.status)}</div></div><span class="kind">${String(o.source||'').toUpperCase()==='DELIVEROO'?'DELIVEROO':esc(o.ticket_type)}</span></div><div class="items">${o.items.map(i=>`<div class="item"><b>${esc(i.qty)} × ${esc(i.name)}</b>${i.options_text?`<div class="opts">${esc(i.options_text)}</div>`:''}</div>`).join('')}</div></article>`).join(''):'<div class="empty">Aucune commande à préparer.</div>'}catch(e){document.getElementById('error').innerHTML=`<div class="error">Cuisine indisponible : ${esc(e.message)}</div>`}}load();setInterval(load,5000);
 </script></body></html>'''
     return Response(html, content_type="text/html; charset=utf-8")
 
@@ -962,7 +982,7 @@ def historique():
 </style></head><body><div class="top"><b>BÉCHÉFAA • HISTORIQUE</b><a class="navlink" href="/pos">Caisse</a><a class="navlink" href="/cuisine">Cuisine</a><a class="navlink active" href="/historique">Historique</a><span class="spacer"></span><span id="count">Chargement…</span></div><div class="wrap"><div class="filters"><button class="filter active" data-filter="Tous">Tous</button><button class="filter" data-filter="Comptoir">Comptoir</button><button class="filter" data-filter="Livraison">Livraison</button><button class="filter" data-filter="Deliveroo">Deliveroo</button></div><div id="error"></div><div class="table"><div class="row head"><span>N°</span><span>Date / heure</span><span>Type</span><span class="hide-sm">Ticket</span><span>Statut</span><span>Total</span></div><div id="rows"></div></div></div><script>
 let ORDERS=[],FILTER='Tous';const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function dt(ms){if(!ms)return '';return new Date(Number(ms)).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
-function render(){let data=ORDERS.filter(o=>FILTER==='Tous'||o.ticket_type===FILTER);document.getElementById('count').textContent=data.length+' ticket(s)';document.getElementById('rows').innerHTML=data.length?data.map(o=>`<div class="row ${String(o.source||'').toUpperCase()==='DELIVEROO'?'deliveroo':''}"><span class="num">#${esc(o.num)}</span><span>${esc(dt(o.created_at))}</span><span class="kind">${esc(o.ticket_type)}</span><span class="hide-sm"><b class="customer">${esc(o.customer_name)}</b><div class="items">${esc(o.items.map(i=>i.qty+'× '+i.name).join(' • '))}</div></span><span class="status">${esc(o.status)}</span><span class="total">${Number(o.total||0).toFixed(2).replace('.',',')} €</span></div>`).join(''):'<div class="empty">Aucun ticket dans cette catégorie.</div>'}
+function render(){let data=ORDERS.filter(o=>FILTER==='Tous'||o.ticket_type===FILTER);document.getElementById('count').textContent=data.length+' ticket(s)';document.getElementById('rows').innerHTML=data.length?data.map(o=>`<div class="row ${String(o.source||'').toUpperCase()==='DELIVEROO'?'deliveroo':''}"><span class="num">${o.platform_reference?'Réf. '+esc(o.platform_reference):''}</span><span>${esc(dt(o.created_at))}</span><span class="kind">${esc(o.ticket_type)}</span><span class="hide-sm"><b class="customer">${esc(o.customer_name)}</b><div class="items">${esc(o.items.map(i=>i.qty+'× '+i.name).join(' • '))}</div></span><span class="status">${esc(o.status)}</span><span class="total">${Number(o.total||0).toFixed(2).replace('.',',')} €</span></div>`).join(''):'<div class="empty">Aucun ticket dans cette catégorie.</div>'}
 document.querySelector('.filters').onclick=e=>{let b=e.target.closest('[data-filter]');if(!b)return;FILTER=b.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===b));render()};
 fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');ORDERS=d.orders;document.getElementById('error').innerHTML='';render()}).catch(e=>{document.getElementById('error').innerHTML=`<div class="error">Historique indisponible : ${esc(e.message)}</div>`});
 </script></body></html>'''
