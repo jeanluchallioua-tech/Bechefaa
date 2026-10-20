@@ -36,10 +36,13 @@ def read_google_reviews():
 
 
 def register_google_reviews_phase6(app):
+    @app.get('/api/public/google-reviews-settings')
     @app.get('/api/google-reviews-settings')
     def google_reviews_settings_get():
         data = read_google_reviews()
-        return jsonify({'ok': True, **data})
+        response = jsonify({'ok': True, **data})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.put('/api/google-reviews-settings')
     def google_reviews_settings_put():
