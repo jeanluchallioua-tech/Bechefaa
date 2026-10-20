@@ -184,7 +184,7 @@ function openExistingLineOptions(lineId){
  editingLineId=String(line.lineId);
  selections=JSON.parse(JSON.stringify(line.options||{}));
  const prof=profile(current);
- if(!prof.length)return alert("Ce produit n'a pas d'options à modifier.");
+ if(!prof.length){editingLineId=null;return alert("Ce produit n'a pas d'options à modifier.");}
  $("optTitle").textContent=`Modifier : ${current.name}`;
  $("optBase").textContent="Options actuelles";
  $("optionGroups").innerHTML=prof.map(k=>renderGroup(k)).join("");
@@ -198,6 +198,8 @@ function openExistingLineOptions(lineId){
  updateOptionTotal();
 }
 function openProduct(id){
+ editingLineId=null;
+ $("addConfigured").textContent="AJOUTER À LA COMMANDE";
  current=window.PRODUCTS.find(x=>x.id===id); selections={}; const prof=profile(current);
  if(!prof.length){addConfiguredDirect();return}
  $("optTitle").textContent=current.name;let ek=exactKey(current),ids=ek?WIX_GROUP_IDS[ek]:null;
@@ -263,7 +265,7 @@ function addConfigured(){
  cart.push({lineId:Date.now()+Math.random(),id:current.id,name:current.name,unit:u,qty:1,options:opts,optionsText:txt,wixModifierGroupIds:ek?(WIX_GROUP_IDS[ek]||[]):[]});
  $("optionModal").classList.add("hidden");rCart();
 }
-function rCart(){$("cartItems").innerHTML=cart.length?cart.map(x=>`<div class="line"><div class="lineTop"><span><b>${x.qty}×</b> ${x.name}</span><b>${euro(x.qty*x.unit)}</b></div>${x.optionsText?`<div class="lineopts">${formatOptionHTML(x.optionsText)}</div>`:""}<div class="actions"><button data-dec="${x.lineId}">−</button><button data-inc="${x.lineId}">＋</button>${editingOrderId&&profile(window.PRODUCTS.find(p=>String(p.id)===String(x.id))||{}).length?`<button data-edit-options="${x.lineId}">Modifier options</button>`:""}<button class="danger" data-del="${x.lineId}">Supprimer</button></div></div>`).join(""):'<div class="empty">Commande vide</div>';$("total").textContent=euro(cart.reduce((s,x)=>s+x.qty*x.unit,0));document.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.inc);x.qty++;rCart()});document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.dec);if(--x.qty<=0)cart=cart.filter(i=>i.lineId!=b.dataset.dec);rCart()});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart=cart.filter(i=>i.lineId!=b.dataset.del);rCart()});document.querySelectorAll("[data-edit-options]").forEach(b=>b.onclick=()=>openExistingLineOptions(b.dataset.editOptions))}
+function rCart(){$("cartItems").innerHTML=cart.length?cart.map(x=>`<div class="line"><div class="lineTop"><span><b>${x.qty}×</b> ${x.name}</span><b>${euro(x.qty*x.unit)}</b></div>${x.optionsText?`<div class="lineopts">${formatOptionHTML(x.optionsText)}</div>`:""}<div class="actions"><button data-dec="${x.lineId}">−</button><button data-inc="${x.lineId}">＋</button>${profile(window.PRODUCTS.find(p=>String(p.id)===String(x.id))||{}).length?`<button data-edit-options="${x.lineId}">Modifier</button>`:""}<button class="danger" data-del="${x.lineId}">Supprimer</button></div></div>`).join(""):'<div class="empty">Commande vide</div>';$("total").textContent=euro(cart.reduce((s,x)=>s+x.qty*x.unit,0));document.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.inc);x.qty++;rCart()});document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.dec);if(--x.qty<=0)cart=cart.filter(i=>i.lineId!=b.dataset.dec);rCart()});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart=cart.filter(i=>i.lineId!=b.dataset.del);rCart()});document.querySelectorAll("[data-edit-options]").forEach(b=>b.onclick=()=>openExistingLineOptions(b.dataset.editOptions))}
 function saveC(){localStorage.setItem("b_clients043",JSON.stringify(clients))}function saveO(){localStorage.setItem("b_orders043",JSON.stringify(orders))}
 function find(q){q=q.toLowerCase().replace(/\s/g,"");return clients.filter(c=>c.name.toLowerCase().includes(q)||c.phone.replace(/\s/g,"").includes(q))}
 $("cust").oninput=()=>{let q=$("cust").value.trim();$("matches").innerHTML=q?find(q).slice(0,5).map(c=>`<div class="match" data-cid="${c.id}"><b>${c.name}</b><br>${c.phone}</div>`).join(""):"";document.querySelectorAll("[data-cid]").forEach(e=>e.onclick=()=>pick(+e.dataset.cid))};function pick(id){
@@ -350,7 +352,7 @@ function boards(){
    try{await fetch(`/api/orders/${oid}/items/${idx}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({prepared:cb.checked})})}catch(e){}
  });
 }
-$("addConfigured").onclick=addConfigured;$("closeOptions").onclick=()=>$("optionModal").classList.add("hidden");
+$("addConfigured").onclick=addConfigured;$("closeOptions").onclick=()=>{editingLineId=null;$("addConfigured").textContent="AJOUTER À LA COMMANDE";$("optionModal").classList.add("hidden")};
 $("validate").onclick=async()=>{
  if(!cart.length)return alert("Ajoutez un produit.");
  let total=cart.reduce((s,x)=>s+x.qty*x.unit,0);
