@@ -360,12 +360,17 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         details=row.get('delivery_details')
         if isinstance(details,str):
             details=json.loads(details)
-        if details is None and row.get('customer_id'):
-            # Existing orders have no snapshot: recover the available profile data.
-            profile=conn.execute("SELECT door_intercom,notes FROM caisse_clients WHERE id=%s",(row['customer_id'],)).fetchone()
+        details=dict(details) if isinstance(details,dict) else {}
+        if row.get('customer_id'):
+            # Also complete empty/partial snapshots from the linked customer file.
+            profile=conn.execute("SELECT door_intercom,notes,email FROM caisse_clients WHERE id=%s",(row['customer_id'],)).fetchone()
             if profile:
-                details={key:profile.get(key) for key in ('door_intercom','notes') if profile.get(key)}
-        order['delivery_details']=details if isinstance(details,dict) else {}
+                for key in ('door_intercom','notes'):
+                    if not str(details.get(key) or '').strip() and str(profile.get(key) or '').strip():
+                        details[key]=str(profile[key]).strip()
+                if not order.get('email'):
+                    order['email']=profile.get('email') or ''
+        order['delivery_details']=details
         order["service_mode"] = "SALLE" if row.get("table_number") else ("LIVRAISON" if str(row.get("source") or "").upper() in {"LIVRAISON","DELIVERY"} else "EMPORTER")
         return order
 
@@ -758,4 +763,5 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
 

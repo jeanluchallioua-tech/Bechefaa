@@ -47,7 +47,7 @@ def _save_customer(conn, customer):
     client_id = existing["id"] if existing else "client-"+uuid.uuid4().hex
     display_name = customer["display_name"] or customer["phone"] or "Client"
     if existing:
-        conn.execute("""UPDATE caisse_clients SET first_name=%s,last_name=%s,display_name=%s,phone=%s,email=%s,address=%s,postal_code=%s,city=%s,door_intercom=%s,updated_at=%s WHERE id=%s""",
+        conn.execute("""UPDATE caisse_clients SET first_name=%s,last_name=%s,display_name=%s,phone=%s,email=%s,address=%s,postal_code=%s,city=%s,door_intercom=COALESCE(NULLIF(%s,''),door_intercom),updated_at=%s WHERE id=%s""",
             (customer["first_name"],customer["last_name"],display_name,customer["phone"],customer["email"],customer["address"],customer["postal_code"],customer["city"],customer["door_intercom"],now,client_id))
     else:
         conn.execute("""INSERT INTO caisse_clients (id,first_name,last_name,display_name,phone,email,address,postal_code,city,door_intercom,notes,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'',%s,%s)""",
@@ -61,9 +61,10 @@ def _upsert_and_attach(conn, order_id, customer):
     # edits to the customer file. NULL identifies orders predating this snapshot.
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS delivery_details JSONB NULL")
     details=dict(customer.get('delivery_details') or {})
-    profile=conn.execute("SELECT notes FROM caisse_clients WHERE id=%s",(client_id,)).fetchone()
-    if profile and str(profile.get('notes') or '').strip() and not details.get('notes'):
-        details['notes']=str(profile['notes']).strip()
+    profile=conn.execute("SELECT door_intercom,notes FROM caisse_clients WHERE id=%s",(client_id,)).fetchone()
+    for key in ('door_intercom','notes'):
+        if profile and str(profile.get(key) or '').strip() and not details.get(key):
+            details[key]=str(profile[key]).strip()
     now=int(time.time()*1000)
     conn.execute("""UPDATE caisse_orders SET customer_id=%s,customer_name=%s,phone=%s,email=%s,address=%s,postal_code=%s,city=%s,delivery_details=%s::jsonb,updated_at=%s WHERE id=%s""",
         (client_id,display_name,customer["phone"],customer["email"],customer["address"],customer["postal_code"],customer["city"],json.dumps(details,ensure_ascii=False),now,order_id))
@@ -216,4 +217,5 @@ def register_customer_phase1(app, db, ensure_order_schema):
                 clients.append(item)
             return jsonify({"ok":True,"clients":clients,"count":len(clients)})
         except Exception as exc:return jsonify({"ok":False,"error":"Clients indisponibles","detail":str(exc)}),500
+
 

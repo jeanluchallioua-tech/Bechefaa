@@ -144,7 +144,7 @@ def render_receipt(order, kind, identity=None):
         if order.get('table_number'): p.text('Table ' + str(order['table_number']), center=True)
         if order.get('customer_name'): p.text(order['customer_name'], center=True)
         if mode == 'LIVRAISON':
-            for key in ('phone','address','postal_code','city'):
+            for key in ('phone','email','address','postal_code','city'):
                 if order.get(key): p.text(order[key], center=True)
             details=order.get('delivery_details') or {}
             for key,label in (('door_intercom','Code porte / Interphone'),('door_code','Code porte'),
@@ -189,4 +189,5 @@ def receipt_xml(order, kind, identity=None):
         parts.append(f'<image width="{WIDTH}" height="{chunk.height}" color="color_1" mode="mono">{base64.b64encode(chunk.tobytes()).decode("ascii")}</image>')
     parts.extend(['<cut type="feed"/>', '</epos-print>'])
     return ''.join(parts)
+
 

@@ -26,7 +26,7 @@ class DeliveryDetailsTests(unittest.TestCase):
         self.assertEqual(update[-1],'order-1')
 
     def test_printer_loads_snapshot_or_legacy_profile(self):
-        for snapshot,expected in [(None,'Ancien code'),({},None),({'door_intercom':'Code commande'},'Code commande')]:
+        for snapshot,expected in [(None,'Ancien code'),({},'Ancien code'),({'instructions':'Etage 4'},'Ancien code'),({'door_intercom':'Code commande'},'Code commande')]:
             row={'id':'order-1','num':12,'source':'LIVRAISON','customer_id':'client-1','delivery_details':snapshot}
             reads=[]
             class Result:
@@ -37,7 +37,7 @@ class DeliveryDetailsTests(unittest.TestCase):
                 def execute(self,sql,params=()):
                     if 'FROM caisse_orders WHERE' in sql:return Result(row)
                     if 'FROM caisse_clients WHERE' in sql:
-                        reads.append(sql);return Result({'door_intercom':'Ancien code','notes':'Etage 2'})
+                        reads.append(sql);return Result({'door_intercom':'Ancien code','notes':'Etage 2','email':'client@example.test'})
                     return Result(None)
             @contextmanager
             def db():yield Conn()
@@ -48,7 +48,24 @@ class DeliveryDetailsTests(unittest.TestCase):
             self.assertEqual(response.status_code,200)
             details=json.loads(response.get_data(as_text=True))['delivery_details']
             self.assertEqual(details.get('door_intercom'),expected)
-            self.assertEqual(bool(reads),snapshot is None)
+            self.assertTrue(reads)
+            self.assertEqual(details['notes'],'Etage 2')
+            self.assertEqual(json.loads(response.get_data(as_text=True))['email'],'client@example.test')
+            if snapshot and snapshot.get('instructions'):
+                self.assertEqual(details['instructions'],'Etage 4')
+
+    def test_order_without_entered_code_inherits_profile_access_details(self):
+        writes=[]
+        class Result:
+            def fetchone(self):return {'door_intercom':'Code 1234, étage 3, porte gauche','notes':'Interphone Dupont'}
+        class Conn:
+            def execute(self,sql,params=()):writes.append((sql,params));return Result()
+        customer=_clean_customer({'first_name':'Jean','phone':'0600000000','door_intercom':''})
+        with patch('clean_caisse.customer_phase1._save_customer',return_value=('client-1','Jean')):
+            _upsert_and_attach(Conn(),'order-1',customer)
+        details=json.loads(next(p for sql,p in writes if sql.startswith('UPDATE caisse_orders'))[7])
+        self.assertEqual(details['door_intercom'],'Code 1234, étage 3, porte gauche')
+        self.assertEqual(details['notes'],'Interphone Dupont')
 
     def test_delivery_receipt_includes_each_field_only_on_client_ticket(self):
         order={'source':'LIVRAISON','items':[],'delivery_details':{'door_intercom':'B123 / Dupont',
