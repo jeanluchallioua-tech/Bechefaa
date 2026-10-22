@@ -10,6 +10,7 @@ Configuration actuelle restaurant:
 - Device ID local_printer
 """
 import base64
+import json
 import re
 import textwrap
 from pathlib import Path
@@ -332,6 +333,7 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
             return {}
 
     def _ensure_ticket_columns(conn):
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS delivery_details JSONB NULL")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,3)")
@@ -344,7 +346,7 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         _ensure_ticket_columns(conn)
         conn.commit()
         row = conn.execute(
-            """SELECT id,num,customer_name,phone,email,address,postal_code,city,
+            """SELECT id,num,customer_id,customer_name,phone,email,address,postal_code,city,delivery_details,
                       source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,
                       table_number,table_label,created_at,updated_at
                FROM caisse_orders WHERE id=%s""",
@@ -355,6 +357,15 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         order = order_payload(conn, row)
         for key in ("phone","email","address","postal_code","city","total_ttc","total_ht","tax_rate","tax_amount","table_number","table_label"):
             order[key] = row.get(key)
+        details=row.get('delivery_details')
+        if isinstance(details,str):
+            details=json.loads(details)
+        if details is None and row.get('customer_id'):
+            # Existing orders have no snapshot: recover the available profile data.
+            profile=conn.execute("SELECT door_intercom,notes FROM caisse_clients WHERE id=%s",(row['customer_id'],)).fetchone()
+            if profile:
+                details={key:profile.get(key) for key in ('door_intercom','notes') if profile.get(key)}
+        order['delivery_details']=details if isinstance(details,dict) else {}
         order["service_mode"] = "SALLE" if row.get("table_number") else ("LIVRAISON" if str(row.get("source") or "").upper() in {"LIVRAISON","DELIVERY"} else "EMPORTER")
         return order
 
@@ -747,3 +758,4 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

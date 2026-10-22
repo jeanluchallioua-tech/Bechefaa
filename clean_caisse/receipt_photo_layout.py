@@ -146,6 +146,16 @@ def render_receipt(order, kind, identity=None):
         if mode == 'LIVRAISON':
             for key in ('phone','address','postal_code','city'):
                 if order.get(key): p.text(order[key], center=True)
+            details=order.get('delivery_details') or {}
+            for key,label in (('door_intercom','Code porte / Interphone'),('door_code','Code porte'),
+                              ('intercom','Interphone'),('building','Bâtiment'),('entrance','Entrée'),
+                              ('floor','Étage'),('apartment','Appartement'),
+                              ('instructions','Consignes'),('notes','Informations client')):
+                value=str(details.get(key) or '').strip()
+                if value:
+                    for line in (label+': '+value).splitlines():
+                        for wrapped in textwrap.wrap(line,width=TEXT_COLUMNS,break_long_words=True,break_on_hyphens=False):
+                            p.text(wrapped,center=True)
         p.rule()
         for item in order.get('items') or []:
             qty = item.get('qty') or 1
@@ -179,3 +189,4 @@ def receipt_xml(order, kind, identity=None):
         parts.append(f'<image width="{WIDTH}" height="{chunk.height}" color="color_1" mode="mono">{base64.b64encode(chunk.tobytes()).decode("ascii")}</image>')
     parts.extend(['<cut type="feed"/>', '</epos-print>'])
     return ''.join(parts)
+

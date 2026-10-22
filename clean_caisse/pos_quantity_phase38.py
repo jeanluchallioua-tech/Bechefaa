@@ -17,6 +17,7 @@ def register_pos_quantity_phase38(app):
 
         old = '<button class="remove" data-action="remove-line" data-index="${i}">Retirer</button>'
         new = '''<div class="phase38-qty"><button type="button" data-qminus="${i}">−</button><span class="qval">${Number(l.qty||1)}</span><button type="button" data-qplus="${i}">+</button><span class="phase38-line-total">${(Number(l.unit_price||0)*Number(l.qty||1)).toFixed(2).replace('.',',')} €</span></div><button class="remove" data-action="remove-line" data-index="${i}">Retirer</button>'''
+        new = new.replace(old, '<button type="button" class="cart-edit-line" data-action="edit-line" data-index="${i}">Modifier</button> ' + old)
         html = html.replace(old, new)
 
         addon = r'''
@@ -25,6 +26,7 @@ def register_pos_quantity_phase38(app):
 .phase38-qty button{width:38px;height:34px;border:1px solid #cfd4dc;border-radius:8px;background:#f4f5f7;font-size:20px;font-weight:900;cursor:pointer;touch-action:manipulation}
 .phase38-qty .qval{min-width:34px;text-align:center;font-size:16px;font-weight:900}
 .phase38-line-total{margin-left:auto;font-size:13px;font-weight:800}
+.cart .cart-edit-line{display:inline-block!important;min-height:40px;padding:8px 14px!important;margin:5px 12px 2px 0!important;border:1px solid #d99a18!important;border-radius:8px;background:#d99a18!important;color:#111!important;font-size:14px!important;font-weight:800;cursor:pointer;touch-action:manipulation}
 </style>
 <script>
 document.addEventListener('click',function(e){
@@ -46,3 +48,4 @@ document.addEventListener('click',function(e){
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
