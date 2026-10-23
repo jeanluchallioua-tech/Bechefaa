@@ -78,7 +78,7 @@ def register_pos_service_launcher_phase6(app):
    function openModes(){modes.style.display='grid';tableStep.classList.remove('show');modal.classList.remove('hidden')}
    function closeModal(){modal.classList.add('hidden')}
    function chooseMode(mode){
-     if(mode==='salle'){modes.style.display='none';tableStep.classList.add('show');return}
+     if(mode==='salle'){modes.style.display='none';tableStep.classList.add('show');if(window.bechefaaTables)window.bechefaaTables.refresh();return}
      const b=findNative(mode);if(!b)return;
      b.click();
      setCurrent(mode==='livraison'?'LIVRAISON':'À EMPORTER');
@@ -95,15 +95,12 @@ def register_pos_service_launcher_phase6(app):
      },80);
    }
    modes.addEventListener('click',e=>{const b=e.target.closest('[data-svc]');if(b)chooseMode(b.dataset.svc)});
-   tables.addEventListener('click',e=>{
-     const b=e.target.closest('[data-table]');if(!b)return;
-     const nativeSalle=findNative('salle');if(nativeSalle)nativeSalle.click();
-     setTimeout(()=>{
-       const nativeTable=document.querySelector('#phase42-table-grid [data-phase42-table="'+b.dataset.table+'"]');
-       if(nativeTable)nativeTable.click();
-       setCurrent('SUR PLACE · TABLE '+b.dataset.table);
-       closeModal();
-     },0);
+   tables.addEventListener('click',async e=>{
+     const b=e.target.closest('[data-table]');if(!b||b.disabled)return;
+     if(!window.bechefaaTables)return;
+     if(await window.bechefaaTables.select(Number(b.dataset.table))){
+       setCurrent('SUR PLACE · TABLE '+b.dataset.table);closeModal();
+     }
    });
    document.getElementById('svc-back').addEventListener('click',openModes);
    current.addEventListener('click',openModes);
@@ -118,3 +115,4 @@ def register_pos_service_launcher_phase6(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
