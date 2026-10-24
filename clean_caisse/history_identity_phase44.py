@@ -133,11 +133,23 @@ def register_history_identity_phase44(app):
     if(!overlay)return;
     let moved=[],previewId=null;
     const deliveryAddress=document.createElement('div');
+    deliveryAddress.id='history-clean-delivery-details';
     deliveryAddress.style.cssText='display:none;margin:8px 0;font-size:17px;line-height:1.45;font-weight:700;color:#111827;white-space:pre-line';
     title.insertAdjacentElement('afterend',deliveryAddress);
     function showDeliveryAddress(o){
-      const delivery=['LIVRAISON','DELIVERY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase().includes('livraison');
-      const text=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join('\n'):'';
+      const delivery=[o.source,o.ticket_type,o.service_mode].some(v=>/livraison|delivery/i.test(String(v||'')));
+      const details=o.delivery_details||{};
+      const code=details.door_intercom||o.door_intercom;
+      const floor=details.floor||o.floor;
+      const instructions=details.instructions||o.instructions;
+      const text=delivery?[
+        o.address,[o.postal_code,o.city].filter(Boolean).join(' '),
+        o.phone?'Tél. : '+o.phone:'',
+        code?'Code / Interph. : '+code:'',
+        floor?'Étage : '+floor:'',
+        instructions?'Consignes : '+instructions:'',
+        details.notes?'Informations client : '+details.notes:''
+      ].filter(Boolean).join('\n'):'';
       deliveryAddress.textContent=text;deliveryAddress.style.display=text?'block':'none';
     }
     function restore(){moved.forEach(x=>{if(x.node&&x.card)x.card.appendChild(x.node)});moved=[]}
