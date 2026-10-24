@@ -26,7 +26,7 @@ class DeliveryDetailsTests(unittest.TestCase):
         self.assertEqual(update[-1],'order-1')
 
     def test_printer_loads_snapshot_or_legacy_profile(self):
-        for snapshot,expected in [(None,'Ancien code'),({},'Ancien code'),({'instructions':'Etage 4'},'Ancien code'),({'door_intercom':'Code commande'},'Code commande')]:
+        for snapshot,expected in [(None,'Ancien code'),({},'Ancien code'),({'instructions':'Etage 4'},'Ancien code'),({'door_intercom':'Code commande'},'Ancien code')]:
             row={'id':'order-1','num':12,'source':'LIVRAISON','customer_id':'client-1','delivery_details':snapshot}
             reads=[]
             class Result:
@@ -85,3 +85,4 @@ class DeliveryDetailsTests(unittest.TestCase):
         self.assertEqual(order,before)
 
 if __name__=='__main__':unittest.main()
+

@@ -148,6 +148,8 @@ def ensure_order_schema(conn):
         updated_at BIGINT NOT NULL
     )""")
     conn.execute("ALTER TABLE caisse_clients ADD COLUMN IF NOT EXISTS door_intercom TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE caisse_clients ADD COLUMN IF NOT EXISTS floor TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE caisse_clients ADD COLUMN IF NOT EXISTS instructions TEXT NOT NULL DEFAULT ''")
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_orders (
         id TEXT PRIMARY KEY,
         num BIGINT NOT NULL UNIQUE,
@@ -873,4 +875,5 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
 

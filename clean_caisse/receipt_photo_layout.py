@@ -54,23 +54,27 @@ def option_values(item):
 
 
 class Paper:
-    def __init__(self):
+    def __init__(self, columns=TEXT_COLUMNS, text_height=TEXT_HEIGHT, row_height=ROW_HEIGHT):
         self.rows = []
-        self.font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-receipt.ttf'), TEXT_HEIGHT)
-        self.bold_font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-Bold-receipt.ttf'), TEXT_HEIGHT)
+        self.columns=columns
+        self.text_height=text_height
+        self.row_height=row_height
+        self.font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-receipt.ttf'), text_height)
+        self.bold_font = ImageFont.truetype(str(ASSETS / 'DejaVuSansMono-Bold-receipt.ttf'), text_height)
 
-    def text(self, text='', *, columns=TEXT_COLUMNS, center=False, height=1, bold=False):
+    def text(self, text='', *, columns=None, center=False, height=1, bold=False):
         # Enlarge the printed character cells, rather than shrinking bigger fonts.
         text = str(text)
+        columns=columns or self.columns
         font = self.bold_font if bold else self.font
         for start in range(0, max(1, len(text)), columns):
             line = text[start:start + columns]
             cell = WIDTH / columns
-            row = Image.new('1', (WIDTH, ROW_HEIGHT * height), 0)
+            row = Image.new('1', (WIDTH, self.row_height * height), 0)
             if line:
-                glyph = Image.new('L', (max(1, int(font.getlength(line)) + 2), ROW_HEIGHT), 0)
+                glyph = Image.new('L', (max(1, int(font.getlength(line)) + 2), self.row_height), 0)
                 ImageDraw.Draw(glyph).text((0, 0), line, font=font, fill=255, anchor='lt')
-                glyph = glyph.resize((round(len(line) * cell), TEXT_HEIGHT * height), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
+                glyph = glyph.resize((round(len(line) * cell), self.text_height * height), Image.Resampling.LANCZOS).point(lambda p: 255 if p >= 100 else 0).convert('1')
                 row.paste(glyph, ((WIDTH - glyph.width)//2 if center else 0, 0))
             self.rows.append(row)
 
@@ -78,13 +82,13 @@ class Paper:
         self.rows.append(Image.new('1', (WIDTH, dots), 0))
 
     def option(self, value):
-        lines = textwrap.wrap(str(value), width=TEXT_COLUMNS - 4, break_long_words=False,
+        lines = textwrap.wrap(str(value), width=self.columns - 4, break_long_words=self.columns<TEXT_COLUMNS,
                               break_on_hyphens=False)
         for index, line in enumerate(lines):
             self.text(('  - ' if index == 0 else '    ') + line)
 
     def rule(self):
-        self.text('-' * 40, center=True)
+        self.text('-' * min(40,self.columns), center=True)
 
     def price(self, label, value, bold=False):
         amount = f'{Decimal(str(value or 0)):.2f}'.replace('.', ',') + ' €'
@@ -106,7 +110,7 @@ class Paper:
 def render_receipt(order, kind, identity=None):
     from .epson_epos_network_phase6 import _service_label, _tax_values
     identity = identity or {}
-    p = Paper()
+    p = Paper(columns=34,text_height=34,row_height=40) if kind=='kitchen' else Paper()
     mode = _service_label(order)
     p.gap(12)
     if kind == 'kitchen':
@@ -120,7 +124,7 @@ def render_receipt(order, kind, identity=None):
         p.rule()
         for item in order.get('items') or []:
             label = f"{item.get('qty') or 1} x {item.get('name') or ''}"
-            for line in textwrap.wrap(label, width=TEXT_COLUMNS, break_long_words=False, break_on_hyphens=False):
+            for line in textwrap.wrap(label, width=p.columns, break_long_words=True, break_on_hyphens=False):
                 p.text(line, bold=True)
             for value in option_values(item):
                 p.option(value)
@@ -145,7 +149,7 @@ def render_receipt(order, kind, identity=None):
         if order.get('customer_name'): p.text(order['customer_name'], center=True)
         if mode == 'LIVRAISON':
             for key in ('phone','email','address','postal_code','city'):
-                if order.get(key): p.text(order[key], center=True)
+                if order.get(key): p.text(('Tél. : ' if key=='phone' else '')+str(order[key]), center=True)
             details=order.get('delivery_details') or {}
             for key,label in (('door_intercom','Code porte / Interphone'),('door_code','Code porte'),
                               ('intercom','Interphone'),('building','Bâtiment'),('entrance','Entrée'),
@@ -189,5 +193,6 @@ def receipt_xml(order, kind, identity=None):
         parts.append(f'<image width="{WIDTH}" height="{chunk.height}" color="color_1" mode="mono">{base64.b64encode(chunk.tobytes()).decode("ascii")}</image>')
     parts.extend(['<cut type="feed"/>', '</epos-print>'])
     return ''.join(parts)
+
 
 
