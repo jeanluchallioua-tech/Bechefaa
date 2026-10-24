@@ -87,7 +87,7 @@ class CustomerDeliveryRoundTripTests(unittest.TestCase):
             printed=self.client.get('/api/epson/client-xml/'+oid)
         self.assertEqual(printed.status_code,200,printed.get_data(as_text=True))
         content='\n'.join(calls)
-        for value in ['Tél. : 0612345678','A123 / DUPONT','Étage: 4e étage','Ascenseur B, puis porte droite']:
+        for value in ['Tél. : 0612345678','Code / Interph. : A123 / DUPONT','Étage: 4e étage','Ascenseur B, puis porte droite']:
             self.assertIn(value,content)
         snapshot=json.loads(self.conn.execute('SELECT delivery_details FROM caisse_orders WHERE id=%s',(oid,)).fetchone()['delivery_details'])
         self.assertEqual(snapshot,{})  # printing reads data; it does not rewrite orders
@@ -122,6 +122,7 @@ class CustomerDeliveryRoundTripTests(unittest.TestCase):
     def test_both_customer_forms_expose_floor_and_instructions(self):
         pos=self.client.get('/pos').get_data(as_text=True)
         page=self.client.get('/clients').get_data(as_text=True)
+        self.assertIn('for="cust-intercom">Code / Interph.',pos);self.assertIn('for="f_intercom">Code / Interph.',page)
         self.assertIn('id="cust-floor"',pos);self.assertIn('id="cust-instructions"',pos)
         self.assertIn('id="f_floor"',page);self.assertIn('id="f_instructions"',page)
 

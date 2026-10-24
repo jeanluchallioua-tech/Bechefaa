@@ -151,13 +151,13 @@ def render_receipt(order, kind, identity=None):
             for key in ('phone','email','address','postal_code','city'):
                 if order.get(key): p.text(('Tél. : ' if key=='phone' else '')+str(order[key]), center=True)
             details=order.get('delivery_details') or {}
-            for key,label in (('door_intercom','Code porte / Interphone'),('door_code','Code porte'),
+            for key,label in (('door_intercom','Code / Interph.'),('door_code','Code porte'),
                               ('intercom','Interphone'),('building','Bâtiment'),('entrance','Entrée'),
                               ('floor','Étage'),('apartment','Appartement'),
                               ('instructions','Consignes'),('notes','Informations client')):
                 value=str(details.get(key) or '').strip()
                 if value:
-                    for line in (label+': '+value).splitlines():
+                    for line in (label+(' : ' if key=='door_intercom' else ': ')+value).splitlines():
                         for wrapped in textwrap.wrap(line,width=TEXT_COLUMNS,break_long_words=True,break_on_hyphens=False):
                             p.text(wrapped,center=True)
         p.rule()
