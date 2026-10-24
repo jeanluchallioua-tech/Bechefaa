@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 from flask import Flask, Response, jsonify, request
 from clean_caisse.customer_phase1 import register_customer_phase1
+from clean_caisse.history_modifier import register_history_modifier
 from clean_caisse.clients_management_isolated_phase6 import register_clients_management_isolated_phase6, _import_client_rows
 from clean_caisse.epson_epos_network_phase6 import register_epson_epos_network_phase6
 from clean_caisse.receipt_photo_layout import Paper
@@ -56,6 +57,7 @@ class CustomerDeliveryRoundTripTests(unittest.TestCase):
         self.app=Flask(__name__)
         self.app.add_url_rule('/api/orders',view_func=env['create_order'],methods=['POST'])
         self.app.add_url_rule('/pos',view_func=lambda:Response('<body><aside class="cart"><div class="ticket-choice"></div></aside></body>',mimetype='text/html'))
+        register_history_modifier(self.app,db,self.ensure,env['order_payload'])
         register_customer_phase1(self.app,db,self.ensure)
         register_clients_management_isolated_phase6(self.app,db,self.ensure)
         register_epson_epos_network_phase6(self.app,db,self.ensure,env['order_payload'])
@@ -87,6 +89,14 @@ class CustomerDeliveryRoundTripTests(unittest.TestCase):
             printed=self.client.get('/api/epson/client-xml/'+oid)
         self.assertEqual(printed.status_code,200,printed.get_data(as_text=True))
         content='\n'.join(calls)
+        preview=self.client.get('/api/orders/'+oid)
+        self.assertEqual(preview.status_code,200,preview.get_json())
+        self.assertEqual(preview.headers.get('Cache-Control'),'no-store')
+        data=preview.get_json()['order']
+        self.assertEqual(data['phone'],'0612345678')
+        self.assertEqual(data['delivery_details']['door_intercom'],'A123 / DUPONT')
+        self.assertEqual(data['delivery_details']['floor'],'4e étage')
+        self.assertEqual(data['delivery_details']['instructions'],updated['instructions'])
         for value in ['Tél. : 0612345678','Code / Interph. : A123 / DUPONT','Étage: 4e étage','Ascenseur B, puis porte droite']:
             self.assertIn(value,content)
         snapshot=json.loads(self.conn.execute('SELECT delivery_details FROM caisse_orders WHERE id=%s',(oid,)).fetchone()['delivery_details'])
@@ -127,3 +137,4 @@ class CustomerDeliveryRoundTripTests(unittest.TestCase):
         self.assertIn('id="f_floor"',page);self.assertIn('id="f_instructions"',page)
 
 if __name__=='__main__':unittest.main()
+
