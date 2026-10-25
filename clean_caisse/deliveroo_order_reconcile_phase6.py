@@ -5,11 +5,16 @@ from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, p
 def reconcile(payload, catalog):
     parsed = parse_order_new(payload)
     products = catalog.get("products", []) if isinstance(catalog, dict) else []
+    if not isinstance(products, list):
+        raise DeliverooMappingError("Invalid catalogue products list")
     by_id = {}
     for product in products:
         if not isinstance(product, dict):
             continue
-        product_id = str(product.get("id") or "").strip()
+        raw_product_id = product.get("id")
+        if not isinstance(raw_product_id, str):
+            raise DeliverooMappingError("Invalid catalogue product ID")
+        product_id = raw_product_id.strip()
         if not product_id:
             raise DeliverooMappingError("Missing catalogue product ID")
         if product_id in by_id:
