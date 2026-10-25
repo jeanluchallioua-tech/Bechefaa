@@ -116,6 +116,25 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertFalse(result["dispatch_performed"])
         self.assertFalse(result["writes"])
 
+    def test_unsafe_instruction_controls_block_readiness(self):
+        from copy import deepcopy
+        preview = deepcopy(self.preview)
+        preview["instruction_field_audit"]["unsafe_control_candidate_paths"] = [
+            "body.order.special_instructions",
+        ]
+        result = assess_kitchen_readiness(preview)
+        self.assertIn("unsafe_instruction_candidates", result["blockers"])
+        self.assertFalse(result["checks_passed"])
+        self.assertFalse(result["writes"])
+
+    def test_missing_control_diagnostic_blocks_readiness(self):
+        from copy import deepcopy
+        preview = deepcopy(self.preview)
+        preview["instruction_field_audit"].pop("unsafe_control_candidate_paths")
+        result = assess_kitchen_readiness(preview)
+        self.assertIn("instruction_candidate_diagnostics_missing", result["blockers"])
+        self.assertFalse(result["checks_passed"])
+
     def test_invalid_preview_never_passes(self):
         result = assess_kitchen_readiness(
             {"writes": True, "items": []}, plu_approved=True,
