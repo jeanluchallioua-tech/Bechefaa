@@ -22,6 +22,8 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
         for item in preview.get("items", []) if isinstance(preview.get("items"), list) else []:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
                 blockers.append("invalid_kitchen_item")
+                if isinstance(item, dict) and not isinstance(item.get("options"), list):
+                    blockers.append("invalid_kitchen_options")
                 continue
             qty = item.get("quantity")
             if isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
