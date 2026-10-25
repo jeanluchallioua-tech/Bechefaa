@@ -50,7 +50,7 @@ class ManualDiscountTests(unittest.TestCase):
             self.assertEqual(self.create(amount).status_code,400,amount)
         self.assertEqual(self.create(3,'LIVRAISON').status_code,400)
         data=self.create().get_json();oid=data['id']
-        self.conn.execute('ALTER TABLE caisse_orders ADD COLUMN paid_amount NUMERIC DEFAULT 0')
+        # paid_amount is already provisioned by ensure_order_schema.
         self.conn.execute('UPDATE caisse_orders SET paid_amount=5 WHERE id=%s',(oid,));self.conn.commit()
         order=self.client.get('/api/orders/'+oid).get_json()['order']
         blocked=self.client.put('/api/orders/'+oid,json={'items':order['items'],'manual_discount_amount':4});self.assertEqual(blocked.status_code,409,blocked.get_json())
