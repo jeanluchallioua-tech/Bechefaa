@@ -22,6 +22,10 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_bis_integration_guard.py' -v
       - name: JavaScript POS and offline discount smoke tests
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
+      - name: POS save and pending-edit regression tests
+        run: |
+          python -m unittest discover -s tests -p 'test_pos_save_workflow.py' -v
+          python -m unittest discover -s tests -p 'test_pos_pending_edit.py' -v
       - name: Pure discount calculations
         run: |
           python - <<'PY'
