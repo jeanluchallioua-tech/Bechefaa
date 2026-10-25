@@ -24,12 +24,14 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertFalse(result["dispatch_performed"])
         self.assertFalse(result["writes"])
 
-    def test_approved_checks_do_not_dispatch(self):
+    def test_approval_flags_without_evidence_still_block(self):
         result = assess_kitchen_readiness(
             self.preview, plu_approved=True, price_policy_approved=True,
             instruction_schema_verified=True,
         )
-        self.assertTrue(result["checks_passed"])
+        self.assertFalse(result["checks_passed"])
+        self.assertIn("instruction_evidence_missing", result["blockers"])
+        self.assertIn("price_policy_evidence_missing", result["blockers"])
         self.assertFalse(result["dispatch_performed"])
         self.assertFalse(result["writes"])
 
