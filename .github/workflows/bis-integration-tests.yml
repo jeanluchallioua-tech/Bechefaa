@@ -1,0 +1,45 @@
+name: BIS isolated regression checks
+on:
+  push:
+    branches:
+      - bis-prod-sync-integration-2026-10-25
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bis-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax check of changed Python modules
+        run: |
+          python -m py_compile clean_caisse/app.py clean_caisse/manual_discount.py clean_caisse/offline_mode_phase6.py clean_caisse/history_modifier.py clean_caisse/receipt_photo_layout.py
+      - name: Isolated BIS structural non-regression tests
+        run: python -m unittest discover -s tests -p 'test_bis_integration_guard.py' -v
+      - name: Pure discount calculations
+        run: |
+          python - <<'PY'
+          from decimal import Decimal
+          from clean_caisse.manual_discount import order_discount
+          sub = Decimal('30.00')
+          discount, total, percent = order_discount(sub, {'manual_discount_percent':10}, 'EMPORTER')
+          assert (discount,total,percent)==(Decimal('3.00'),Decimal('27.00'),Decimal('10.00'))
+          for bad in [-1,100,'NaN','bad']:
+              try:
+                  order_discount(sub, {'manual_discount_percent':bad}, 'EMPORTER')
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError(f'Invalid percentage accepted: {bad}')
+          try:
+              order_discount(sub, {'manual_discount_percent':10}, 'LIVRAISON')
+          except ValueError:
+              pass
+          else:
+              raise AssertionError('Delivery discount incorrectly accepted')
+          print('Discount calculations passed')
+          PY
