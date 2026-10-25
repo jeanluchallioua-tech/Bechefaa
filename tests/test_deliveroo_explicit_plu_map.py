@@ -83,6 +83,14 @@ class ExplicitPluMapTests(unittest.TestCase):
                 self.payload, self.catalog, {"MU11002:OM21001": "opt:MU11002:0:0"}
             )
 
+    def test_noncanonical_target_indices_are_rejected(self):
+        for target in ("opt:MU11002:00:0", "opt:MU11002:0:01", "opt:MU11002:0:-1", "opt:MU11002:0:0:1"):
+            with self.subTest(target=target):
+                with self.assertRaises(DeliverooMappingError):
+                    reconcile_with_explicit_plu_map(
+                        self.payload, self.catalog, {("MU11002", "OM21001"): target}
+                    )
+
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             reconcile_with_explicit_plu_map(
