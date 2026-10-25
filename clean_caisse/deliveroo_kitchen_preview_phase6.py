@@ -3,6 +3,7 @@ from clean_caisse.deliveroo_kitchen_origin_phase6 import kitchen_origin
 from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
 from clean_caisse.deliveroo_explicit_plu_map_phase6 import reconcile_with_explicit_plu_map
+from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
 
 
 def preview_order(payload, catalog, approved_map=None):
@@ -31,6 +32,7 @@ def preview_order(payload, catalog, approved_map=None):
         "display_id": mapped["display_id"],
         "fulfillment_type": mapped["fulfillment_type"],
         "items": items,
+        "instruction_field_audit": audit_instruction_fields(payload),
         "instructions_verified": False,
         "ready_for_dispatch": False,
         "requires_price_policy": True,
