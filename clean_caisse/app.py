@@ -855,8 +855,7 @@ async function checkDeliveroo(){
   const banner=document.getElementById('deliveroo-alert');
   if(banner){
    banner.classList.add('visible');
-   if(deliverooAlertTimer)clearTimeout(deliverooAlertTimer);
-   deliverooAlertTimer=setTimeout(()=>{banner.classList.remove('visible');deliverooAlertTimer=null;},8000);
+   banner.onclick=()=>banner.classList.remove('visible');
    banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>o.platform_reference?'réf. '+o.platform_reference:'commande Deliveroo').join(', ')+' • Voir la cuisine / historique';
   }
   soundDeliveroo();
