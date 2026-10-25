@@ -52,5 +52,6 @@ def order_discount(subtotal, payload, source, existing=None):
         amount = payload.get('manual_discount_amount') if explicit else existing.get('discount_amount')
     amount, total = discount_total(subtotal, amount, source,
         coupon_code=existing.get('coupon_code') or payload.get('coupon_code'),
-        sales_channel=existing.get('sales_channel') or payload.get('sales_channel'), explicit=explicit)
+        sales_channel=payload.get('sales_channel') or existing.get('sales_channel'),
+        explicit=explicit or (percent is not None and amount > 0))
     return amount, total, percent
