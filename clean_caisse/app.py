@@ -723,9 +723,11 @@ def _deliveroo_remake_view(conn, orders):
     except Exception:
         app.logger.exception("Deliveroo display references unavailable")
     visible = []
-    for item in orders:
-        if str(item["id"]) in hidden:
+    for original in orders:
+        if str(original["id"]) in hidden:
             continue
+        # Presentation metadata must not mutate shared order dictionaries.
+        item = original.copy()
         if str(item.get("source") or "").upper() == "DELIVEROO":
             item["ticket_type"] = "Livraison"
             item["service_mode"] = "Livraison"
