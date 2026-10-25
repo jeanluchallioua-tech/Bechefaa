@@ -162,6 +162,32 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         self.assertEqual(orders, original)
         self.assertTrue(next(o for o in visible if o["id"] == pos_id("child"))["is_deliveroo_remake"])
 
+    def test_repeated_render_is_idempotent(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")],
+                        displays=[{"order_id": "child", "display_id": "D-123"}])
+        first = self.render(conn, self.orders())
+        second = self.render(conn, first)
+        self.assertEqual(second, first)
+
+    def test_regular_deliveroo_order_keeps_own_customer_and_reference(self):
+        conn = FakeConn(displays=[{"order_id": "parent", "display_id": "D-100"}])
+        orders = self.orders()
+        orders[0]["customer_name"] = "Client initial"
+        result = self.render(conn, orders)
+        original = next(o for o in result if o["id"] == pos_id("parent"))
+        self.assertEqual(original["customer_name"], "Client initial")
+        self.assertEqual(original["platform_reference"], "D-100")
+        self.assertFalse(original.get("is_deliveroo_remake", False))
+
+    def test_non_deliveroo_order_keeps_payment_and_service(self):
+        orders = self.orders()
+        orders[2].update({"payment": "ESPÈCES", "service_mode": "Emporter",
+                          "customer_name": "Client caisse"})
+        result = self.render(FakeConn(), orders)
+        local = next(o for o in result if o["id"] == "local")
+        self.assertEqual(local, orders[2])
+
     def test_invalid_creation_timestamps_do_not_break_display(self):
         for invalid in ("not-a-date", [], {}, float("inf")):
             with self.subTest(invalid=invalid):
