@@ -69,6 +69,20 @@ class ExplicitPluMapTests(unittest.TestCase):
         self.assertEqual(len(result["mapped_items"][0]["options"]), 2)
         self.assertFalse(result["writes"])
 
+    def test_invalid_unused_mapping_entry_is_rejected(self):
+        mapping = {
+            ("MU11002", "OM21001"): "opt:MU11002:0:0",
+            ("OTHER", "OLD"): "opt:MU11002:0:0",
+        }
+        with self.assertRaisesRegex(DeliverooMappingError, "Invalid approved"):
+            reconcile_with_explicit_plu_map(self.payload, self.catalog, mapping)
+
+    def test_noncanonical_mapping_key_is_rejected(self):
+        with self.assertRaisesRegex(DeliverooMappingError, "Invalid approved"):
+            reconcile_with_explicit_plu_map(
+                self.payload, self.catalog, {"MU11002:OM21001": "opt:MU11002:0:0"}
+            )
+
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             reconcile_with_explicit_plu_map(
