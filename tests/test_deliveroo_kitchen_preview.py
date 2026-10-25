@@ -101,6 +101,24 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(preview["ready_for_dispatch"])
         self.assertFalse(preview["writes"])
 
+    def test_non_text_and_blank_instruction_candidates_remain_unverified(self):
+        payload = sample()
+        order = payload["body"]["order"]
+        order["special_instructions"] = {"text": "Sans sel"}
+        order["items"][0]["notes"] = "  "
+        preview = preview_order(payload, self.catalog)
+        audit = preview["instruction_field_audit"]
+        self.assertEqual(audit["non_text_candidate_paths"], [
+            "body.order.special_instructions",
+        ])
+        self.assertEqual(audit["blank_candidate_paths"], [
+            "body.order.items[0].notes",
+        ])
+        self.assertFalse(audit["schema_verified"])
+        self.assertFalse(preview["instructions_verified"])
+        self.assertFalse(preview["ready_for_dispatch"])
+        self.assertFalse(preview["writes"])
+
     def test_amount_audit_is_read_only_and_does_not_approve_prices(self):
         payload = sample()
         result = preview_order(payload, self.catalog)
