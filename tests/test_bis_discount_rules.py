@@ -39,7 +39,7 @@ class BisDiscountRulesTests(unittest.TestCase):
                                "EMPORTER")
 
     def test_invalid_subtotal_rejected(self):
-        for subtotal in ("NaN", "Infinity", "-1"):
+        for subtotal in ("NaN", "Infinity", "-1", "invalid", None):
             with self.subTest(subtotal=subtotal), self.assertRaises(ValueError):
                 order_discount(subtotal, {"manual_discount_percent": 10}, "EMPORTER")
 
