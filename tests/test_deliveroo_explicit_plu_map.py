@@ -50,6 +50,25 @@ class ExplicitPluMapTests(unittest.TestCase):
                 self.payload, self.catalog, {("MU11002", "OM21001"): "opt:MU11002:0:0"}
             )
 
+    def test_same_legacy_plu_with_conflicting_labels_is_rejected(self):
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        conflicting = deepcopy(modifiers[0])
+        conflicting["name"] = "Cheddar"
+        modifiers.append(conflicting)
+        with self.assertRaisesRegex(DeliverooMappingError, "Conflicting legacy modifier labels"):
+            reconcile_with_explicit_plu_map(
+                self.payload, self.catalog, {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+            )
+
+    def test_same_legacy_plu_with_same_label_is_allowed(self):
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        modifiers.append(deepcopy(modifiers[0]))
+        result = reconcile_with_explicit_plu_map(
+            self.payload, self.catalog, {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+        )
+        self.assertEqual(len(result["mapped_items"][0]["options"]), 2)
+        self.assertFalse(result["writes"])
+
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             reconcile_with_explicit_plu_map(
