@@ -94,6 +94,14 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         result = self.render(FakeConn(), self.orders(age_ms=1000))
         self.assertEqual([o["id"] for o in result], ["local"])
 
+    def test_invalid_creation_timestamps_do_not_break_display(self):
+        for invalid in ("not-a-date", [], {}, float("inf")):
+            with self.subTest(invalid=invalid):
+                orders = self.orders(age_ms=20000)
+                orders[0]["created_at"] = invalid
+                result = self.render(FakeConn(), orders)
+                self.assertEqual(len(result), 3)
+
     def test_unavailable_event_store_preserves_orders(self):
         orders = self.orders()
         result = self.render(FakeConn(fail_events=True), orders)
