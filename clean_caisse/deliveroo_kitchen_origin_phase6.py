@@ -3,6 +3,7 @@
 Pure functions only. Not yet connected to kitchen screens or printer.
 """
 from html import escape
+from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 
 DELIVEROO_LABEL = "DELIVEROO"
 DELIVEROO_COLOR = "#00CCBC"
@@ -11,7 +12,12 @@ DELIVEROO_COLOR = "#00CCBC"
 def kitchen_origin(channel, external_number=None):
     if str(channel or "").strip().upper() != DELIVEROO_LABEL:
         return None
-    number = str(external_number or "").strip()
+    if external_number is not None and (isinstance(external_number, bool)
+                                         or not isinstance(external_number, (str, int))):
+        raise DeliverooMappingError("Invalid Deliveroo display number")
+    number = str(external_number if external_number is not None else "").strip()
+    if any(ord(char) < 32 or ord(char) == 127 for char in number):
+        raise DeliverooMappingError("Unsafe Deliveroo display number")
     return {
         "channel": DELIVEROO_LABEL,
         "label": "COMMANDE DELIVEROO",

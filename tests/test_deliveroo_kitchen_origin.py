@@ -1,5 +1,6 @@
 import unittest
 
+from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 from clean_caisse.deliveroo_kitchen_origin_phase6 import (
     DELIVEROO_COLOR, kitchen_origin, kitchen_origin_html,
 )
@@ -11,6 +12,24 @@ class DeliverooKitchenOriginTests(unittest.TestCase):
         self.assertEqual(origin["color"], "#00CCBC")
         self.assertEqual(origin["print_header"], "COMMANDE DELIVEROO - 7866")
         self.assertEqual(DELIVEROO_COLOR, "#00CCBC")
+
+    def test_control_bytes_cannot_reach_kitchen_header_or_html(self):
+        for number in ("7866\\nFAUSSE COMMANDE", "7866\\x1b[2J", "7866\\tNOTE"):
+            with self.subTest(number=repr(number)):
+                with self.assertRaises(DeliverooMappingError):
+                    kitchen_origin("DELIVEROO", number)
+                with self.assertRaises(DeliverooMappingError):
+                    kitchen_origin_html("DELIVEROO", number)
+
+    def test_structured_or_boolean_display_number_is_rejected(self):
+        for number in ({"id": "7866"}, ["7866"], True):
+            with self.subTest(number=number):
+                with self.assertRaises(DeliverooMappingError):
+                    kitchen_origin("DELIVEROO", number)
+
+    def test_numeric_display_number_remains_supported(self):
+        self.assertEqual(kitchen_origin("DELIVEROO", 7866)["print_header"],
+                         "COMMANDE DELIVEROO - 7866")
 
     def test_other_channels_not_relabelled(self):
         for channel in ("SITE", "CAISSE", "UBER EATS", None):
