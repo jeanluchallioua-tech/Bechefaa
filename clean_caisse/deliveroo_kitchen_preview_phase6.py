@@ -28,7 +28,10 @@ def preview_order(payload, catalog, approved_map=None):
     return {
         "origin": origin,
         "external_order_id": mapped["external_order_id"],
+        "display_id": mapped["display_id"],
+        "fulfillment_type": mapped["fulfillment_type"],
         "items": items,
+        "instructions_verified": False,
         "ready_for_dispatch": False,
         "requires_price_policy": True,
         "writes": False,
