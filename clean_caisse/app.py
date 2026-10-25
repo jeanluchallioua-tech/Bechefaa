@@ -501,6 +501,19 @@ def create_order():
                             "duplicate": True,
                             "offline_sync_key": offline_sync_key,
                         }), 200
+                if table_number is not None:
+                    from .table_core_phase36 import ensure_table_availability_schema, table_conflict
+                    ensure_table_availability_schema(conn)
+                    conflict = table_conflict(
+                        conn, table_number,
+                        str(payload.get("table_reservation_token") or "").strip(),
+                    )
+                    if conflict:
+                        return jsonify(conflict), 409
+                    conn.execute(
+                        "DELETE FROM caisse_table_reservations WHERE table_number=%s",
+                        (table_number,),
+                    )
                 row = conn.execute("SELECT COALESCE(MAX(num), 0) + 1 AS next_num FROM caisse_orders").fetchone()
                 order_num = int(row["next_num"])
                 conn.execute(
