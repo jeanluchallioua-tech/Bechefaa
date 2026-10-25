@@ -84,6 +84,21 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(first["schema_verified"])
         self.assertFalse(first["writes"])
 
+    def test_amount_audit_is_read_only_and_does_not_approve_prices(self):
+        payload = sample()
+        result = preview_order(payload, self.catalog)
+        audit = result["amount_audit"]
+        self.assertEqual(audit["order_total_eur"], "8.95")
+        self.assertEqual(audit["items_total_eur"], "8.95")
+        self.assertTrue(audit["totals_match"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        payload["body"]["order"]["total_price"]["fractional"] = 1000
+        mismatch = preview_order(payload, self.catalog)["amount_audit"]
+        self.assertEqual(mismatch["difference_eur"], "1.05")
+        self.assertFalse(mismatch["totals_match"])
+
     def test_unmatched_sandbox_modifier_blocks_preview(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
