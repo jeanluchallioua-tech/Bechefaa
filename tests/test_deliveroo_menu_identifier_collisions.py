@@ -43,6 +43,29 @@ class DeliverooMenuIdentifierTests(unittest.TestCase):
         self.assertEqual(preview["plu_contract_blockers"], [])
         self.assertFalse(preview["upload_performed"])
 
+    def test_generated_choice_plu_roundtrips_to_strict_reconciler(self):
+        from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
+        from tests.test_deliveroo_order_reconcile import sample
+
+        options = [{"name": "Extras", "options": [
+            {"id": "extra-1", "name": "Guacamole", "price": 0.95},
+        ]}]
+        product = self.product("MU11002", options=options)
+        preview = self.preview([product])
+        self.assertTrue(preview["plu_contract_ready"])
+        items = preview["payload"]["menu"]["items"]
+        choice = next(item for item in items if item["type"] == "CHOICE")
+        main = next(item for item in items if item["type"] == "ITEM")
+        self.assertEqual(main["plu"], "MU11002")
+        self.assertEqual(choice["plu"], "opt:MU11002:0:0")
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = choice["plu"]
+        result = reconcile(payload, {"products": [product]})
+        self.assertEqual(result["mapped_items"][0]["options"], [
+            {"group": "Extras", "name": "Guacamole", "quantity": 1}
+        ])
+        self.assertFalse(result["writes"])
+
     def test_duplicate_hidden_product_id_blocks_reconciliation(self):
         preview = self.preview([
             self.product("MU11002"),
