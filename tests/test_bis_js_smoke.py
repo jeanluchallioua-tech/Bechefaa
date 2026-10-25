@@ -25,6 +25,25 @@ assert.equal(totalOf(order),27);
 assert.equal(order.items[0].unit_price,15);
 """)
 
+    def test_deliveroo_history_filter_uses_source(self):
+        source = (ROOT / "clean_caisse/app.py").read_text(encoding="utf-8")
+        js = source[
+            source.index("function matchesHistoryFilter("):
+            source.index("function render(){", source.index("function matchesHistoryFilter("))
+        ]
+        self.run_js(js + """
+const assert=require('node:assert/strict');
+const deliveroo={source:'DELIVEROO',ticket_type:'Livraison'};
+const delivery={source:'LIVRAISON',ticket_type:'Livraison'};
+const counter={source:'EMPORTER',ticket_type:'Comptoir'};
+assert.equal(matchesHistoryFilter(deliveroo,'Deliveroo'),true);
+assert.equal(matchesHistoryFilter(delivery,'Deliveroo'),false);
+assert.equal(matchesHistoryFilter(counter,'Deliveroo'),false);
+assert.equal(matchesHistoryFilter(deliveroo,'Tous'),true);
+assert.equal(matchesHistoryFilter(delivery,'Livraison'),true);
+assert.equal(matchesHistoryFilter(counter,'Comptoir'),true);
+""")
+
     def test_discount_ui_save(self):
         source = (ROOT / "clean_caisse/app.py").read_text(encoding="utf-8")
         js = source[source.index("function setManualDiscount"):source.index("function sendKitchen(orderId,orderNum)")]
