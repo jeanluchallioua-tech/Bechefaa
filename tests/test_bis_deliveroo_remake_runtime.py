@@ -94,6 +94,18 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         result = self.render(FakeConn(), self.orders(age_ms=1000))
         self.assertEqual([o["id"] for o in result], ["local"])
 
+    def test_presentation_does_not_mutate_source_orders(self):
+        orders = self.orders()
+        original = copy.deepcopy(orders)
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")])
+        env = {"CC_APP_ID": "app_fad0809f-954d-47e7-983d-afb7c3867cd0",
+               "BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED": "1"}
+        with patch.dict(os.environ, env):
+            visible = self.namespace["_deliveroo_remake_view"](conn, orders)
+        self.assertEqual(orders, original)
+        self.assertTrue(next(o for o in visible if o["id"] == pos_id("child"))["is_deliveroo_remake"])
+
     def test_invalid_creation_timestamps_do_not_break_display(self):
         for invalid in ("not-a-date", [], {}, float("inf")):
             with self.subTest(invalid=invalid):
