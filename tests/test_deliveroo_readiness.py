@@ -84,6 +84,22 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertFalse(result["dispatch_performed"])
         self.assertFalse(result["writes"])
 
+    def test_paid_modifiers_not_in_line_total_block_readiness(self):
+        from copy import deepcopy
+        preview = deepcopy(self.preview)
+        preview["amount_audit"]["requires_financial_review"] = True
+        preview["amount_audit"]["review_reasons"] = [
+            "paid_modifiers_excluded_from_line_totals",
+        ]
+        result = assess_kitchen_readiness(
+            preview, plu_approved=True, price_policy_approved=True,
+            instruction_schema_verified=True,
+        )
+        self.assertIn("amount_requires_financial_review", result["blockers"])
+        self.assertFalse(result["checks_passed"])
+        self.assertFalse(result["dispatch_performed"])
+        self.assertFalse(result["writes"])
+
     def test_invalid_preview_never_passes(self):
         result = assess_kitchen_readiness(
             {"writes": True, "items": []}, plu_approved=True,
