@@ -200,6 +200,25 @@ def build_deliveroo_menu_preview(db):
     mapping = {"products": {}, "choices": {}}
     warnings = []
 
+    # The incoming reconciler validates the whole catalogue, not only the
+    # products currently visible on Deliveroo. Surface mismatches before upload.
+    seen_catalog_plu = set()
+    for source_index, source_product in enumerate(data.get("products") or []):
+        if not isinstance(source_product, dict):
+            warnings.append({"type": "invalid_catalog_product", "product_index": source_index})
+            continue
+        raw_id = source_product.get("id")
+        if not isinstance(raw_id, str) or not raw_id.strip():
+            warnings.append({"type": "invalid_catalog_product_plu", "product_index": source_index})
+            continue
+        if raw_id != raw_id.strip():
+            warnings.append({"type": "noncanonical_catalog_product_plu", "product_index": source_index})
+        if raw_id in seen_catalog_plu:
+            warnings.append({"type": "duplicate_catalog_product_plu", "product_index": source_index, "product_id": raw_id})
+        seen_catalog_plu.add(raw_id)
+
+    seen_menu_item_ids = {}
+    seen_choice_item_ids = set()
     for product_index, product in enumerate(raw_products):
         pos_id = str(product.get("id") or "").strip()
         name = str(product.get("name") or "").strip()
@@ -219,6 +238,13 @@ def build_deliveroo_menu_preview(db):
                 "reason": "incoming_order_will_not_match_catalogue_id",
             })
         item_id = _safe_id("item", pos_id)
+        if item_id in seen_menu_item_ids and seen_menu_item_ids[item_id] != pos_id:
+            warnings.append({
+                "type": "generated_item_id_collision",
+                "product_id": pos_id,
+                "conflicting_product_id": seen_menu_item_ids[item_id],
+            })
+        seen_menu_item_ids[item_id] = pos_id
         modifier_ids = []
         mapping["products"][item_id] = {
             "pos_item_id": pos_id,
@@ -257,6 +283,14 @@ def build_deliveroo_menu_preview(db):
                     "choice",
                     f"{pos_id}_{group_index}_{raw_choice_id}_{choice['name']}",
                 )
+                if choice_item_id in seen_choice_item_ids:
+                    warnings.append({
+                        "type": "generated_choice_id_collision",
+                        "product_id": pos_id,
+                        "group_index": group_index,
+                        "choice_index": choice["index"],
+                    })
+                seen_choice_item_ids.add(choice_item_id)
                 # Le PLU du CHOICE reste stable et décodable côté caisse pour les commandes entrantes.
                 choice_plu = f"opt:{pos_id}:{group_index}:{choice['index']}"
                 if len(choice_plu) > 50:
@@ -604,7 +638,10 @@ def build_deliveroo_menu_preview(db):
     blocking_plu_warnings = [
         warning for warning in warnings
         if warning.get("type") in {
-            "unreconcilable_choice_plu", "truncated_product_plu"
+            "unreconcilable_choice_plu", "truncated_product_plu",
+            "invalid_catalog_product", "invalid_catalog_product_plu",
+            "noncanonical_catalog_product_plu", "duplicate_catalog_product_plu",
+            "generated_item_id_collision", "generated_choice_id_collision",
         }
     ]
 
