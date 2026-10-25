@@ -66,6 +66,24 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertIn("invalid_kitchen_modifier_quantity", result["blockers"])
         self.assertFalse(result["checks_passed"])
 
+    def test_missing_or_tampered_amount_audit_blocks_readiness(self):
+        from copy import deepcopy
+        missing = deepcopy(self.preview)
+        missing.pop("amount_audit")
+        result = assess_kitchen_readiness(missing)
+        self.assertIn("amount_audit_missing", result["blockers"])
+        tampered = deepcopy(self.preview)
+        tampered["amount_audit"]["ready_for_dispatch"] = True
+        tampered["amount_audit"]["price_policy_verified"] = True
+        tampered["amount_audit"]["line_diagnostics"] = []
+        result = assess_kitchen_readiness(tampered)
+        self.assertIn("amount_audit_dispatch_guard_missing", result["blockers"])
+        self.assertIn("amount_audit_price_guard_missing", result["blockers"])
+        self.assertIn("amount_line_diagnostics_missing", result["blockers"])
+        self.assertFalse(result["checks_passed"])
+        self.assertFalse(result["dispatch_performed"])
+        self.assertFalse(result["writes"])
+
     def test_invalid_preview_never_passes(self):
         result = assess_kitchen_readiness(
             {"writes": True, "items": []}, plu_approved=True,
