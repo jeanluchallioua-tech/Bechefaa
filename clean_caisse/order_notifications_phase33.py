@@ -92,6 +92,8 @@ def register_order_notifications_phase33(app):
    gain.gain.exponentialRampToValueAtTime(.001,start+duration);
    osc.connect(gain);gain.connect(ctx.destination);osc.start(start);osc.stop(start+duration+.02);
  }
+ // Reuse the configured POS beep for Deliveroo; never add a separate sound.
+ if(PAGE==='pos')window.bechefaaNotifyDeliveroo=()=>{beep();};
  function beep(){
    try{
      const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted)return;
