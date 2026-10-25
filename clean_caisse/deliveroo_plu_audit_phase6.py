@@ -3,7 +3,8 @@
 The diagnostic must not report compatibility for a product or modifier that
 the stricter order reconciler would reject as inactive or ambiguous.
 """
-from clean_caisse.deliveroo_order_mapping_phase6 import parse_order_new
+from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, parse_order_new
+from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
 
 
 def audit_order_plu(payload, catalog):
@@ -73,6 +74,18 @@ def audit_order_plu(payload, catalog):
                     "product_id": product_id,
                     "received_plu": actual,
                 })
+    # The audit is advisory, but it must never claim compatibility for a
+    # catalogue that the actual strict reconciler would reject. Preserve
+    # specific PLU findings above and check the complete catalogue only
+    # when no other incompatibility has already been reported.
+    if not findings:
+        try:
+            reconcile(payload, catalog)
+        except DeliverooMappingError as exc:
+            findings.append({
+                "type": "reconciler_rejected",
+                "reason": str(exc),
+            })
     return {
         "external_order_id": parsed["external_order_id"],
         "findings": findings,
