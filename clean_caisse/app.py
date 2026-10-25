@@ -718,8 +718,10 @@ def _deliveroo_remake_view(conn, orders):
         """).fetchall()
         for event in display_rows:
             external = str(event["order_id"] or "").strip()
-            if external:
-                refs["deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, external).hex] = str(event["display_id"] or "").strip()
+            display_id = str(event["display_id"] or "").strip()
+            if external and display_id:
+                # Missing display IDs must not erase the external order reference.
+                refs["deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, external).hex] = display_id
     except Exception:
         app.logger.exception("Deliveroo display references unavailable")
     visible = []
