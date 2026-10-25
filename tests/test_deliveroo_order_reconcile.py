@@ -37,9 +37,17 @@ class DeliverooReconcileTests(unittest.TestCase):
     def test_valid_product_and_modifier(self):
         result = reconcile(sample(), self.catalog)
         self.assertEqual(result["mapped_items"][0]["options"], [
-            {"group": "Suppléments", "name": "Guacamole"}])
+            {"group": "Suppléments", "name": "Guacamole", "quantity": 1}])
         self.assertFalse(result["writes"])
         self.assertTrue(result["requires_price_policy"])
+
+    def test_multiple_modifier_units_preserved(self):
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["quantity"] = 3
+        result = reconcile(payload, self.catalog)
+        self.assertEqual(result["mapped_items"][0]["options"], [
+            {"group": "Suppléments", "name": "Guacamole", "quantity": 3}])
+        self.assertFalse(result["writes"])
 
     def test_unknown_product_rejected(self):
         payload = sample()
