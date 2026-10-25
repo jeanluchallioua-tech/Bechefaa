@@ -47,6 +47,16 @@ class DeliverooReconcileTests(unittest.TestCase):
         with self.assertRaises(DeliverooMappingError):
             reconcile(payload, self.catalog)
 
+    def test_negative_or_noncanonical_option_indices_rejected(self):
+        for plu in ("opt:MU11002:-1:0", "opt:MU11002:0:-1",
+                    "opt:MU11002:+0:0", "opt:MU11002:00:0",
+                    "opt:MU11002:0:00", "opt:MU11002:０:0"):
+            with self.subTest(plu=plu):
+                payload = sample()
+                payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = plu
+                with self.assertRaises(DeliverooMappingError):
+                    reconcile(payload, self.catalog)
+
     def test_unrecognized_modifier_rejected(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
