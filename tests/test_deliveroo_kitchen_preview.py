@@ -84,6 +84,23 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(first["schema_verified"])
         self.assertFalse(first["writes"])
 
+    def test_modifier_notes_are_reported_but_not_automatically_dispatched(self):
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["notes"] = "Sans piment"
+        preview = preview_order(payload, self.catalog)
+        audit = preview["instruction_field_audit"]
+        self.assertEqual(audit["candidate_paths"], [
+            "body.order.items[0].modifiers[0].notes",
+        ])
+        self.assertEqual(audit["candidate_values"], [{
+            "path": "body.order.items[0].modifiers[0].notes",
+            "value": "Sans piment",
+        }])
+        self.assertFalse(audit["schema_verified"])
+        self.assertFalse(preview["instructions_verified"])
+        self.assertFalse(preview["ready_for_dispatch"])
+        self.assertFalse(preview["writes"])
+
     def test_amount_audit_is_read_only_and_does_not_approve_prices(self):
         payload = sample()
         result = preview_order(payload, self.catalog)
