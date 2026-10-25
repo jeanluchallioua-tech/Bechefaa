@@ -68,6 +68,22 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(result["ready_for_dispatch"])
         self.assertFalse(result["writes"])
 
+    def test_instruction_audit_is_stable_across_repeated_calls(self):
+        from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
+        payload = sample()
+        payload["body"]["order"]["notes"] = "Sans sel"
+        payload["body"]["order"]["instructions"] = "À emporter"
+        payload["body"]["order"]["items"][0]["special_instructions"] = "Bien cuit"
+        first = audit_instruction_fields(payload)
+        self.assertEqual(first, audit_instruction_fields(payload))
+        self.assertEqual(first["candidate_paths"], sorted(first["candidate_paths"]))
+        self.assertEqual(
+            [entry["path"] for entry in first["candidate_values"]],
+            first["candidate_paths"],
+        )
+        self.assertFalse(first["schema_verified"])
+        self.assertFalse(first["writes"])
+
     def test_unmatched_sandbox_modifier_blocks_preview(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
