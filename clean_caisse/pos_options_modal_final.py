@@ -193,7 +193,8 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      setTimeout(()=>{refreshProductDescription()},400);
      overlay.classList.add('open');
    }
-   function closeOptions(){overlay.classList.remove('open')}
+   let editingLine=null,editRequest=0;
+   function closeOptions(){overlay.classList.remove('open');editingLine=null;editRequest++}
    closeBtn.addEventListener('click',closeOptions);
    overlay.addEventListener('click',e=>{if(e.target===overlay)closeOptions()});
    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOptions()});
@@ -202,7 +203,54 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
    document.addEventListener('click',function(e){
      const p=e.target.closest('.product');
      if(!p)return;
+     editingLine=null;editRequest++;
      setTimeout(()=>openOptions(p.dataset.name||''),0);
+   },true);
+
+   function paintEditButton(){
+     if(!editingLine)return;
+     const button=options.querySelector('[data-action="add-current"]');
+     if(button&&button.textContent!=='Enregistrer les modifications')button.textContent='Enregistrer les modifications';
+   }
+   new MutationObserver(paintEditButton).observe(options,{childList:true,subtree:true});
+   document.addEventListener('click',async function(e){
+     const button=e.target.closest('[data-action="edit-line"]');
+     if(!button)return;
+     e.preventDefault();e.stopImmediatePropagation();
+     const index=Number(button.dataset.index),line=ORDER[index];
+     if(!line)return;
+     const token=++editRequest;
+     editingLine=null;currentProduct=null;currentGroups=[];selections={};
+     options.innerHTML='<div class="empty">Chargement des options…</div>';
+     openOptions(line.name);
+     try{
+       const response=await fetch('/api/catalog/product/'+encodeURIComponent(line.product_id)+'/options',{cache:'no-store'});
+       const data=await response.json();
+       if(token!==editRequest)return;
+       if(!response.ok||!data.ok)throw Error('Options du produit indisponibles. Le panier est conservé.');
+       currentProduct=data.product;currentGroups=Array.isArray(data.groups)?data.groups:[];
+       if(!currentProduct)throw Error('Produit indisponible. Le panier est conservé.');
+       const unmatched=[];
+       (line.options||[]).forEach(saved=>{
+         let found=false;
+         currentGroups.forEach((group,gi)=>{
+           const info=groupInfo(group,gi);
+           if(found||(saved.group&&norm(saved.group)!==norm(info.name)))return;
+           info.vals.forEach((value,vi)=>{
+             if(!found&&norm(optionInfo(value).name)===norm(saved.name)&&!selections[selectionKey(gi,vi)]){
+               selections[selectionKey(gi,vi)]=true;found=true;
+             }
+           });
+         });
+         if(!found)unmatched.push(saved.name);
+       });
+       if(unmatched.length)throw Error('Certaines options ont changé dans le catalogue : '+unmatched.join(', ')+'. Le panier est conservé.');
+       editingLine=line;renderOptions();paintEditButton();
+     }catch(error){
+       if(token!==editRequest)return;
+       editingLine=null;currentProduct=null;
+       options.innerHTML='<div class="error">'+esc(error.message||'Chargement impossible. Le panier est conservé.')+'</div>';
+     }
    },true);
 
    /* Add the selected product once, without any drink/dessert upsell flow. */
@@ -210,6 +258,19 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      const add=e.target.closest('[data-action="add-current"]');
      if(!add)return;
      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+     if(editingLine){
+       const index=ORDER.indexOf(editingLine);
+       if(index<0){closeOptions();return;}
+       if(requiredMissing()){
+         let error=options.querySelector('[data-edit-error]');
+         if(!error){error=document.createElement('div');error.dataset.editError='1';error.className='error';options.prepend(error);}
+         error.textContent='Sélectionnez les options obligatoires.';return;
+       }
+       const unit=Number(currentProduct.price||0)+totalExtra();
+       ORDER[index]={...editingLine,unit_price:Number(unit.toFixed(2)),options:selectedOptions(),options_text:''};
+       document.getElementById('order-message').innerHTML='';
+       renderOrder();closeOptions();return;
+     }
      const before=(typeof ORDER!=='undefined'&&Array.isArray(ORDER))?ORDER.length:0;
      if(typeof addCurrent==='function')addCurrent();
      if(typeof ORDER!=='undefined'&&ORDER.length>before)closeOptions();
@@ -229,10 +290,11 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
                     html = html.replace("</body>", addon + "</body>")
                     response.set_data(html)
                     response.content_length = len(response.get_data())
-                response.headers["X-Bechefaa-POS-Options"] = "modal-upsell-save-only-v2"
+                    response.headers["X-Bechefaa-POS-Options"] = "modal-cart-edit-v3"
         except Exception:
             pass
         return response
 
     app.view_functions["pos"] = pos_options_modal_view
     app._bechefaa_pos_options_modal_final = True
+
