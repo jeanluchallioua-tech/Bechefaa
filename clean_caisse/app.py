@@ -681,6 +681,9 @@ def _deliveroo_remake_view(conn, orders):
             continue
         if str(item.get("source") or "").upper() == "DELIVEROO":
             item["ticket_type"] = "Livraison"
+            item["service_mode"] = "Livraison"
+            item["payment"] = "PAYÉ EN LIGNE"
+            item["payment_label"] = "PAYÉ EN LIGNE"
             item["platform"] = "Deliveroo"
             item["platform_reference"] = refs.get(str(item["id"]), "")
         if str(item["id"]) in remake_ids:
