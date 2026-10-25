@@ -66,6 +66,20 @@ class DeliverooMenuIdentifierTests(unittest.TestCase):
         preview = self.preview([self.product("MU11002", options=options)])
         self.assert_blocked(preview, "generated_choice_id_collision")
 
+    def test_inactive_modifier_group_is_not_considered_reconcilable(self):
+        options = [{"name": "Sauces", "active": False, "options": [
+            {"id": "sauce", "name": "Mayo"},
+        ]}]
+        preview = self.preview([self.product("MU11002", options=options)])
+        self.assert_blocked(preview, "inactive_modifier_group_exposed")
+
+    def test_inactive_modifier_choice_is_not_considered_reconcilable(self):
+        options = [{"name": "Sauces", "options": [
+            {"id": "sauce", "name": "Mayo", "active": False},
+        ]}]
+        preview = self.preview([self.product("MU11002", options=options)])
+        self.assert_blocked(preview, "inactive_modifier_choice_exposed")
+
     def test_malformed_hidden_catalogue_entry_blocks_preview(self):
         preview = self.preview([self.product("MU11002"), None])
         self.assert_blocked(preview, "invalid_catalog_product")
