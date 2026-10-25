@@ -66,6 +66,7 @@ def reconcile(payload, catalog):
                 choice_name = str(choice[0] if choice else "")
             else:
                 choice_name = str(choice)
+            choice_name = choice_name.strip()
             if not choice_name:
                 raise DeliverooMappingError("Empty choice for modifier PLU")
             selections.append({"group": group_name, "name": choice_name,
