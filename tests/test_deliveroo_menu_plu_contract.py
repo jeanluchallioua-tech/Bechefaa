@@ -45,6 +45,15 @@ class DeliverooMenuPluContractTests(unittest.TestCase):
         ])
         self.assertFalse(mapped["writes"])
 
+    def test_preview_reports_blocking_plu_contract(self):
+        import inspect
+        from clean_caisse.deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
+        source = inspect.getsource(build_deliveroo_menu_preview)
+        self.assertIn('"plu_contract_ready": not blocking_plu_warnings', source)
+        self.assertIn('"plu_contract_blockers": blocking_plu_warnings', source)
+        self.assertIn('"unreconcilable_choice_plu"', source)
+        self.assertIn('"truncated_product_plu"', source)
+
     def test_item_id_is_not_pos_plu(self):
         self.assertNotEqual(_safe_id("item", "MU11002"), "MU11002")
 
