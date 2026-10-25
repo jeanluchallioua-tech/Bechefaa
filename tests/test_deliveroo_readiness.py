@@ -54,6 +54,18 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertIn("invalid_kitchen_item", result["blockers"])
         self.assertIn("invalid_kitchen_options", result["blockers"])
 
+    def test_invalid_name_does_not_hide_other_invalid_fields(self):
+        from copy import deepcopy
+        preview = deepcopy(self.preview)
+        preview["items"][0]["name"] = " "
+        preview["items"][0]["quantity"] = 0
+        preview["items"][0]["options"][0]["quantity"] = False
+        result = assess_kitchen_readiness(preview)
+        self.assertIn("invalid_kitchen_item", result["blockers"])
+        self.assertIn("invalid_kitchen_quantity", result["blockers"])
+        self.assertIn("invalid_kitchen_modifier_quantity", result["blockers"])
+        self.assertFalse(result["checks_passed"])
+
     def test_invalid_preview_never_passes(self):
         result = assess_kitchen_readiness(
             {"writes": True, "items": []}, plu_approved=True,
