@@ -41,7 +41,7 @@ class DeliverooMenuPluContractTests(unittest.TestCase):
         modifier["pos_item_id"] = "opt:MU11002:0:0"
         mapped = reconcile(self.payload, self.catalog)
         self.assertEqual(mapped["mapped_items"][0]["options"], [
-            {"group": "Extras", "name": "Guacamole"}
+            {"group": "Extras", "name": "Guacamole", "quantity": 1}
         ])
         self.assertFalse(mapped["writes"])
 
