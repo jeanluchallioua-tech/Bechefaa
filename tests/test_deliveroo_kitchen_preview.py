@@ -50,6 +50,20 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(DeliverooMappingError, "Unapproved"):
             preview_order(payload, self.catalog, {})
 
+    def test_instruction_candidate_paths_are_diagnostic_only(self):
+        payload = sample()
+        payload["body"]["order"]["special_instructions"] = "Ne pas saler"
+        payload["body"]["order"]["items"][0]["notes"] = "Bien cuit"
+        result = preview_order(payload, self.catalog)
+        self.assertEqual(result["instruction_field_audit"]["candidate_paths"], [
+            "body.order.items[0].notes",
+            "body.order.special_instructions",
+        ])
+        self.assertFalse(result["instruction_field_audit"]["schema_verified"])
+        self.assertFalse(result["instructions_verified"])
+        self.assertFalse(result["ready_for_dispatch"])
+        self.assertFalse(result["writes"])
+
     def test_unmatched_sandbox_modifier_blocks_preview(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
