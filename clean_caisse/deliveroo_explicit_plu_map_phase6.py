@@ -28,10 +28,18 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
                 raise DeliverooMappingError("Unapproved legacy modifier PLU: " + old_plu)
             if not target.startswith("opt:" + product_id + ":"):
                 raise DeliverooMappingError("Cross-product modifier PLU mapping: " + old_plu)
-            # A legacy ID must not silently point to a different catalogue choice.
-            # Require the original label to match the resolved choice after mapping.
             lines[line_index]["modifiers"][modifier_index]["pos_item_id"] = target
     result = reconcile(translated, catalog)
+    for line_index, item in enumerate(parsed["items"]):
+        for modifier_index, modifier in enumerate(item["modifiers"]):
+            if modifier["pos_item_id"].startswith("opt:"):
+                continue
+            original_name = modifier["name"].strip()
+            resolved_name = result["mapped_items"][line_index]["options"][modifier_index]["name"].strip()
+            if not original_name or original_name.casefold() != resolved_name.casefold():
+                raise DeliverooMappingError(
+                    "Legacy modifier label mismatch: " + modifier["pos_item_id"]
+                )
     result["explicit_plu_translation"] = True
     result["ready_for_dispatch"] = False
     result["writes"] = False
