@@ -24,6 +24,22 @@ class DeliverooIdempotencyTests(unittest.TestCase):
     def test_conflict(self):
         self.assertEqual(classify_replay("fr:1234", "fr:7866"), "conflict")
 
+    def test_nonstring_order_ids_cannot_be_hashed(self):
+        for invalid in (None, 123, True, ["fr:7866"], {"id": "fr:7866"}):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(DeliverooMappingError):
+                    external_order_key(invalid)
+
+    def test_new_order_classification_rejects_invalid_incoming_id(self):
+        for invalid in (None, "", "   ", 123, True):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(DeliverooMappingError):
+                    classify_replay(None, invalid)
+
+    def test_new_order_classification_rejects_invalid_environment(self):
+        with self.assertRaises(DeliverooMappingError):
+            classify_replay(None, "fr:7866", environment="staging")
+
     def test_empty_id_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             external_order_key("")
