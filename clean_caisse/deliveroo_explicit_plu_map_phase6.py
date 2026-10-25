@@ -17,16 +17,18 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
     translated = deepcopy(payload)
     lines = translated["body"]["order"]["items"]
     legacy_labels = {}
-    targets_by_product = {}
     for key, target in approved_map.items():
         if (not isinstance(key, tuple) or len(key) != 2
                 or any(not isinstance(part, str) or not part.strip() for part in key)
                 or not isinstance(target, str)
                 or not target.startswith("opt:" + key[0] + ":")):
             raise DeliverooMappingError("Invalid approved legacy PLU mapping entry")
-        # A target may have several historical aliases, but the aliases must
-        # remain explicit; never infer mappings from option names.
-        targets_by_product.setdefault(key[0], {}).setdefault(target, set()).add(key[1])
+        parts = target.split(":")
+        if (len(parts) != 4 or any(
+                not part.isascii() or not part.isdecimal()
+                or str(int(part)) != part for part in parts[2:]
+        )):
+            raise DeliverooMappingError("Non-canonical approved modifier PLU target")
     for line_index, item in enumerate(parsed["items"]):
         product_id = item["pos_item_id"]
         for modifier_index, modifier in enumerate(item["modifiers"]):
