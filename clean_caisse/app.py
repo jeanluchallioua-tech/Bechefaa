@@ -858,7 +858,7 @@ async function checkDeliveroo(){
    banner.onclick=()=>banner.classList.remove('visible');
    banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>o.platform_reference?'réf. '+o.platform_reference:'commande Deliveroo').join(', ')+' • Voir la cuisine / historique';
   }
-  soundDeliveroo();
+  // The existing POS/kitchen notification system handles sound.
  }
  }catch(e){console.warn('Deliveroo history check',e)}
 }
