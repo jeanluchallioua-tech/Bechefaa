@@ -279,6 +279,9 @@ def order_payload(conn, order_row):
         "payment": order_row["payment"],
         "status": order_row["status"],
         "total": float(order_row["total"]),
+        "discount_amount": float(order_row.get("discount_amount") or 0),
+        "manual_discount_percent": None if order_row.get("manual_discount_percent") is None else float(order_row["manual_discount_percent"]),
+        "subtotal_before_discount": float(order_row.get("subtotal_before_discount") or order_row["total"]),
         "created_at": order_row["created_at"],
         "updated_at": order_row["updated_at"],
         "items": clean_items,
@@ -442,6 +445,14 @@ def create_order():
     else:
         source = "EMPORTER"
 
+    subtotal = total
+    from .manual_discount import order_discount
+    try:
+        discount, total, percent = order_discount(subtotal, payload, source)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
     table_number = None
     table_label = None
     if source == "SALLE":
@@ -500,6 +511,8 @@ def create_order():
                         "À ENCAISSER", "Enregistrée", total, now, now,
                     ),
                 )
+                conn.execute("""UPDATE caisse_orders SET discount_amount=%s,subtotal_before_discount=%s,manual_discount_percent=%s WHERE id=%s""",
+                    (discount, subtotal, percent, order_id))
                 for line in normalized:
                     conn.execute(
                         """INSERT INTO caisse_order_items
@@ -525,6 +538,9 @@ def create_order():
         "id": order_id,
         "num": order_num,
         "total": float(total),
+        "discount_amount": float(discount),
+        "manual_discount_percent": None if percent is None else float(percent),
+        "subtotal_before_discount": float(subtotal),
         "status": "Enregistrée",
         "ticket_type": ticket_type(source),
         "service_mode": ticket_type(source),
