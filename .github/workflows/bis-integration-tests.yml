@@ -32,6 +32,14 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_pos_save_workflow.py' -v
           python -m unittest discover -s tests -p 'test_pos_pending_edit.py' -v
+      - name: Delivery, table, and receipt regression tests
+        if: success() || failure()
+        run: |
+          python -m unittest discover -s tests -p 'test_customer_delivery_roundtrip.py' -v
+          python -m unittest discover -s tests -p 'test_delivery_details.py' -v
+          python -m unittest discover -s tests -p 'test_table_occupancy.py' -v
+          python -m unittest discover -s tests -p 'test_receipt_layout.py' -v
+          python -m unittest discover -s tests -p 'test_religious_hours.py' -v
       - name: Discount end-to-end regression tests
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_manual_discount.py' -v
