@@ -59,6 +59,10 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
             "body.order.items[0].notes",
             "body.order.special_instructions",
         ])
+        self.assertEqual(result["instruction_field_audit"]["candidate_values"], [
+            {"path": "body.order.items[0].notes", "value": "Bien cuit"},
+            {"path": "body.order.special_instructions", "value": "Ne pas saler"},
+        ])
         self.assertFalse(result["instruction_field_audit"]["schema_verified"])
         self.assertFalse(result["instructions_verified"])
         self.assertFalse(result["ready_for_dispatch"])
