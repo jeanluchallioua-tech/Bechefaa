@@ -55,6 +55,7 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
             for key, blocker in (
                 ("non_text_candidate_paths", "non_text_instruction_candidates"),
                 ("blank_candidate_paths", "blank_instruction_candidates"),
+                ("unsafe_control_candidate_paths", "unsafe_instruction_candidates"),
             ):
                 flagged = audit.get(key)
                 if not isinstance(flagged, list):
