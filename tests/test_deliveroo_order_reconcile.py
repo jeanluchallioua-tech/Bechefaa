@@ -115,6 +115,18 @@ class DeliverooReconcileTests(unittest.TestCase):
         result = reconcile(sample(), self.catalog)
         self.assertEqual(result["mapped_items"][0]["options"][0]["name"], "Guacamole")
 
+    def test_invalid_catalogue_container_rejected(self):
+        for bad in (None, [], "catalogue", 7):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(DeliverooMappingError, "Invalid catalogue"):
+                    reconcile(sample(), bad)
+
+    def test_invalid_catalogue_product_entry_rejected(self):
+        for bad in (None, "MU11002", [], 7):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(DeliverooMappingError, "Invalid catalogue product entry"):
+                    reconcile(sample(), {"products": [bad]})
+
     def test_invalid_catalogue_product_collection_rejected(self):
         for bad in ({}, "products", 7, True):
             with self.subTest(bad=bad):
