@@ -679,8 +679,17 @@ def _deliveroo_remake_view(conn, orders):
     # present two successive preparation alerts for the same remake pair.
     import time as _time
     cutoff_ms = int(_time.time() * 1000) - 15000
-    orders = [o for o in orders if str(o.get("source") or "").upper() != "DELIVEROO"
-              or int(o.get("created_at") or 0) <= cutoff_ms]
+    def _is_ready_for_display(order):
+        if str(order.get("source") or "").upper() != "DELIVEROO":
+            return True
+        try:
+            created_at = int(order.get("created_at") or 0)
+        except (TypeError, ValueError, OverflowError):
+            # Bad timestamps must never make the kitchen/history endpoint fail.
+            return True
+        return created_at <= cutoff_ms
+
+    orders = [o for o in orders if _is_ready_for_display(o)]
     # Suppress the original as soon as its linked remake webhook exists,
     # even while the replacement is inside the 15-second presentation hold.
     # Checking only visible children briefly exposed the original and then
