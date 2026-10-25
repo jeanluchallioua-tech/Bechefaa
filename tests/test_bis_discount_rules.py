@@ -48,6 +48,18 @@ class BisDiscountRulesTests(unittest.TestCase):
             order_discount("30.00", {"manual_discount_percent": 10}, "EMPORTER"),
             (Decimal("3.00"), Decimal("27.00"), Decimal("10.00")))
 
+    def test_retained_percentage_cannot_follow_service_or_channel_change(self):
+        previous = {"manual_discount_percent": Decimal("10.00")}
+        for source, extras in (
+            ("SALLE", {}),
+            ("LIVRAISON", {}),
+            ("EMPORTER", {"sales_channel": "SITE"}),
+            ("EMPORTER", {"sales_channel": "DELIVEROO"}),
+            ("EMPORTER", {"coupon_code": "YARON10"}),
+        ):
+            with self.subTest(source=source, extras=extras), self.assertRaises(ValueError):
+                order_discount(Decimal("30.00"), extras, source, existing=previous)
+
     def test_zero_discount_allowed(self):
         amount, total, percent = order_discount(
             Decimal("30.00"), {"manual_discount_percent": 0}, "SALLE")
