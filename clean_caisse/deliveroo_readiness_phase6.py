@@ -20,11 +20,13 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
         if not isinstance(preview.get("items"), list) or not preview["items"]:
             blockers.append("missing_kitchen_items")
         for item in preview.get("items", []) if isinstance(preview.get("items"), list) else []:
-            if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            if not isinstance(item, dict):
                 blockers.append("invalid_kitchen_item")
-                if isinstance(item, dict) and not isinstance(item.get("options"), list):
-                    blockers.append("invalid_kitchen_options")
                 continue
+            if not isinstance(item.get("name"), str) or not item["name"].strip():
+                blockers.append("invalid_kitchen_item")
+            # Validate quantities and modifiers even when the label is invalid.
+            # A malformed line must not hide additional kitchen blockers.
             qty = item.get("quantity")
             if isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
                 blockers.append("invalid_kitchen_quantity")
