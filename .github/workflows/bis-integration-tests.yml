@@ -29,4 +29,5 @@ jobs:
           python -m unittest discover -s tests -p 'test_pos_save_workflow.py' -v
           python -m unittest discover -s tests -p 'test_pos_pending_edit.py' -v
       - name: Pure discount calculations
+        if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_discount_rules.py' -v
