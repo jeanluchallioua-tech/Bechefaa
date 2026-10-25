@@ -50,6 +50,20 @@ class DeliverooMappingTests(unittest.TestCase):
                 with self.assertRaises(DeliverooMappingError):
                     parse_order_new(self.payload)
 
+    def test_invalid_modifier_collections_rejected(self):
+        for bad in ({}, "option", 7, True):
+            with self.subTest(bad=bad):
+                self.payload["body"]["order"]["items"][0]["modifiers"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    parse_order_new(self.payload)
+
+    def test_blank_modifier_pos_id_rejected(self):
+        for bad in ("", "   ", None):
+            with self.subTest(bad=bad):
+                self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    parse_order_new(self.payload)
+
     def test_invalid_modifier_quantity_rejected_cleanly(self):
         for bad in (0, -1, 1.5, True, "2", "abc", None):
             with self.subTest(bad=bad):
