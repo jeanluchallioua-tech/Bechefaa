@@ -14,7 +14,7 @@ class DeliverooKitchenOriginTests(unittest.TestCase):
         self.assertEqual(DELIVEROO_COLOR, "#00CCBC")
 
     def test_control_bytes_cannot_reach_kitchen_header_or_html(self):
-        for number in ("7866\\nFAUSSE COMMANDE", "7866\\x1b[2J", "7866\\tNOTE"):
+        for number in ("7866\nFAUSSE COMMANDE", "7866\x1b[2J", "7866\tNOTE"):
             with self.subTest(number=repr(number)):
                 with self.assertRaises(DeliverooMappingError):
                     kitchen_origin("DELIVEROO", number)
