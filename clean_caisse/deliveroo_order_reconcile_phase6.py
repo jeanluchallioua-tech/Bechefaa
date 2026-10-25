@@ -2,6 +2,20 @@
 from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, parse_order_new
 
 
+def catalogue_entry_active(entry, label):
+    """Fail closed for disabled or malformed catalogue activation flags.
+
+    Database exports may encode booleans as 0/1, but strings such as
+    "false" must never silently be treated as enabled.
+    """
+    value = entry.get("active", True)
+    if type(value) is bool:
+        return value
+    if type(value) is int and value in (0, 1):
+        return bool(value)
+    raise DeliverooMappingError("Invalid catalogue active flag: " + label)
+
+
 def reconcile(payload, catalog):
     parsed = parse_order_new(payload)
     if not isinstance(catalog, dict):
@@ -29,7 +43,7 @@ def reconcile(payload, catalog):
     for line in parsed["items"]:
         product_id = line["pos_item_id"]
         product = by_id.get(product_id)
-        if not product or product.get("active", True) is False:
+        if not product or not catalogue_entry_active(product, "product " + product_id):
             raise DeliverooMappingError("Unknown or inactive POS product: " + product_id)
         groups = product.get("options")
         if groups is None:
@@ -59,9 +73,9 @@ def reconcile(payload, catalog):
                 choice = choices[choice_index]
             except (ValueError, IndexError, KeyError, TypeError, StopIteration):
                 raise DeliverooMappingError("Invalid modifier PLU: " + plu)
-            if group.get("active", True) is False:
+            if not catalogue_entry_active(group, "option group " + plu):
                 raise DeliverooMappingError("Inactive catalogue option group: " + plu)
-            if isinstance(choice, dict) and choice.get("active", True) is False:
+            if isinstance(choice, dict) and not catalogue_entry_active(choice, "option choice " + plu):
                 raise DeliverooMappingError("Inactive catalogue option choice: " + plu)
             group_name = str(group.get("name") or group.get("label") or group.get("title") or "Groupe " + str(group_index + 1))
             if isinstance(choice, dict):
