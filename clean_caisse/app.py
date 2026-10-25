@@ -172,6 +172,10 @@ def ensure_order_schema(conn):
         updated_at BIGINT NOT NULL,
         modified_at BIGINT NULL
     )""")
+    # Production-compatible manual discount fields; no existing rows rewritten.
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS manual_discount_percent NUMERIC(5,2) NULL")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS subtotal_before_discount NUMERIC(12,2) NULL")
     # Minimal compatibility for history queries on a fresh preproduction database.
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'RESTO'")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
