@@ -26,6 +26,14 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_bis_module_registration.py' -v
       - name: Deliveroo remake sandbox safety guards
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_remake.py' -v
+      - name: Deliveroo sandbox mapping and idempotency regression tests
+        if: success() || failure()
+        run: |
+          python -m unittest discover -s tests -p 'test_deliveroo_order_mapping.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_order_idempotency.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_order_reconcile.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_kitchen_origin.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_menu_plu_contract.py' -v
       - name: JavaScript POS and offline discount smoke tests
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
       - name: POS save and pending-edit regression tests
