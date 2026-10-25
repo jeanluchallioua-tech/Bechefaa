@@ -17,12 +17,23 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
     translated = deepcopy(payload)
     lines = translated["body"]["order"]["items"]
     legacy_labels = {}
+    # Two distinct legacy IDs must not silently collapse onto one kitchen
+    # option for the same parent product. Review such aliases explicitly.
+    seen_targets = {}
     for key, target in approved_map.items():
         if (not isinstance(key, tuple) or len(key) != 2
                 or any(not isinstance(part, str) or not part.strip() for part in key)
                 or not isinstance(target, str)
                 or not target.startswith("opt:" + key[0] + ":")):
             raise DeliverooMappingError("Invalid approved legacy PLU mapping entry")
+        if (key[0] != key[0].strip() or key[1] != key[1].strip()
+                or key[1].startswith("opt:")):
+            raise DeliverooMappingError("Invalid approved legacy PLU mapping source")
+        target_key = (key[0], target)
+        previous_source = seen_targets.get(target_key)
+        if previous_source is not None and previous_source != key[1]:
+            raise DeliverooMappingError("Ambiguous approved legacy PLU target")
+        seen_targets[target_key] = key[1]
         parts = target.split(":")
         if (len(parts) != 4 or any(
                 not part.isascii() or not part.isdecimal()
