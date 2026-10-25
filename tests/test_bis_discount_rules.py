@@ -38,6 +38,16 @@ class BisDiscountRulesTests(unittest.TestCase):
                                {"manual_discount_percent": 10, **extras},
                                "EMPORTER")
 
+    def test_invalid_subtotal_rejected(self):
+        for subtotal in ("NaN", "Infinity", "-1"):
+            with self.subTest(subtotal=subtotal), self.assertRaises(ValueError):
+                order_discount(subtotal, {"manual_discount_percent": 10}, "EMPORTER")
+
+    def test_string_subtotal_supported(self):
+        self.assertEqual(
+            order_discount("30.00", {"manual_discount_percent": 10}, "EMPORTER"),
+            (Decimal("3.00"), Decimal("27.00"), Decimal("10.00")))
+
     def test_zero_discount_allowed(self):
         amount, total, percent = order_discount(
             Decimal("30.00"), {"manual_discount_percent": 0}, "SALLE")
