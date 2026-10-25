@@ -23,6 +23,8 @@ class SqliteAdapter:
     def __init__(self):
         self.raw=sqlite3.connect(':memory:')
         self.raw.row_factory=lambda c,r:dict(zip([d[0] for d in c.description],r))
+        # SQLite test adapter: PostgreSQL advisory locks are a no-op in single-process tests.
+        self.raw.create_function('pg_advisory_xact_lock', 1, lambda key: None)
     def execute(self,sql,params=()):
         if sql.startswith('LOCK TABLE'):return self.raw.execute('SELECT 1')
         add=re.match(r'ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+) (.*)',sql,re.S)
