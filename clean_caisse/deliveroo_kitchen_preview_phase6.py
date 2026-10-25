@@ -2,10 +2,12 @@
 from clean_caisse.deliveroo_kitchen_origin_phase6 import kitchen_origin
 from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
+from clean_caisse.deliveroo_explicit_plu_map_phase6 import reconcile_with_explicit_plu_map
 
 
-def preview_order(payload, catalog):
-    mapped = reconcile(payload, catalog)
+def preview_order(payload, catalog, approved_map=None):
+    mapped = (reconcile(payload, catalog) if approved_map is None
+              else reconcile_with_explicit_plu_map(payload, catalog, approved_map))
     origin = kitchen_origin("DELIVEROO", mapped.get("display_id"))
     items = []
     for item in mapped["mapped_items"]:
