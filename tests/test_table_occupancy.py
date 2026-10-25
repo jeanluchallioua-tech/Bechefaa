@@ -73,6 +73,12 @@ class MemoryDB:
                                        'total':float(params[14]),'paid_amount':0,'payment_status':'À ENCAISSER'}
                     return Result()
                 if q.startswith('INSERT INTO caisse_order_items'):return Result()
+                if q.startswith('UPDATE caisse_orders SET discount_amount='):
+                    oid=params[-1]
+                    owner.orders[oid]['discount_amount']=float(params[0])
+                    owner.orders[oid]['subtotal_before_discount']=float(params[1])
+                    owner.orders[oid]['manual_discount_percent']=None if params[2] is None else float(params[2])
+                    return Result()
                 if q.startswith('UPDATE caisse_orders SET table_number'):
                     owner.orders[params[-1]]['table_number']=params[0];return Result()
                 raise AssertionError(q)
