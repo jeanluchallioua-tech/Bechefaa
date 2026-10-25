@@ -34,6 +34,9 @@ jobs:
           python -m unittest discover -s tests -p 'test_deliveroo_order_reconcile.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_kitchen_origin.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_menu_plu_contract.py' -v
+      - name: Deliveroo remake runtime behavior tests
+        if: success() || failure()
+        run: python -m unittest discover -s tests -p 'test_bis_deliveroo_remake_runtime.py' -v
       - name: JavaScript POS and offline discount smoke tests
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
       - name: POS save and pending-edit regression tests
