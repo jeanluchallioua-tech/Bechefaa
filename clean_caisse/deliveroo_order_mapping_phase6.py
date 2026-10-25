@@ -14,7 +14,10 @@ def _money(value):
     if not isinstance(value, dict) or value.get("currency_code") != "EUR":
         raise DeliverooMappingError("Expected EUR money object")
     try:
-        cents = int(value["fractional"])
+        raw_cents = value["fractional"]
+        if isinstance(raw_cents, bool) or not isinstance(raw_cents, int):
+            raise DeliverooMappingError("Invalid monetary amount")
+        cents = raw_cents
     except (KeyError, TypeError, ValueError):
         raise DeliverooMappingError("Invalid monetary amount")
     if cents < 0:
@@ -48,20 +51,23 @@ def parse_order_new(payload):
         pos_id = str(item.get("pos_item_id") or "").strip()
         if not pos_id:
             raise DeliverooMappingError("Missing POS item ID")
-        try:
-            qty = int(item.get("quantity"))
-        except (TypeError, ValueError):
+        raw_qty = item.get("quantity")
+        if isinstance(raw_qty, bool) or not isinstance(raw_qty, int):
             raise DeliverooMappingError("Invalid quantity")
+        qty = raw_qty
         if qty < 1:
             raise DeliverooMappingError("Invalid quantity")
         modifiers = []
         for modifier in item.get("modifiers") or []:
             if not isinstance(modifier, dict) or not modifier.get("pos_item_id"):
                 raise DeliverooMappingError("Invalid modifier")
+            modifier_qty = modifier.get("quantity", 1)
+            if isinstance(modifier_qty, bool) or not isinstance(modifier_qty, int) or modifier_qty < 1:
+                raise DeliverooMappingError("Invalid modifier quantity")
             modifiers.append({
                 "pos_item_id": str(modifier["pos_item_id"]),
                 "name": str(modifier.get("name") or ""),
-                "quantity": int(modifier.get("quantity") or 1),
+                "quantity": modifier_qty,
                 "unit_price_eur": _money(modifier.get("unit_price")),
             })
         items.append({
