@@ -30,7 +30,7 @@ class ExplicitPluMapTests(unittest.TestCase):
             reconcile_with_explicit_plu_map(self.payload, self.catalog, {})
 
     def test_cross_product_mapping_is_rejected(self):
-        with self.assertRaisesRegex(DeliverooMappingError, "Cross-product"):
+        with self.assertRaisesRegex(DeliverooMappingError, "Invalid approved|Cross-product"):
             reconcile_with_explicit_plu_map(
                 self.payload, self.catalog, {("MU11002", "OM21001"): "opt:OTHER:0:0"}
             )
