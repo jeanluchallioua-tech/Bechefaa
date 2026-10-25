@@ -171,6 +171,7 @@ def ensure_order_schema(conn):
         updated_at BIGINT NOT NULL,
         modified_at BIGINT NULL
     )""")
+    conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS manual_discount_percent NUMERIC(5,2) NULL")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS subtotal_before_discount NUMERIC(12,2) NULL")
     conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS coupon_code TEXT NULL")
@@ -272,6 +273,7 @@ def order_payload(conn, order_row):
         "status": order_row["status"],
         "total": float(order_row["total"]),
         "discount_amount": float(order_row.get("discount_amount") or 0),
+        "manual_discount_percent": None if order_row.get("manual_discount_percent") is None else float(order_row["manual_discount_percent"]),
         "subtotal_before_discount": float(order_row.get("subtotal_before_discount") or order_row["total"]),
         "created_at": order_row["created_at"],
         "updated_at": order_row["updated_at"],
@@ -437,10 +439,9 @@ def create_order():
         source = "EMPORTER"
 
     subtotal = total
-    from .manual_discount import discount_total
+    from .manual_discount import order_discount
     try:
-        discount, total = discount_total(subtotal, payload.get('manual_discount_amount'), source,
-            coupon_code=payload.get('coupon_code'), sales_channel=payload.get('sales_channel'))
+        discount, total, percent = order_discount(subtotal, payload, source)
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
 
@@ -483,6 +484,7 @@ def create_order():
                             "num": existing["num"],
                             "total": float(existing["total"]),
                             "discount_amount": float(existing.get("discount_amount") or 0),
+                            "manual_discount_percent": None if existing.get("manual_discount_percent") is None else float(existing["manual_discount_percent"]),
                             "subtotal_before_discount": float(existing.get("subtotal_before_discount") or existing["total"]),
                             "status": existing["status"],
                             "ticket_type": ticket_type(existing["source"]),
@@ -510,8 +512,8 @@ def create_order():
                         "À ENCAISSER", "Enregistrée", total, now, now,
                     ),
                 )
-                conn.execute("""UPDATE caisse_orders SET discount_amount=%s,subtotal_before_discount=%s WHERE id=%s""",
-                    (discount, subtotal, order_id))
+                conn.execute("""UPDATE caisse_orders SET discount_amount=%s,subtotal_before_discount=%s,manual_discount_percent=%s WHERE id=%s""",
+                    (discount, subtotal, percent, order_id))
                 for line in normalized:
                     conn.execute(
                         """INSERT INTO caisse_order_items
@@ -540,6 +542,7 @@ def create_order():
         "num": order_num,
         "total": float(total),
         "discount_amount": float(discount),
+        "manual_discount_percent": None if percent is None else float(percent),
         "subtotal_before_discount": float(subtotal),
         "status": "Enregistrée",
         "ticket_type": ticket_type(source),
@@ -764,28 +767,25 @@ function renderOptions(){if(!currentProduct)return;let base=Number(currentProduc
 function toggleOption(gi,vi){let info=groupInfo(currentGroups[gi],gi),key=selectionKey(gi,vi),was=!!selections[key];if(was){delete selections[key];renderOptions();return}if(info.max===1){selectedForGroup(gi).forEach(k=>delete selections[k])}else if(info.max>1&&selectedForGroup(gi).length>=info.max){return}selections[key]=true;renderOptions()}
 function showOptions(id,name){document.getElementById('side-title').textContent='Options • '+name;document.getElementById('options').innerHTML='<div class="empty">Chargement…</div>';selections={};fetch('/api/catalog/product/'+encodeURIComponent(id)+'/options').then(r=>r.json()).then(d=>{if(!d.ok){document.getElementById('options').innerHTML='<div class="empty">Produit introuvable.</div>';return}currentProduct=d.product||{id:id,name:name,price:0};currentGroups=Array.isArray(d.groups)?d.groups:[];renderOptions()}).catch(()=>{document.getElementById('options').innerHTML='<div class="empty">Impossible de lire les options.</div>'})}
 function addCurrent(){if(!currentProduct)return;if(requiredMissing()){document.getElementById('order-message').innerHTML='<div class="error">Sélectionnez les options obligatoires.</div>';return}let opts=selectedOptions(),unit=Number(currentProduct.price||0)+totalExtra();ORDER.push({line_id:'line-'+Date.now()+'-'+Math.random().toString(16).slice(2),product_id:String(currentProduct.id||''),name:String(currentProduct.name||''),qty:1,unit_price:Number(unit.toFixed(2)),options:opts});document.getElementById('order-message').innerHTML='';selections={};renderOptions();renderOrder()}
-function setManualDiscount(value){let n=Number(String(value).replace(',','.'));if(!Number.isFinite(n)||n<0){alert('Saisissez une remise positive en euros.');return}let subtotal=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);if(n>0&&n>=subtotal){alert('La remise doit laisser au moins 0,01 € à régler.');return}MANUAL_DISCOUNT=Math.round(n*100)/100;renderOrder()}
-function previewManualDiscount(input){
- const subtotal=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0),n=Number(String(input.value).replace(',','.'));
- const valid=Number.isFinite(n)&&n>=0&&(n===0||n<subtotal);
- input.setCustomValidity(valid?'':'Saisissez une remise entre 0 et '+Math.max(0,subtotal-0.01).toFixed(2)+' €.');
- if(!valid)return;
- MANUAL_DISCOUNT=Math.round(n*100)/100;
- document.getElementById('manual-discount-total').textContent=(Math.round((subtotal-MANUAL_DISCOUNT)*100)/100).toFixed(2).replace('.',',')+' €';
- document.getElementById('manual-discount-line').textContent='−'+MANUAL_DISCOUNT.toFixed(2).replace('.',',')+' €';
- document.getElementById('manual-discount-summary').style.display=MANUAL_DISCOUNT?'block':'none';
+function setManualDiscount(value){
+ let n=Number(String(value).replace(',','.'));
+ if(!Number.isFinite(n)||n<0||n>=100){alert('Saisissez un pourcentage entre 0 et 99,99 %.');return}
+ n=Math.round(n*100)/100;
+ const subtotal=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);
+ if(n>=100||(n>0&&Math.round(subtotal*n)/100>=subtotal)){alert('La remise doit laisser au moins 0,01 € à régler.');return}
+ MANUAL_DISCOUNT=n;renderOrder();
 }
+function chooseManualDiscount(){const value=prompt('Remise en pourcentage (0 pour supprimer)',String(MANUAL_DISCOUNT||0));if(value!==null)setManualDiscount(value)}
 function manualDiscountForCart(){return /^(comptoir|emporter|takeaway)$/i.test(String(TICKET_TYPE||''))?MANUAL_DISCOUNT:0}
-function renderOrder(){let el=document.getElementById('order');if(!ORDER.length){MANUAL_DISCOUNT=0;el.innerHTML='<div class="empty">Commande vide</div>';return}let total=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);MANUAL_DISCOUNT=Math.min(manualDiscountForCart(),Math.max(0,Math.round(total*100)-1)/100);let subtotal=total;total=Math.round((total-MANUAL_DISCOUNT)*100)/100;el.innerHTML=ORDER.map((l,i)=>`<div class="order-line"><div class="order-line-head"><span>${esc(l.name)}</span><span>${Number(l.unit_price).toFixed(2).replace('.',',')} €</span></div>${l.options.length?`<div class="order-opts">${esc(l.options.map(o=>o.name).join(' • '))}</div>`:''}<button class="remove" data-action="remove-line" data-index="${i}">Retirer</button></div>`).join('')+`${/^(comptoir|emporter|takeaway)$/i.test(String(TICKET_TYPE||''))?'<div class="manual-discount" style="margin-top:12px;padding:10px;background:#fff8e6;color:#111827;border-radius:9px"><label for="manual-discount">Remise en €</label><input id="manual-discount" type="number" inputmode="decimal" min="0" max="'+Math.max(0,subtotal-0.01).toFixed(2)+'" step="0.01" value="'+MANUAL_DISCOUNT.toFixed(2)+'" oninput="previewManualDiscount(this)" style="width:100%;min-height:48px;font-size:20px;margin-top:5px;background:#fff;color:#111827"><small>À emporter • montant libre</small></div>':''}<div id="manual-discount-summary" style="display:${MANUAL_DISCOUNT?'block':'none'}"><div class="order-total" style="font-size:16px"><span>Sous-total</span><span>${subtotal.toFixed(2).replace('.',',')} €</span></div><div class="order-total" style="font-size:16px;color:#14804a"><span>Remise</span><span id="manual-discount-line">−${MANUAL_DISCOUNT.toFixed(2).replace('.',',')} €</span></div></div><div class="order-total"><span>Total</span><span id="manual-discount-total">${total.toFixed(2).replace('.',',')} €</span></div><button class="action save" data-action="save-order">Enregistrer la commande ${esc(TICKET_TYPE)}</button>`}
+function renderOrder(){let el=document.getElementById('order');if(!ORDER.length){MANUAL_DISCOUNT=0;el.innerHTML='<div class="empty">Commande vide</div>';return}let total=ORDER.reduce((s,l)=>s+Number(l.unit_price||0)*Number(l.qty||1),0);MANUAL_DISCOUNT=manualDiscountForCart();let subtotal=total,discountAmount=Math.round(subtotal*MANUAL_DISCOUNT)/100;total=Math.round((total-discountAmount)*100)/100;el.innerHTML=ORDER.map((l,i)=>`<div class="order-line"><div class="order-line-head"><span>${esc(l.name)}</span><span>${Number(l.unit_price).toFixed(2).replace('.',',')} €</span></div>${l.options.length?`<div class="order-opts">${esc(l.options.map(o=>o.name).join(' • '))}</div>`:''}<button class="remove" data-action="remove-line" data-index="${i}">Retirer</button></div>`).join('')+`${/^(comptoir|emporter|takeaway)$/i.test(String(TICKET_TYPE||''))?'<button type="button" onclick="chooseManualDiscount()" style="display:block;margin:4px 0 0 auto;min-height:44px;padding:4px 2px;border:0;background:transparent;color:inherit;font-size:13px;opacity:.75;text-decoration:underline;cursor:pointer">Remise'+(MANUAL_DISCOUNT?' · '+MANUAL_DISCOUNT+' %':'')+'</button>':''}<div id="manual-discount-summary" style="display:${MANUAL_DISCOUNT?'block':'none'};font-size:13px;margin-top:4px"><div style="display:flex;justify-content:space-between"><span>Sous-total</span><span>${subtotal.toFixed(2).replace('.',',')} €</span></div><div style="display:flex;justify-content:space-between"><span>Remise ${MANUAL_DISCOUNT} %</span><span>−${discountAmount.toFixed(2).replace('.',',')} €</span></div></div><div class="order-total"><span>Total</span><span id="manual-discount-total">${total.toFixed(2).replace('.',',')} €</span></div><button class="action save" data-action="save-order">Enregistrer la commande ${esc(TICKET_TYPE)}</button>`}
 let SAVE_IN_FLIGHT=null;
 function saveOrder(){
- const discountInput=document.querySelector('#manual-discount');if(discountInput&&!discountInput.reportValidity())return Promise.resolve(null);
  if(SAVE_IN_FLIGHT)return SAVE_IN_FLIGHT;
  if(!ORDER.length)return Promise.resolve(null);
  const items=JSON.parse(JSON.stringify(ORDER));
  let btn=document.querySelector('[data-action="save-order"]');if(btn){btn.disabled=true;btn.textContent='Enregistrement…'}
  document.getElementById('order-message').innerHTML='<div class="notice">Enregistrement en cours…</div>';
- SAVE_IN_FLIGHT=fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items,ticket_type:TICKET_TYPE,manual_discount_amount:manualDiscountForCart()})}).then(async r=>{
+ SAVE_IN_FLIGHT=fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items,ticket_type:TICKET_TYPE,manual_discount_percent:manualDiscountForCart()})}).then(async r=>{
    const d=await r.json();if(!r.ok||!d.ok||!d.id)throw new Error(d.detail||d.error||'Enregistrement non confirmé');
    LAST_SAVED_ORDER={...d,items};ORDER=[];renderOrder();
    document.getElementById('order-message').innerHTML=`<div class="success"><b>Commande #${esc(d.num)} enregistrée • ${esc(d.ticket_type)}</b><br>Total ${Number(d.total||0).toFixed(2).replace('.',',')} € • ${esc(d.status)}</div><button type="button" class="action kitchen" data-action="send-kitchen" data-order-id="${esc(d.id)}" data-order-num="${esc(d.num)}">Envoyer en cuisine</button>`;

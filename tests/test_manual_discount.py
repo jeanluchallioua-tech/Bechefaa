@@ -55,6 +55,22 @@ class ManualDiscountTests(unittest.TestCase):
         order=self.client.get('/api/orders/'+oid).get_json()['order']
         blocked=self.client.put('/api/orders/'+oid,json={'items':order['items'],'manual_discount_amount':4});self.assertEqual(blocked.status_code,409,blocked.get_json())
         self.assertEqual(self.conn.execute('SELECT total FROM caisse_orders WHERE id=%s',(oid,)).fetchone()['total'],27)
+    def test_percentage_persists_and_recalculates_on_edit(self):
+        response=self.client.post('/api/orders',json={'customer':{'first_name':'Jean'},'service_mode':'EMPORTER','manual_discount_percent':10,'items':[{'line_id':'l','product_id':'burger','name':'Burger','qty':2,'unit_price':15,'options':[]}]})
+        data=response.get_json();self.assertEqual(response.status_code,201,data);self.assertEqual(data['total'],27);self.assertEqual(data['manual_discount_percent'],10)
+        oid=data['id'];order=self.client.get('/api/orders/'+oid).get_json()['order'];items=order['items'];items[0]['qty']=3
+        result=self.client.put('/api/orders/'+oid,json={'items':items}).get_json()
+        self.assertEqual(result['total'],40.5);self.assertEqual(result['discount_amount'],4.5);self.assertEqual(result['manual_discount_percent'],10)
+        calls=[];original=Paper.price
+        def record(p,label,amount,*a,**kw):calls.append(label);return original(p,label,amount,*a,**kw)
+        with patch.object(Paper,'price',record):self.client.get('/api/epson/client-xml/'+oid)
+        self.assertIn('Remise 10 %',calls)
+        for value in [-1,100,'NaN','bad']:
+            response=self.client.put('/api/orders/'+oid,json={'items':items,'manual_discount_percent':value})
+            self.assertEqual(response.status_code,400,response.get_json())
+        cleared=self.client.put('/api/orders/'+oid,json={'items':items,'manual_discount_percent':0}).get_json()
+        self.assertEqual(cleared['total'],45);self.assertEqual(cleared['discount_amount'],0)
+
     def test_non_cumulative_and_decimal_comma(self):
         self.assertEqual(discount_total(Decimal('30'),'3,50','EMPORTER'),(Decimal('3.50'),Decimal('26.50')))
         for kwargs in ({'coupon_code':'YARON10'},{'sales_channel':'SITE'}):
@@ -64,15 +80,15 @@ class ManualDiscountTests(unittest.TestCase):
         code=source[source.index('function setManualDiscount'):source.index('function sendKitchen(orderId,orderNum)')]
         script=r'''
 const vm=require('node:vm'),assert=require('node:assert/strict');
-let body;const box={innerHTML:''},message={innerHTML:''};const nodes={'manual-discount-total':{textContent:''},'manual-discount-line':{textContent:''},'manual-discount-summary':{style:{}}};
-const c={ORDER:[{unit_price:15,qty:2,name:'Burger',options:[]}],TICKET_TYPE:'Emporter',MANUAL_DISCOUNT:0,LAST_SAVED_ORDER:null,esc:String,alert:()=>{},CustomEvent:class{},document:{querySelector:()=>null,getElementById:id=>nodes[id]||(id==='order'?box:message),dispatchEvent(){}},fetch:async(u,o)=>{body=JSON.parse(o.body);return{ok:true,json:async()=>({ok:true,id:'a',num:1,total:27,discount_amount:3})}}};
+let body;const box={innerHTML:''},message={innerHTML:''};
+const c={ORDER:[{unit_price:15,qty:2,name:'Burger',options:[]}],TICKET_TYPE:'Emporter',MANUAL_DISCOUNT:0,LAST_SAVED_ORDER:null,esc:String,alert:()=>{},prompt:()=> '10',CustomEvent:class{},document:{querySelector:()=>null,getElementById:id=>id==='order'?box:message,dispatchEvent(){}},fetch:async(u,o)=>{body=JSON.parse(o.body);return{ok:true,json:async()=>({ok:true,id:'a',num:1,total:27,discount_amount:3,manual_discount_percent:10})}}};
 vm.createContext(c);vm.runInContext(CODE,c);
-(async()=>{c.setManualDiscount('3');const previous=box.innerHTML;let validity; c.previewManualDiscount({value:'4',setCustomValidity:v=>validity=v});assert.equal(validity,'');assert.equal(nodes['manual-discount-total'].textContent,'26,00 €');assert.equal(box.innerHTML,previous);c.previewManualDiscount({value:'99',setCustomValidity:v=>validity=v});assert(validity);c.setManualDiscount('3');assert(box.innerHTML.includes('27,00 €'));assert(box.innerHTML.includes('Remise'));await c.saveOrder();assert.equal(body.manual_discount_amount,3);assert.equal(c.ORDER.length,0);assert.equal(c.MANUAL_DISCOUNT,0);c.ORDER=[{unit_price:15,qty:2,name:'Burger',options:[]}];c.TICKET_TYPE='Salle';c.MANUAL_DISCOUNT=3;c.renderOrder();assert(!box.innerHTML.includes('id="manual-discount"'));assert(box.innerHTML.includes('30,00 €'));})().catch(e=>{console.error(e);process.exitCode=1});
+(async()=>{c.chooseManualDiscount();assert(box.innerHTML.includes('27,00 €'));assert(box.innerHTML.includes('Remise 10 %'));assert(!box.innerHTML.includes('type="number"'));assert(!box.innerHTML.includes('#fff8e6'));c.ORDER[0].qty=3;c.renderOrder();assert(box.innerHTML.includes('40,50 €'));c.ORDER[0].qty=2;await c.saveOrder();assert.equal(body.manual_discount_percent,10);assert(!('manual_discount_amount' in body));assert.equal(c.ORDER.length,0);assert.equal(c.MANUAL_DISCOUNT,0);c.ORDER=[{unit_price:15,qty:2,name:'Burger',options:[]}];c.TICKET_TYPE='Salle';c.MANUAL_DISCOUNT=10;c.renderOrder();assert(!box.innerHTML.includes('onclick="chooseManualDiscount()"'));assert(box.innerHTML.includes('30,00 €'));})().catch(e=>{console.error(e);process.exitCode=1});
 '''.replace('CODE',json.dumps(code))
         subprocess.run(['node','-e',script],check=True,capture_output=True)
     def test_offline_total_is_discounted_without_changing_item_prices(self):
         from clean_caisse.offline_mode_phase6 import SW_JS
-        functions=SW_JS[SW_JS.index('function totalOf('):SW_JS.index('function ticketType(')]
-        script=functions+"\nconst assert=require('node:assert/strict');const body={items:[{qty:2,unit_price:15}],manual_discount_amount:3};assert.equal(totalOf(body),27);assert.equal(body.items[0].unit_price,15);"
+        functions=SW_JS[SW_JS.index('function subtotalOf('):SW_JS.index('function ticketType(')]
+        script=functions+"\nconst assert=require('node:assert/strict');const body={items:[{qty:2,unit_price:15}],manual_discount_percent:10};assert.equal(totalOf(body),27);assert.equal(body.items[0].unit_price,15);"
         subprocess.run(['node','-e',script],check=True,capture_output=True)
 if __name__=='__main__':unittest.main()

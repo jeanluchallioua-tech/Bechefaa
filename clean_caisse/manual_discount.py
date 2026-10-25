@@ -18,3 +18,33 @@ def discount_total(subtotal, value, source, *, coupon_code=None, sales_channel=N
         if coupon_code or str(sales_channel or '').upper() in {'SITE','DELIVEROO','UBER','UBER_EATS'}:
             raise ValueError("La remise caisse ne se cumule pas avec une remise ou commande en ligne.")
     return amount, subtotal - amount
+
+
+def order_discount(subtotal, payload, source, existing=None):
+    """Recompute a saved percentage when the basket changes; retain legacy euros."""
+    existing = existing or {}
+    percent = None
+    explicit = 'manual_discount_percent' in payload or 'manual_discount_amount' in payload
+    if 'manual_discount_percent' in payload:
+        raw = payload['manual_discount_percent']
+    elif 'manual_discount_amount' not in payload:
+        raw = existing.get('manual_discount_percent')
+    else:
+        raw = None
+    if raw is not None:
+        try:
+            percent = Decimal(str(raw or 0).replace(',', '.'))
+            if not percent.is_finite() or percent < 0 or percent >= 100:
+                raise ValueError('Saisissez un pourcentage entre 0 et 99,99 %.')
+            percent = percent.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            if percent >= 100:
+                raise ValueError('La remise doit être inférieure à 100 %.')
+        except (InvalidOperation, TypeError):
+            raise ValueError('Pourcentage de remise invalide.')
+        amount = (subtotal * percent / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    else:
+        amount = payload.get('manual_discount_amount') if explicit else existing.get('discount_amount')
+    amount, total = discount_total(subtotal, amount, source,
+        coupon_code=existing.get('coupon_code') or payload.get('coupon_code'),
+        sales_channel=existing.get('sales_channel') or payload.get('sales_channel'), explicit=explicit)
+    return amount, total, percent

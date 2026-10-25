@@ -171,7 +171,7 @@ def render_receipt(order, kind, identity=None):
         ht, tax, total, rate = _tax_values(order)
         if Decimal(str(order.get('discount_amount') or 0)) > 0:
             p.price('Sous-total', Decimal(str(order.get('subtotal_before_discount') or 0)))
-            p.price('Remise', -Decimal(str(order['discount_amount'])))
+            p.price('Remise'+(' '+format(Decimal(str(order['manual_discount_percent'])).normalize(), 'f')+' %' if order.get('manual_discount_percent') else ''), -Decimal(str(order['discount_amount'])))
         p.price('Total HT', ht)
         p.price(f'TVA {rate:g} %', tax)
         p.text('TOTAL TTC ' + f'{total:.2f}'.replace('.', ',') + ' €', columns=24, bold=True)

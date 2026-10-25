@@ -99,14 +99,10 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                     if order["status"] == "Terminée":
                         return jsonify({"ok": False, "error": "Une commande terminée en cuisine ne peut plus être modifiée"}), 409
 
-                    from .manual_discount import discount_total
+                    from .manual_discount import order_discount
                     subtotal = total
-                    explicit_discount = 'manual_discount_amount' in payload
                     try:
-                        discount, total = discount_total(subtotal,
-                            payload.get('manual_discount_amount') if explicit_discount else order.get('discount_amount'),
-                            order.get('source'), coupon_code=order.get('coupon_code'),
-                            sales_channel=order.get('sales_channel'), explicit=explicit_discount)
+                        discount, total, percent = order_discount(subtotal, payload, order.get('source'), order)
                     except ValueError as exc:
                         return jsonify(ok=False, error=str(exc)), 400
                     if (discount or Decimal(str(order.get('discount_amount') or 0))) and (
@@ -140,13 +136,14 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         "kitchen_resend": sent_to_kitchen,
                         "item_count": len(normalized),
                         "discount_amount": float(discount),
+                        "manual_discount_percent": None if percent is None else float(percent),
                     }
                     conn.execute(
                         """UPDATE caisse_orders
                            SET total=%s, status=%s, modification_flag=%s,
-                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s, discount_amount=%s, subtotal_before_discount=%s
+                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s, discount_amount=%s, subtotal_before_discount=%s, manual_discount_percent=%s
                            WHERE id=%s""",
-                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, discount, subtotal, order_id),
+                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, discount, subtotal, percent, order_id),
                     )
             return jsonify({
                 "ok": True,
@@ -154,6 +151,7 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 "num": order["num"],
                 "total": float(total),
                 "discount_amount": float(discount),
+                        "manual_discount_percent": None if percent is None else float(percent),
                 "subtotal_before_discount": float(subtotal),
                 "status": new_status,
                 "kitchen_resend": sent_to_kitchen,

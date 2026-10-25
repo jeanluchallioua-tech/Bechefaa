@@ -27,5 +27,5 @@ conserve sa présentation déjà validée.
 
 
 À la demande du propriétaire du 25 octobre 2026, le ticket client affiche
-le sous-total et la remise manuelle en euros lorsqu’une remise caisse est appliquée.
+le sous-total et la remise manuelle (pourcentage et montant déduit) lorsqu’une remise caisse est appliquée.
 Cette ligne conserve les dimensions et polices existantes.
