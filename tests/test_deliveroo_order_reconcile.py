@@ -109,6 +109,47 @@ class DeliverooReconcileTests(unittest.TestCase):
         with self.assertRaisesRegex(DeliverooMappingError, "Inactive catalogue option choice"):
             reconcile(sample(), self.catalog)
 
+    def test_integer_zero_disables_product_group_and_choice(self):
+        from copy import deepcopy
+        for kind in ("product", "group", "choice"):
+            with self.subTest(kind=kind):
+                catalog = deepcopy(self.catalog)
+                product = catalog["products"][0]
+                target = {
+                    "product": product,
+                    "group": product["options"][0],
+                    "choice": product["options"][0]["options"][0],
+                }[kind]
+                target["active"] = 0
+                with self.assertRaises(DeliverooMappingError):
+                    reconcile(sample(), catalog)
+
+    def test_malformed_active_flags_fail_closed(self):
+        from copy import deepcopy
+        for bad in ("false", "0", None, 2, -1, [], {}):
+            for kind in ("product", "group", "choice"):
+                with self.subTest(value=bad, kind=kind):
+                    catalog = deepcopy(self.catalog)
+                    product = catalog["products"][0]
+                    target = {
+                        "product": product,
+                        "group": product["options"][0],
+                        "choice": product["options"][0]["options"][0],
+                    }[kind]
+                    target["active"] = bad
+                    with self.assertRaisesRegex(
+                        DeliverooMappingError, "Invalid catalogue active flag"
+                    ):
+                        reconcile(sample(), catalog)
+
+    def test_integer_one_remains_enabled(self):
+        self.catalog["products"][0]["active"] = 1
+        self.catalog["products"][0]["options"][0]["active"] = 1
+        self.catalog["products"][0]["options"][0]["options"][0]["active"] = 1
+        result = reconcile(sample(), self.catalog)
+        self.assertEqual(result["mapped_items"][0]["product_id"], "MU11002")
+        self.assertFalse(result["writes"])
+
     def test_active_option_choice_still_maps(self):
         self.catalog["products"][0]["options"][0]["active"] = True
         self.catalog["products"][0]["options"][0]["options"][0]["active"] = True
