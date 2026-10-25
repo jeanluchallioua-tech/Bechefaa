@@ -48,6 +48,40 @@ class DeliverooAmountAuditTests(unittest.TestCase):
         self.assertFalse(audit["totals_match"])
         self.assertFalse(audit["ready_for_dispatch"])
 
+    def test_price_review_identifies_unexplained_line_totals(self):
+        payload = sample()
+        payload["body"]["order"]["items"][0]["total_price"]["fractional"] = 990
+        payload["body"]["order"]["total_price"]["fractional"] = 990
+        audit = audit_order_amounts(payload)
+        self.assertTrue(audit["totals_match"])
+        self.assertEqual(audit["unexplained_line_indices"], [0])
+        self.assertEqual(audit["review_reasons"], [
+            "line_totals_match_no_candidate_model",
+        ])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+    def test_price_review_identifies_order_level_difference(self):
+        payload = sample()
+        payload["body"]["order"]["total_price"]["fractional"] = 1000
+        audit = audit_order_amounts(payload)
+        self.assertEqual(audit["unexplained_line_indices"], [])
+        self.assertEqual(audit["review_reasons"], [
+            "order_total_differs_from_item_totals",
+        ])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["writes"])
+
+    def test_consistent_candidate_amounts_do_not_approve_policy(self):
+        audit = audit_order_amounts(sample())
+        self.assertEqual(audit["unexplained_line_indices"], [])
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertFalse(audit["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["modifier_pricing_schema_verified"])
+
     def test_multiple_lines_and_no_modifiers(self):
         payload = sample()
         second = deepcopy(payload["body"]["order"]["items"][0])
