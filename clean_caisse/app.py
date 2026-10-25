@@ -482,7 +482,7 @@ def create_order():
                 conn.execute("LOCK TABLE caisse_orders IN EXCLUSIVE MODE")
                 if offline_sync_key:
                     existing = conn.execute(
-                        "SELECT id,num,total,status,source FROM caisse_orders WHERE offline_sync_key=%s LIMIT 1",
+                        "SELECT id,num,total,status,source,discount_amount,manual_discount_percent,subtotal_before_discount FROM caisse_orders WHERE offline_sync_key=%s LIMIT 1",
                         (offline_sync_key,),
                     ).fetchone()
                     if existing:
@@ -491,6 +491,9 @@ def create_order():
                             "id": existing["id"],
                             "num": existing["num"],
                             "total": float(existing["total"]),
+                            "discount_amount": float(existing.get("discount_amount") or 0),
+                            "manual_discount_percent": None if existing.get("manual_discount_percent") is None else float(existing["manual_discount_percent"]),
+                            "subtotal_before_discount": float(existing.get("subtotal_before_discount") or existing["total"]),
                             "status": existing["status"],
                             "ticket_type": ticket_type(existing["source"]),
                             "duplicate": True,
