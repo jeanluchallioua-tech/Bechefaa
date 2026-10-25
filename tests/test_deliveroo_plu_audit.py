@@ -53,6 +53,28 @@ class DeliverooPluAuditTests(unittest.TestCase):
         self.assertFalse(result["compatible"])
         self.assertEqual(result["findings"][0]["type"], "inactive_modifier_choice")
 
+    def test_blank_modifier_choice_cannot_be_marked_compatible(self):
+        self.catalog["products"][0]["options"][0]["options"][0]["name"] = "   "
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "reconciler_rejected")
+        self.assertIn("Empty choice", result["findings"][0]["reason"])
+        self.assertFalse(result["writes"])
+
+    def test_unrelated_invalid_catalogue_entry_cannot_pass_audit(self):
+        self.catalog["products"].append(None)
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "reconciler_rejected")
+        self.assertIn("Invalid catalogue product entry", result["findings"][0]["reason"])
+
+    def test_noncanonical_catalogue_id_cannot_pass_audit(self):
+        self.catalog["products"].append({"id": " OTHER", "name": "Other"})
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "reconciler_rejected")
+        self.assertIn("Non-canonical", result["findings"][0]["reason"])
+
     def test_unknown_product_is_flagged(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["pos_item_id"] = "UNKNOWN"
