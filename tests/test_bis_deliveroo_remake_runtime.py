@@ -242,6 +242,25 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         local = next(o for o in result if o["id"] == "local")
         self.assertEqual(local, orders[2])
 
+    def test_deliveroo_payment_labels_are_consistent(self):
+        orders = self.orders()
+        orders[0].update({"payment": "CB", "payment_label": "CB",
+                          "ticket_type": "Sur place", "service_mode": "Sur place"})
+        result = self.render(FakeConn(), orders)
+        item = next(o for o in result if o["id"] == pos_id("parent"))
+        self.assertEqual(item["payment"], "PAYÉ EN LIGNE")
+        self.assertEqual(item["payment_label"], "PAYÉ EN LIGNE")
+        self.assertEqual(item["ticket_type"], "Livraison")
+        self.assertEqual(item["service_mode"], "Livraison")
+        self.assertEqual(orders[0]["payment"], "CB")
+
+    def test_missing_display_rows_keep_remake_reference(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")], displays=[])
+        result = self.render(conn, self.orders())
+        child = next(o for o in result if o["id"] == pos_id("child"))
+        self.assertEqual(child["platform_reference"], "child")
+
     def test_invalid_creation_timestamps_do_not_break_display(self):
         for invalid in ("not-a-date", [], {}, float("inf")):
             with self.subTest(invalid=invalid):
