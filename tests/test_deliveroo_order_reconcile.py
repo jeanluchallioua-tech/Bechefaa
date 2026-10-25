@@ -55,6 +55,22 @@ class DeliverooReconcileTests(unittest.TestCase):
         with self.assertRaises(DeliverooMappingError):
             reconcile(payload, self.catalog)
 
+    def test_inactive_option_group_rejected(self):
+        self.catalog["products"][0]["options"][0]["active"] = False
+        with self.assertRaisesRegex(DeliverooMappingError, "Inactive catalogue option group"):
+            reconcile(sample(), self.catalog)
+
+    def test_inactive_option_choice_rejected(self):
+        self.catalog["products"][0]["options"][0]["options"][0]["active"] = False
+        with self.assertRaisesRegex(DeliverooMappingError, "Inactive catalogue option choice"):
+            reconcile(sample(), self.catalog)
+
+    def test_active_option_choice_still_maps(self):
+        self.catalog["products"][0]["options"][0]["active"] = True
+        self.catalog["products"][0]["options"][0]["options"][0]["active"] = True
+        result = reconcile(sample(), self.catalog)
+        self.assertEqual(result["mapped_items"][0]["options"][0]["name"], "Guacamole")
+
     def test_invalid_catalogue_product_collection_rejected(self):
         for bad in ({}, "products", 7, True):
             with self.subTest(bad=bad):
