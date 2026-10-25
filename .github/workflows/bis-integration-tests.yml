@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install minimal test dependency
-        run: python -m pip install 'Flask>=3,<4'
+        run: python -m pip install 'Flask==3.1.2'
       - name: Syntax check of changed Python modules
         run: |
           python -m py_compile clean_caisse/app.py clean_caisse/manual_discount.py clean_caisse/offline_mode_phase6.py clean_caisse/history_modifier.py clean_caisse/receipt_photo_layout.py
