@@ -31,6 +31,19 @@ def audit_instruction_fields(payload):
                     path = f"body.order.items[{index}].{key}"
                     paths.append(path)
                     values.append({"path": path, "value": item[key]})
+            modifiers = item.get("modifiers")
+            if isinstance(modifiers, list):
+                for modifier_index, modifier in enumerate(modifiers):
+                    if not isinstance(modifier, dict):
+                        continue
+                    for key in sorted(CANDIDATE_KEYS):
+                        if key in modifier and modifier[key] is not None:
+                            path = (
+                                f"body.order.items[{index}].modifiers"
+                                f"[{modifier_index}].{key}"
+                            )
+                            paths.append(path)
+                            values.append({"path": path, "value": modifier[key]})
     return {
         "candidate_paths": sorted(paths),
         "candidate_values": sorted(values, key=lambda x: x["path"]),
