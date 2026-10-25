@@ -40,6 +40,32 @@ class DeliverooAmountAuditTests(unittest.TestCase):
         self.assertTrue(diag["matches_modifiers_per_parent"])
         self.assertFalse(audit["price_policy_verified"])
 
+    def test_paid_modifiers_missing_from_line_total_require_review(self):
+        payload = sample()
+        payload["body"]["order"]["items"][0]["total_price"]["fractional"] = 800
+        payload["body"]["order"]["total_price"]["fractional"] = 800
+        audit = audit_order_amounts(payload)
+        self.assertTrue(audit["totals_match"])
+        self.assertEqual(audit["unexplained_line_indices"], [])
+        self.assertEqual(audit["paid_modifiers_excluded_line_indices"], [0])
+        self.assertTrue(audit["line_diagnostics"][0]["paid_modifiers_excluded_from_line_total"])
+        self.assertIn("paid_modifiers_excluded_from_line_totals", audit["review_reasons"])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+    def test_zero_cost_modifier_does_not_trigger_paid_modifier_warning(self):
+        payload = sample()
+        line = payload["body"]["order"]["items"][0]
+        line["modifiers"][0]["unit_price"]["fractional"] = 0
+        line["total_price"]["fractional"] = 800
+        payload["body"]["order"]["total_price"]["fractional"] = 800
+        audit = audit_order_amounts(payload)
+        self.assertEqual(audit["paid_modifiers_excluded_line_indices"], [])
+        self.assertFalse(audit["requires_financial_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+
     def test_order_total_difference_may_be_fees_or_discount(self):
         payload = sample()
         payload["body"]["order"]["total_price"]["fractional"] = 1000
