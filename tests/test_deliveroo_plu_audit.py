@@ -28,6 +28,31 @@ class DeliverooPluAuditTests(unittest.TestCase):
         self.assertEqual(result["findings"], [])
         self.assertFalse(result["writes"])
 
+    def test_inactive_product_is_not_compatible(self):
+        self.catalog["products"][0]["active"] = False
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "inactive_product")
+
+    def test_duplicate_catalog_product_is_not_compatible(self):
+        from copy import deepcopy
+        self.catalog["products"].append(deepcopy(self.catalog["products"][0]))
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "duplicate_catalog_product")
+
+    def test_inactive_modifier_group_is_not_compatible(self):
+        self.catalog["products"][0]["options"][0]["active"] = False
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "inactive_modifier_group")
+
+    def test_inactive_modifier_choice_is_not_compatible(self):
+        self.catalog["products"][0]["options"][0]["options"][0]["active"] = False
+        result = audit_order_plu(sample(), self.catalog)
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["findings"][0]["type"], "inactive_modifier_choice")
+
     def test_unknown_product_is_flagged(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["pos_item_id"] = "UNKNOWN"
