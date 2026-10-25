@@ -90,6 +90,22 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         self.assertEqual(child["payment"], "PAYÉ EN LIGNE")
         self.assertEqual(child["platform_reference"], "D-123")
 
+    def test_blank_display_id_keeps_external_reference(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")],
+                        displays=[{"order_id": "child", "display_id": ""}])
+        result = self.render(conn, self.orders())
+        child = next(o for o in result if o["id"] == pos_id("child"))
+        self.assertEqual(child["platform_reference"], "child")
+
+    def test_missing_display_id_keeps_external_reference(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")],
+                        displays=[{"order_id": "child", "display_id": None}])
+        result = self.render(conn, self.orders())
+        child = next(o for o in result if o["id"] == pos_id("child"))
+        self.assertEqual(child["platform_reference"], "child")
+
     def test_new_deliveroo_orders_held_but_local_orders_visible(self):
         result = self.render(FakeConn(), self.orders(age_ms=1000))
         self.assertEqual([o["id"] for o in result], ["local"])
