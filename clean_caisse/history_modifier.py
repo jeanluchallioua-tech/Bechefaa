@@ -14,16 +14,19 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 ensure_order_schema(conn)
                 conn.commit()
                 row = conn.execute(
-                    """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at, address, postal_code, city
-                       FROM caisse_orders WHERE id=%s""",
+                    """SELECT * FROM caisse_orders WHERE id=%s""",
                     (order_id,),
                 ).fetchone()
                 if not row:
                     return jsonify({"ok": False, "error": "Commande introuvable"}), 404
                 order = order_payload(conn, row)
-                for key in ("address", "postal_code", "city"):
+                for key in ("phone", "email", "address", "postal_code", "city"):
                     order[key] = row.get(key) or ""
-                return jsonify({"ok": True, "order": order})
+                from .epson_epos_network_phase6 import enrich_order_delivery_contact
+                enrich_order_delivery_contact(conn,order,row)
+                response=jsonify({"ok": True, "order": order})
+                response.headers["Cache-Control"]="no-store"
+                return response
         except Exception as exc:
             return jsonify({"ok": False, "error": "Lecture commande impossible", "detail": str(exc)}), 500
 
@@ -81,7 +84,7 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 with conn.transaction():
                     ensure_order_schema(conn)
                     order = conn.execute(
-                        "SELECT id, num, status, paid_amount, payment_status, z_closure_id, sales_channel FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
+                        "SELECT * FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
                     ).fetchone()
                     if not order:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
@@ -95,6 +98,17 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         return jsonify({'ok': False, 'error': 'Cette commande est déjà envoyée, réglée ou clôturée. Utilisez le parcours habituel dans l’historique.'}), 409
                     if order["status"] == "Terminée":
                         return jsonify({"ok": False, "error": "Une commande terminée en cuisine ne peut plus être modifiée"}), 409
+
+                    from .manual_discount import order_discount
+                    subtotal = total
+                    try:
+                        discount, total, percent = order_discount(subtotal, payload, order.get('source'), order)
+                    except ValueError as exc:
+                        return jsonify(ok=False, error=str(exc)), 400
+                    if (discount or Decimal(str(order.get('discount_amount') or 0))) and (
+                        Decimal(str(order.get('paid_amount') or 0)) != 0 or order.get('z_closure_id') is not None
+                        or str(order.get('payment_status') or '').upper() in {'PAYÉ','PAYEE','PAYÉE','PAID'}):
+                        return jsonify(ok=False, error='Une commande réglée ou clôturée ne peut pas recevoir de remise.'), 409
 
                     old_status = order["status"]
                     # Une modification depuis l'historique est une nouvelle instruction
@@ -121,19 +135,24 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         "new_status": new_status,
                         "kitchen_resend": sent_to_kitchen,
                         "item_count": len(normalized),
+                        "discount_amount": float(discount),
+                        "manual_discount_percent": None if percent is None else float(percent),
                     }
                     conn.execute(
                         """UPDATE caisse_orders
                            SET total=%s, status=%s, modification_flag=%s,
-                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s
+                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s, discount_amount=%s, subtotal_before_discount=%s, manual_discount_percent=%s
                            WHERE id=%s""",
-                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, order_id),
+                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, discount, subtotal, percent, order_id),
                     )
             return jsonify({
                 "ok": True,
                 "id": order_id,
                 "num": order["num"],
                 "total": float(total),
+                "discount_amount": float(discount),
+                        "manual_discount_percent": None if percent is None else float(percent),
+                "subtotal_before_discount": float(subtotal),
                 "status": new_status,
                 "kitchen_resend": sent_to_kitchen,
             })
@@ -150,9 +169,12 @@ function money(v){return Number(v||0).toFixed(2).replace('.',',')+' €'}
 function render(){let q=document.getElementById('search').value.toLowerCase().trim(),st=document.getElementById('status').value;let rows=ORDERS.filter(o=>(!st||o.status===st)&&(!q||String(o.num).includes(q)||String(o.customer_name||'').toLowerCase().includes(q)));document.getElementById('list').innerHTML=rows.length?rows.map(o=>`<div class="order"><div class="info"><div class="num">#${esc(o.num)} · ${esc(o.customer_name)} </div><div class="meta">${esc(o.status)} · ${esc(o.ticket_type)} · ${money(o.total)}</div><div class="items">${esc((o.items||[]).map(i=>i.qty+'× '+i.name).join(' • '))}</div></div><button class="btn" onclick="viewOrder('${esc(o.id)}')">👁 Aperçu</button>${o.status==='Terminée'?'<button class="btn locked" disabled>Terminée</button>':`<button class="btn edit" onclick="editOrder('${esc(o.id)}')">Modifier</button>`}</div>`).join(''):'<div class="empty">Aucune commande</div>'}
 async function load(){let r=await fetch('/api/orders/history');let d=await r.json();if(!r.ok||!d.ok){document.getElementById('list').innerHTML='<div class="error">'+esc(d.detail||d.error||'Erreur')+'</div>';return}ORDERS=d.orders||[];render()}
 function renderViewMeta(o){
- const delivery=String(o.ticket_type||o.source||'').toLowerCase().includes('livraison');
+ const delivery=[o.ticket_type,o.service_mode,o.source].some(value=>/livraison|delivery/i.test(String(value||'')));
  const address=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join(' · '):'';
- document.getElementById('vmeta').innerHTML='<div style="font-size:17px;font-weight:800">'+esc(o.customer_name||'')+'</div>'+(address?'<div style="font-size:16px;line-height:1.45;color:#111827;margin:6px 0">'+esc(address)+'</div>':'')+'<div>'+esc(o.status||'')+' · '+money(o.total)+'</div>';
+ const details=o.delivery_details||{};
+ const fields=delivery?[['Tél.',o.phone],['Code / Interph.',details.door_intercom||o.door_intercom],['Étage',details.floor||o.floor],['Consignes',details.instructions||o.instructions],['Informations client',details.notes]]:[];
+ const contact=fields.filter(([label,value])=>String(value||'').trim()).map(([label,value])=>'<div style="font-size:16px;line-height:1.45;white-space:pre-wrap;margin:4px 0"><b>'+esc(label)+' :</b> '+esc(value)+'</div>').join('');
+ document.getElementById('vmeta').innerHTML='<div style="font-size:17px;font-weight:800">'+esc(o.customer_name||'')+'</div>'+(address?'<div style="font-size:16px;line-height:1.45;color:#111827;margin:6px 0">'+esc(address)+'</div>':'')+contact+'<div>'+esc(o.status||'')+' · '+money(o.total)+'</div>';
 }
 function viewOrder(id){
  let o=ORDERS.find(x=>x.id===id);if(!o)return;
@@ -187,3 +209,5 @@ document.getElementById('search').oninput=render;document.getElementById('status
     def clean_history_route():
         if request.path == "/historique":
             return redirect("/historique-modification", code=302)
+
+
