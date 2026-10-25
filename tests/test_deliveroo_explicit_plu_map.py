@@ -83,6 +83,29 @@ class ExplicitPluMapTests(unittest.TestCase):
                 self.payload, self.catalog, {"MU11002:OM21001": "opt:MU11002:0:0"}
             )
 
+    def test_two_legacy_ids_cannot_alias_same_choice(self):
+        mapping = {
+            ("MU11002", "OM21001"): "opt:MU11002:0:0",
+            ("MU11002", "OM21002"): "opt:MU11002:0:0",
+        }
+        with self.assertRaisesRegex(DeliverooMappingError, "Ambiguous approved"):
+            reconcile_with_explicit_plu_map(self.payload, self.catalog, mapping)
+
+    def test_canonical_source_cannot_be_remapped_as_legacy(self):
+        mapping = {
+            ("MU11002", "OM21001"): "opt:MU11002:0:0",
+            ("MU11002", "opt:MU11002:0:0"): "opt:MU11002:0:0",
+        }
+        with self.assertRaisesRegex(DeliverooMappingError, "Invalid approved"):
+            reconcile_with_explicit_plu_map(self.payload, self.catalog, mapping)
+
+    def test_padded_legacy_source_is_rejected(self):
+        for source in (" OM21001", "OM21001 ", "\tOM21001"):
+            with self.subTest(source=source):
+                mapping = {("MU11002", source): "opt:MU11002:0:0"}
+                with self.assertRaisesRegex(DeliverooMappingError, "Invalid approved"):
+                    reconcile_with_explicit_plu_map(self.payload, self.catalog, mapping)
+
     def test_noncanonical_target_indices_are_rejected(self):
         for target in ("opt:MU11002:00:0", "opt:MU11002:0:01", "opt:MU11002:0:-1", "opt:MU11002:0:0:1"):
             with self.subTest(target=target):
