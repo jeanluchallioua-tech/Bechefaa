@@ -18,6 +18,7 @@ def audit_order_amounts(payload):
     lines_total = Decimal("0.00")
     line_diagnostics = []
     unexplained_line_indices = []
+    paid_modifiers_excluded_line_indices = []
     for index, item in enumerate(parsed["items"]):
         quantity = item["quantity"]
         unit_price = Decimal(item["unit_price_eur"])
@@ -32,6 +33,11 @@ def audit_order_amounts(payload):
         with_modifiers_once = base_total + modifiers_per_line
         with_modifiers_per_parent = base_total + modifiers_per_line * quantity
         lines_total += line_total
+        # This may be legitimate if Deliveroo charges modifiers elsewhere.
+        # Never infer that policy; surface it for explicit financial review.
+        paid_modifiers_excluded = modifiers_per_line > 0 and line_total == base_total
+        if paid_modifiers_excluded:
+            paid_modifiers_excluded_line_indices.append(index)
         if line_total not in (base_total, with_modifiers_once, with_modifiers_per_parent):
             unexplained_line_indices.append(index)
         line_diagnostics.append({
@@ -44,6 +50,7 @@ def audit_order_amounts(payload):
             "candidate_total_modifiers_once_eur": _eur(with_modifiers_once),
             "candidate_total_modifiers_per_parent_eur": _eur(with_modifiers_per_parent),
             "matches_base_only": line_total == base_total,
+            "paid_modifiers_excluded_from_line_total": paid_modifiers_excluded,
             "matches_modifiers_once": line_total == with_modifiers_once,
             "matches_modifiers_per_parent": line_total == with_modifiers_per_parent,
         })
@@ -53,6 +60,8 @@ def audit_order_amounts(payload):
         review_reasons.append("order_total_differs_from_item_totals")
     if unexplained_line_indices:
         review_reasons.append("line_totals_match_no_candidate_model")
+    if paid_modifiers_excluded_line_indices:
+        review_reasons.append("paid_modifiers_excluded_from_line_totals")
     return {
         "order_total_eur": _eur(order_total),
         "items_total_eur": _eur(lines_total),
@@ -60,6 +69,7 @@ def audit_order_amounts(payload):
         "totals_match": difference == 0,
         "line_diagnostics": line_diagnostics,
         "unexplained_line_indices": unexplained_line_indices,
+        "paid_modifiers_excluded_line_indices": paid_modifiers_excluded_line_indices,
         "requires_financial_review": bool(review_reasons),
         "review_reasons": review_reasons,
         "modifier_pricing_schema_verified": False,
