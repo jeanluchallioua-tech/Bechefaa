@@ -161,6 +161,32 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         self.assertEqual([o["id"] for o in result], [pos_id("child")])
         self.assertTrue(result[0]["is_deliveroo_remake"])
 
+    def test_duplicate_remake_events_do_not_duplicate_orders(self):
+        event = {"order_id": "child", "parent_id": "parent"}
+        conn = FakeConn(events=[event, dict(event), dict(event)],
+                        imported=[pos_id("child")],
+                        displays=[{"order_id": "child", "display_id": "D-123"}] * 3)
+        result = self.render(conn, self.orders())
+        self.assertEqual([o["id"] for o in result], [pos_id("child"), "local"])
+        self.assertEqual(result[0]["platform_reference"], "D-123")
+
+    def test_multiple_remake_generations_hide_imported_ancestors(self):
+        now = int(time.time() * 1000) - 20000
+        orders = [
+            {"id": pos_id(external), "source": "DELIVEROO", "created_at": now}
+            for external in ("parent", "child", "grandchild")
+        ]
+        conn = FakeConn(
+            events=[
+                {"order_id": "child", "parent_id": "parent"},
+                {"order_id": "grandchild", "parent_id": "child"},
+            ],
+            imported=[pos_id("child"), pos_id("grandchild")],
+        )
+        result = self.render(conn, orders)
+        self.assertEqual([o["id"] for o in result], [pos_id("grandchild")])
+        self.assertTrue(result[0]["is_deliveroo_remake"])
+
     def test_invalid_remake_links_cannot_hide_orders(self):
         conn = FakeConn(
             events=[
