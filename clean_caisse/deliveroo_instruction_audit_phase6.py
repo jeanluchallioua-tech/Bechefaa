@@ -13,7 +13,9 @@ def audit_instruction_fields(payload):
     body = payload.get("body") if isinstance(payload, dict) else None
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict):
-        return {"candidate_paths": [], "candidate_values": [], "schema_verified": False, "writes": False}
+        return {"candidate_paths": [], "candidate_values": [],
+                "non_text_candidate_paths": [], "blank_candidate_paths": [],
+                "schema_verified": False, "writes": False}
     paths = []
     values = []
     for key in sorted(CANDIDATE_KEYS):
@@ -47,6 +49,15 @@ def audit_instruction_fields(payload):
     return {
         "candidate_paths": sorted(paths),
         "candidate_values": sorted(values, key=lambda x: x["path"]),
+        # Candidate field names are not a verified webhook schema. Do not
+        # convert structured or empty values into printable kitchen notes.
+        "non_text_candidate_paths": sorted(
+            entry["path"] for entry in values if not isinstance(entry["value"], str)
+        ),
+        "blank_candidate_paths": sorted(
+            entry["path"] for entry in values
+            if isinstance(entry["value"], str) and not entry["value"].strip()
+        ),
         "schema_verified": False,
         "writes": False,
     }
