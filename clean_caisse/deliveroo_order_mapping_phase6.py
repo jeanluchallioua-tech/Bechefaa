@@ -57,9 +57,14 @@ def parse_order_new(payload):
         qty = raw_qty
         if qty < 1:
             raise DeliverooMappingError("Invalid quantity")
+        raw_modifiers = item.get("modifiers")
+        if raw_modifiers is None:
+            raw_modifiers = []
+        if not isinstance(raw_modifiers, list):
+            raise DeliverooMappingError("Invalid modifiers list")
         modifiers = []
-        for modifier in item.get("modifiers") or []:
-            if not isinstance(modifier, dict) or not modifier.get("pos_item_id"):
+        for modifier in raw_modifiers:
+            if not isinstance(modifier, dict) or not str(modifier.get("pos_item_id") or "").strip():
                 raise DeliverooMappingError("Invalid modifier")
             modifier_qty = modifier.get("quantity", 1)
             if isinstance(modifier_qty, bool) or not isinstance(modifier_qty, int) or modifier_qty < 1:
