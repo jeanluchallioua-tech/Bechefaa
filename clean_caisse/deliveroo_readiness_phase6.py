@@ -19,6 +19,27 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
     if isinstance(preview, dict):
         if not isinstance(preview.get("items"), list) or not preview["items"]:
             blockers.append("missing_kitchen_items")
+        for item in preview.get("items", []) if isinstance(preview.get("items"), list) else []:
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+                blockers.append("invalid_kitchen_item")
+                continue
+            qty = item.get("quantity")
+            if isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
+                blockers.append("invalid_kitchen_quantity")
+            options = item.get("options")
+            if not isinstance(options, list):
+                blockers.append("invalid_kitchen_options")
+                continue
+            for option in options:
+                if not isinstance(option, dict) or any(
+                    not isinstance(option.get(key), str) or not option[key].strip()
+                    for key in ("group", "name")
+                ):
+                    blockers.append("invalid_kitchen_modifier")
+                    continue
+                option_qty = option.get("quantity")
+                if isinstance(option_qty, bool) or not isinstance(option_qty, int) or option_qty < 1:
+                    blockers.append("invalid_kitchen_modifier_quantity")
         if preview.get("ready_for_dispatch") is not False:
             blockers.append("preview_dispatch_guard_missing")
         if preview.get("requires_price_policy") is not True:
