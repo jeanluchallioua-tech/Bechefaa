@@ -59,7 +59,8 @@ def reconcile(payload, catalog):
                 choice_name = str(choice)
             if not choice_name:
                 raise DeliverooMappingError("Empty choice for modifier PLU")
-            selections.append({"group": group_name, "name": choice_name})
+            selections.append({"group": group_name, "name": choice_name,
+                               "quantity": modifier["quantity"]})
         mapped.append({
             "product_id": product_id,
             "name": str(product.get("name") or ""),
