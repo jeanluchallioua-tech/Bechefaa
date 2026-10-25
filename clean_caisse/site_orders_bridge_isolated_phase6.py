@@ -35,6 +35,9 @@ def _site_customer(raw):
         "address": str(raw.get("address") or "").strip(),
         "postal_code": str(raw.get("postalCode") or raw.get("postal_code") or "").strip(),
         "city": str(raw.get("city") or "").strip(),
+        "door_intercom": str(raw.get("door_intercom") or raw.get("doorIntercom") or "").strip(),
+        **{key:str(raw.get(key) or "").strip() for key in
+           ("door_code","intercom","building","entrance","floor","apartment","instructions","notes")},
     }
 
 
@@ -280,3 +283,4 @@ def register_site_orders_bridge_isolated_phase6(app):
         if error:
             return jsonify({"ok": False, "error": error}), 400
         return jsonify({"ok": True, "internal": internal, "writes": False})
+
