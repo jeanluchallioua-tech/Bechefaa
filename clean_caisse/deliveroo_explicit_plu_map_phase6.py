@@ -16,6 +16,7 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
     parsed = parse_order_new(payload)
     translated = deepcopy(payload)
     lines = translated["body"]["order"]["items"]
+    legacy_labels = {}
     for line_index, item in enumerate(parsed["items"]):
         product_id = item["pos_item_id"]
         for modifier_index, modifier in enumerate(item["modifiers"]):
@@ -23,6 +24,10 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
             if old_plu.startswith("opt:"):
                 continue
             key = (product_id, old_plu)
+            label = modifier["name"].strip().casefold()
+            if key in legacy_labels and legacy_labels[key] != label:
+                raise DeliverooMappingError("Conflicting legacy modifier labels: " + old_plu)
+            legacy_labels[key] = label
             target = approved_map.get(key)
             if not isinstance(target, str) or not target:
                 raise DeliverooMappingError("Unapproved legacy modifier PLU: " + old_plu)
