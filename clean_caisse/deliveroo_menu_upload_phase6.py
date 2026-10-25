@@ -201,6 +201,20 @@ def _deliveroo_compare_by_id(local_menu, remote_menu, limit=300):
     return result
 
 
+def _menu_plu_preflight_error(preview):
+    """Fail closed before any outbound menu request when PLUs are ambiguous."""
+    if not isinstance(preview, dict) or preview.get("plu_contract_ready") is not True:
+        blockers = preview.get("plu_contract_blockers") if isinstance(preview, dict) else None
+        return {
+            "ok": False,
+            "stage": "plu_contract",
+            "error": "Contrat PLU Deliveroo non validé : aucun menu envoyé",
+            "blockers": blockers if isinstance(blockers, list) else [],
+            "upload_performed": False,
+        }
+    return None
+
+
 def register_deliveroo_menu_upload_phase6(app, db):
     @app.post("/api/deliveroo/scenario1-fetch-brand-phase6")
     def deliveroo_scenario1_fetch_brand_phase6():
@@ -249,6 +263,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
 
         try:
             preview=build_deliveroo_menu_preview(db)
+            preflight_error=_menu_plu_preflight_error(preview)
+            if preflight_error is not None:
+                return jsonify(preflight_error),409
             token=_oauth_token()
             api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
 
@@ -323,6 +340,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
             preview=build_deliveroo_menu_preview(db)
+            preflight_error=_menu_plu_preflight_error(preview)
+            if preflight_error is not None:
+                return jsonify(preflight_error),409
             token=_oauth_token()
             api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
 
@@ -1197,6 +1217,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
             preview=build_deliveroo_menu_preview(db)
+            preflight_error=_menu_plu_preflight_error(preview)
+            if preflight_error is not None:
+                return jsonify(preflight_error),409
             menu=json.loads(json.dumps(preview["payload"]["menu"],ensure_ascii=False))
             # Le scénario 13 exige au moins 100 entrées de type ITEM
             # (les CHOICE et BUNDLE ne comptent pas).
@@ -1537,6 +1560,9 @@ def register_deliveroo_menu_upload_phase6(app, db):
             return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
         try:
             preview=build_deliveroo_menu_preview(db)
+            preflight_error=_menu_plu_preflight_error(preview)
+            if preflight_error is not None:
+                return jsonify(preflight_error),409
             menu=preview["payload"]["menu"]
 
             # Scenario 15 Sandbox : Deliveroo refuse un catalogue strictement identique.
