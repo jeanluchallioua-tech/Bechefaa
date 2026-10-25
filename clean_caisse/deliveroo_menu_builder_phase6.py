@@ -601,8 +601,17 @@ def build_deliveroo_menu_preview(db):
         "site_ids": [],
     }
 
+    blocking_plu_warnings = [
+        warning for warning in warnings
+        if warning.get("type") in {
+            "unreconcilable_choice_plu", "truncated_product_plu"
+        }
+    ]
+
     return {
         "ok": True,
+        "plu_contract_ready": not blocking_plu_warnings,
+        "plu_contract_blockers": blocking_plu_warnings,
         "upload_performed": False,
         "source": "catalog_admin_v2",
         "markup_channel": "DELIVEROO",
