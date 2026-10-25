@@ -29,25 +29,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_pos_save_workflow.py' -v
           python -m unittest discover -s tests -p 'test_pos_pending_edit.py' -v
       - name: Pure discount calculations
-        run: |
-          python - <<'PY'
-          from decimal import Decimal
-          from clean_caisse.manual_discount import order_discount
-          sub = Decimal('30.00')
-          discount, total, percent = order_discount(sub, {'manual_discount_percent':10}, 'EMPORTER')
-          assert (discount,total,percent)==(Decimal('3.00'),Decimal('27.00'),Decimal('10.00'))
-          for bad in [-1,100,'NaN','bad']:
-              try:
-                  order_discount(sub, {'manual_discount_percent':bad}, 'EMPORTER')
-              except ValueError:
-                  pass
-              else:
-                  raise AssertionError(f'Invalid percentage accepted: {bad}')
-          try:
-              order_discount(sub, {'manual_discount_percent':10}, 'LIVRAISON')
-          except ValueError:
-              pass
-          else:
-              raise AssertionError('Delivery discount incorrectly accepted')
-          print('Discount calculations passed')
-          PY
+        run: python -m unittest discover -s tests -p 'test_bis_discount_rules.py' -v
