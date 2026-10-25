@@ -41,6 +41,38 @@ class DeliverooReconcileTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertTrue(result["requires_price_policy"])
 
+    def test_repeated_modifier_lines_remain_distinct(self):
+        payload = sample()
+        first = payload["body"]["order"]["items"][0]["modifiers"][0]
+        first["quantity"] = 2
+        payload["body"]["order"]["items"][0]["modifiers"].append({
+            **first, "quantity": 1,
+        })
+        result = reconcile(payload, self.catalog)
+        self.assertEqual(
+            [option["quantity"] for option in result["mapped_items"][0]["options"]],
+            [2, 1],
+        )
+        self.assertEqual(
+            [option["name"] for option in result["mapped_items"][0]["options"]],
+            ["Guacamole", "Guacamole"],
+        )
+        self.assertFalse(result["writes"])
+
+    def test_repeated_product_lines_preserve_individual_quantities(self):
+        payload = sample()
+        first = payload["body"]["order"]["items"][0]
+        first["quantity"] = 2
+        payload["body"]["order"]["items"].append({
+            **first, "quantity": 1,
+        })
+        result = reconcile(payload, self.catalog)
+        self.assertEqual(
+            [item["qty"] for item in result["mapped_items"]], [2, 1]
+        )
+        self.assertEqual(len(result["mapped_items"]), 2)
+        self.assertFalse(result["writes"])
+
     def test_multiple_modifier_units_preserved(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["quantity"] = 3
