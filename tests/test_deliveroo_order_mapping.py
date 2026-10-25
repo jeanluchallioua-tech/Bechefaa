@@ -36,6 +36,33 @@ class DeliverooMappingTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["modifiers"][0]["unit_price_eur"], "0.95")
         self.assertFalse(result["writes"])
 
+    def test_identifiers_reject_whitespace_and_control_characters(self):
+        from copy import deepcopy
+
+        for path in ("id", "product", "modifier"):
+            for invalid in (" PADDED", "PADDED ", "\\tPADDED",
+                            "PLU\\nINJECT", "PLU\\x1b[2J", "   "):
+                with self.subTest(path=path, invalid=repr(invalid)):
+                    payload = deepcopy(self.payload)
+                    order = payload["body"]["order"]
+                    if path == "id":
+                        order["id"] = invalid
+                    elif path == "product":
+                        order["items"][0]["pos_item_id"] = invalid
+                    else:
+                        order["items"][0]["modifiers"][0]["pos_item_id"] = invalid
+                    with self.assertRaises(DeliverooMappingError):
+                        parse_order_new(payload)
+
+    def test_identifiers_are_preserved_exactly_when_canonical(self):
+        result = parse_order_new(self.payload)
+        order = self.payload["body"]["order"]
+        self.assertEqual(result["external_order_id"], order["id"])
+        self.assertEqual(result["items"][0]["pos_item_id"],
+                         order["items"][0]["pos_item_id"])
+        self.assertEqual(result["items"][0]["modifiers"][0]["pos_item_id"],
+                         order["items"][0]["modifiers"][0]["pos_item_id"])
+
     def test_nontext_order_id_rejected(self):
         for bad in (123, True, [], {"id": "x"}, None):
             with self.subTest(bad=bad):

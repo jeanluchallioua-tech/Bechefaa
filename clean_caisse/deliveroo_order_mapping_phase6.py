@@ -10,6 +10,14 @@ class DeliverooMappingError(ValueError):
     pass
 
 
+def _canonical_id(value, label):
+    """Reject silent PLU/order-ID normalization and control characters."""
+    if (not isinstance(value, str) or not value or value != value.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+        raise DeliverooMappingError("Invalid or non-canonical " + label)
+    return value
+
+
 def _money(value):
     if not isinstance(value, dict) or value.get("currency_code") != "EUR":
         raise DeliverooMappingError("Expected EUR money object")
@@ -38,12 +46,7 @@ def parse_order_new(payload):
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict):
         raise DeliverooMappingError("Missing body.order")
-    raw_order_id = order.get("id")
-    if not isinstance(raw_order_id, str):
-        raise DeliverooMappingError("Invalid Deliveroo order ID")
-    order_id = raw_order_id.strip()
-    if not order_id:
-        raise DeliverooMappingError("Missing Deliveroo order ID")
+    order_id = _canonical_id(order.get("id"), "Deliveroo order ID")
     raw_items = order.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         raise DeliverooMappingError("Missing items")
@@ -51,12 +54,7 @@ def parse_order_new(payload):
     for item in raw_items:
         if not isinstance(item, dict):
             raise DeliverooMappingError("Invalid item")
-        raw_pos_id = item.get("pos_item_id")
-        if not isinstance(raw_pos_id, str):
-            raise DeliverooMappingError("Invalid POS item ID")
-        pos_id = raw_pos_id.strip()
-        if not pos_id:
-            raise DeliverooMappingError("Missing POS item ID")
+        pos_id = _canonical_id(item.get("pos_item_id"), "POS item ID")
         raw_qty = item.get("quantity")
         if isinstance(raw_qty, bool) or not isinstance(raw_qty, int):
             raise DeliverooMappingError("Invalid quantity")
@@ -72,14 +70,14 @@ def parse_order_new(payload):
         for modifier in raw_modifiers:
             if not isinstance(modifier, dict):
                 raise DeliverooMappingError("Invalid modifier")
-            modifier_pos_id = modifier.get("pos_item_id")
-            if not isinstance(modifier_pos_id, str) or not modifier_pos_id.strip():
-                raise DeliverooMappingError("Invalid modifier")
+            modifier_pos_id = _canonical_id(
+                modifier.get("pos_item_id"), "modifier POS item ID"
+            )
             modifier_qty = modifier.get("quantity", 1)
             if isinstance(modifier_qty, bool) or not isinstance(modifier_qty, int) or modifier_qty < 1:
                 raise DeliverooMappingError("Invalid modifier quantity")
             modifiers.append({
-                "pos_item_id": modifier_pos_id.strip(),
+                "pos_item_id": modifier_pos_id,
                 "name": str(modifier.get("name") or ""),
                 "quantity": modifier_qty,
                 "unit_price_eur": _money(modifier.get("unit_price")),
