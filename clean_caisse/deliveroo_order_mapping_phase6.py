@@ -38,7 +38,10 @@ def parse_order_new(payload):
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict):
         raise DeliverooMappingError("Missing body.order")
-    order_id = str(order.get("id") or "").strip()
+    raw_order_id = order.get("id")
+    if not isinstance(raw_order_id, str):
+        raise DeliverooMappingError("Invalid Deliveroo order ID")
+    order_id = raw_order_id.strip()
     if not order_id:
         raise DeliverooMappingError("Missing Deliveroo order ID")
     raw_items = order.get("items")
@@ -48,7 +51,10 @@ def parse_order_new(payload):
     for item in raw_items:
         if not isinstance(item, dict):
             raise DeliverooMappingError("Invalid item")
-        pos_id = str(item.get("pos_item_id") or "").strip()
+        raw_pos_id = item.get("pos_item_id")
+        if not isinstance(raw_pos_id, str):
+            raise DeliverooMappingError("Invalid POS item ID")
+        pos_id = raw_pos_id.strip()
         if not pos_id:
             raise DeliverooMappingError("Missing POS item ID")
         raw_qty = item.get("quantity")
@@ -64,13 +70,16 @@ def parse_order_new(payload):
             raise DeliverooMappingError("Invalid modifiers list")
         modifiers = []
         for modifier in raw_modifiers:
-            if not isinstance(modifier, dict) or not str(modifier.get("pos_item_id") or "").strip():
+            if not isinstance(modifier, dict):
+                raise DeliverooMappingError("Invalid modifier")
+            modifier_pos_id = modifier.get("pos_item_id")
+            if not isinstance(modifier_pos_id, str) or not modifier_pos_id.strip():
                 raise DeliverooMappingError("Invalid modifier")
             modifier_qty = modifier.get("quantity", 1)
             if isinstance(modifier_qty, bool) or not isinstance(modifier_qty, int) or modifier_qty < 1:
                 raise DeliverooMappingError("Invalid modifier quantity")
             modifiers.append({
-                "pos_item_id": str(modifier["pos_item_id"]),
+                "pos_item_id": modifier_pos_id.strip(),
                 "name": str(modifier.get("name") or ""),
                 "quantity": modifier_qty,
                 "unit_price_eur": _money(modifier.get("unit_price")),
