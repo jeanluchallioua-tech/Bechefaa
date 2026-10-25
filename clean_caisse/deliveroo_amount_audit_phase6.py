@@ -17,6 +17,7 @@ def audit_order_amounts(payload):
     order_total = Decimal(parsed["total_eur"])
     lines_total = Decimal("0.00")
     line_diagnostics = []
+    unexplained_line_indices = []
     for index, item in enumerate(parsed["items"]):
         quantity = item["quantity"]
         unit_price = Decimal(item["unit_price_eur"])
@@ -31,6 +32,8 @@ def audit_order_amounts(payload):
         with_modifiers_once = base_total + modifiers_per_line
         with_modifiers_per_parent = base_total + modifiers_per_line * quantity
         lines_total += line_total
+        if line_total not in (base_total, with_modifiers_once, with_modifiers_per_parent):
+            unexplained_line_indices.append(index)
         line_diagnostics.append({
             "index": index,
             "pos_item_id": item["pos_item_id"],
@@ -45,12 +48,20 @@ def audit_order_amounts(payload):
             "matches_modifiers_per_parent": line_total == with_modifiers_per_parent,
         })
     difference = order_total - lines_total
+    review_reasons = []
+    if difference:
+        review_reasons.append("order_total_differs_from_item_totals")
+    if unexplained_line_indices:
+        review_reasons.append("line_totals_match_no_candidate_model")
     return {
         "order_total_eur": _eur(order_total),
         "items_total_eur": _eur(lines_total),
         "difference_eur": _eur(difference),
         "totals_match": difference == 0,
         "line_diagnostics": line_diagnostics,
+        "unexplained_line_indices": unexplained_line_indices,
+        "requires_financial_review": bool(review_reasons),
+        "review_reasons": review_reasons,
         "modifier_pricing_schema_verified": False,
         "price_policy_verified": False,
         "ready_for_dispatch": False,
