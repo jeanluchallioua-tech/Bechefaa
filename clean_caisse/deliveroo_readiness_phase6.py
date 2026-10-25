@@ -61,6 +61,8 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
         if not isinstance(amount_audit, dict) or amount_audit.get("writes") is not False:
             blockers.append("amount_audit_missing")
         else:
+            if amount_audit.get("requires_financial_review") is True:
+                blockers.append("amount_requires_financial_review")
             if amount_audit.get("ready_for_dispatch") is not False:
                 blockers.append("amount_audit_dispatch_guard_missing")
             if amount_audit.get("price_policy_verified") is not False:
