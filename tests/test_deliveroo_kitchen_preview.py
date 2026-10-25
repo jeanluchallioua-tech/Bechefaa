@@ -119,6 +119,23 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(preview["ready_for_dispatch"])
         self.assertFalse(preview["writes"])
 
+    def test_unsafe_control_in_customer_note_is_diagnostic_only(self):
+        payload = sample()
+        payload["body"]["order"]["special_instructions"] = "Sans sel\x1b[2J"
+        audit = preview_order(payload, self.catalog)["instruction_field_audit"]
+        self.assertEqual(audit["unsafe_control_candidate_paths"], [
+            "body.order.special_instructions",
+        ])
+        self.assertFalse(audit["schema_verified"])
+        self.assertFalse(audit["writes"])
+
+    def test_multiline_customer_note_is_not_an_unsafe_control(self):
+        payload = sample()
+        payload["body"]["order"]["notes"] = "Sans sel\nSans piment\tSVP"
+        audit = preview_order(payload, self.catalog)["instruction_field_audit"]
+        self.assertEqual(audit["unsafe_control_candidate_paths"], [])
+        self.assertFalse(audit["schema_verified"])
+
     def test_amount_audit_is_read_only_and_does_not_approve_prices(self):
         payload = sample()
         result = preview_order(payload, self.catalog)
