@@ -15,9 +15,12 @@ def audit_instruction_fields(payload):
     if not isinstance(order, dict):
         return {"candidate_paths": [], "schema_verified": False, "writes": False}
     paths = []
+    values = []
     for key in CANDIDATE_KEYS:
         if key in order and order[key] is not None:
-            paths.append("body.order." + key)
+            path = "body.order." + key
+            paths.append(path)
+            values.append({"path": path, "value": order[key]})
     items = order.get("items")
     if isinstance(items, list):
         for index, item in enumerate(items):
@@ -25,9 +28,12 @@ def audit_instruction_fields(payload):
                 continue
             for key in CANDIDATE_KEYS:
                 if key in item and item[key] is not None:
-                    paths.append(f"body.order.items[{index}].{key}")
+                    path = f"body.order.items[{index}].{key}"
+                    paths.append(path)
+                    values.append({"path": path, "value": item[key]})
     return {
         "candidate_paths": sorted(paths),
+        "candidate_values": sorted(values, key=lambda x: x["path"]),
         "schema_verified": False,
         "writes": False,
     }
