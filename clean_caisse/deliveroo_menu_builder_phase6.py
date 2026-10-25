@@ -256,6 +256,12 @@ def build_deliveroo_menu_preview(db):
         for group_index, group in enumerate(groups):
             if not isinstance(group, dict):
                 continue
+            if group.get("active", True) is False:
+                warnings.append({
+                    "type": "inactive_modifier_group_exposed",
+                    "product_id": pos_id,
+                    "group_index": group_index,
+                })
             group_name = _group_name(group, group_index)
             values = _group_values(group)
             parsed_choices = [
@@ -278,6 +284,14 @@ def build_deliveroo_menu_preview(db):
             )
             choice_ids = []
             for choice in parsed_choices:
+                source_choice = values[choice["index"]]
+                if isinstance(source_choice, dict) and source_choice.get("active", True) is False:
+                    warnings.append({
+                        "type": "inactive_modifier_choice_exposed",
+                        "product_id": pos_id,
+                        "group_index": group_index,
+                        "choice_index": choice["index"],
+                    })
                 raw_choice_id = choice["source_id"] or str(choice["index"] + 1)
                 choice_item_id = _safe_id(
                     "choice",
@@ -642,6 +656,7 @@ def build_deliveroo_menu_preview(db):
             "invalid_catalog_product", "invalid_catalog_product_plu",
             "noncanonical_catalog_product_plu", "duplicate_catalog_product_plu",
             "generated_item_id_collision", "generated_choice_id_collision",
+            "inactive_modifier_group_exposed", "inactive_modifier_choice_exposed",
         }
     ]
 
