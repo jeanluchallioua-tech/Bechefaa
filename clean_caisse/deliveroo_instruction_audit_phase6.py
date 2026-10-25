@@ -13,7 +13,7 @@ def audit_instruction_fields(payload):
     body = payload.get("body") if isinstance(payload, dict) else None
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict):
-        return {"candidate_paths": [], "schema_verified": False, "writes": False}
+        return {"candidate_paths": [], "candidate_values": [], "schema_verified": False, "writes": False}
     paths = []
     values = []
     for key in CANDIDATE_KEYS:
