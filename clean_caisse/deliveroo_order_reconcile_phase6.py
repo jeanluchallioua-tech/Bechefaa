@@ -9,7 +9,9 @@ def reconcile(payload, catalog):
     for product in products:
         if not isinstance(product, dict):
             continue
-        product_id = str(product.get("id") or "")
+        product_id = str(product.get("id") or "").strip()
+        if not product_id:
+            raise DeliverooMappingError("Missing catalogue product ID")
         if product_id in by_id:
             raise DeliverooMappingError("Duplicate catalogue product ID")
         by_id[product_id] = product
@@ -20,7 +22,11 @@ def reconcile(payload, catalog):
         product = by_id.get(product_id)
         if not product or product.get("active", True) is False:
             raise DeliverooMappingError("Unknown or inactive POS product: " + product_id)
-        groups = product.get("options") or []
+        groups = product.get("options")
+        if groups is None:
+            groups = []
+        if not isinstance(groups, list):
+            raise DeliverooMappingError("Invalid catalogue option groups: " + product_id)
         selections = []
         for modifier in line["modifiers"]:
             plu = modifier["pos_item_id"]
@@ -35,6 +41,8 @@ def reconcile(payload, catalog):
                     raise ValueError("Non-canonical modifier index")
                 group_index, choice_index = int(parts[2]), int(parts[3])
                 group = groups[group_index]
+                if not isinstance(group, dict):
+                    raise DeliverooMappingError("Invalid catalogue option group")
                 choices = next(
                     group[key] for key in ("options", "values", "items", "choices")
                     if isinstance(group.get(key), list)
