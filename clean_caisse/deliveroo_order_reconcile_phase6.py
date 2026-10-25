@@ -28,6 +28,11 @@ def reconcile(payload, catalog):
             if len(parts) != 4 or parts[0] != "opt" or parts[1] != product_id:
                 raise DeliverooMappingError("Unmapped modifier PLU: " + plu)
             try:
+                # PLU indices are zero-based and must never use Python's
+                # negative indexing or accept non-canonical representations.
+                if any(not part.isascii() or not part.isdecimal() or
+                       str(int(part)) != part for part in parts[2:]):
+                    raise ValueError("Non-canonical modifier index")
                 group_index, choice_index = int(parts[2]), int(parts[3])
                 group = groups[group_index]
                 choices = next(
