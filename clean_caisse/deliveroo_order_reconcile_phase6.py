@@ -55,6 +55,10 @@ def reconcile(payload, catalog):
                 choice = choices[choice_index]
             except (ValueError, IndexError, KeyError, TypeError, StopIteration):
                 raise DeliverooMappingError("Invalid modifier PLU: " + plu)
+            if group.get("active", True) is False:
+                raise DeliverooMappingError("Inactive catalogue option group: " + plu)
+            if isinstance(choice, dict) and choice.get("active", True) is False:
+                raise DeliverooMappingError("Inactive catalogue option choice: " + plu)
             group_name = str(group.get("name") or group.get("label") or group.get("title") or "Groupe " + str(group_index + 1))
             if isinstance(choice, dict):
                 choice_name = str(choice.get("name") or choice.get("label") or choice.get("title") or choice.get("value") or choice.get("id") or "")
