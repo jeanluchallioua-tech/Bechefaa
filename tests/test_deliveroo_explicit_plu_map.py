@@ -35,6 +35,21 @@ class ExplicitPluMapTests(unittest.TestCase):
                 self.payload, self.catalog, {("MU11002", "OM21001"): "opt:OTHER:0:0"}
             )
 
+    def test_legacy_mapping_cannot_silently_change_choice(self):
+        catalog = deepcopy(self.catalog)
+        catalog["products"][0]["options"][0]["options"].append({"name": "Cheddar"})
+        with self.assertRaisesRegex(DeliverooMappingError, "label mismatch"):
+            reconcile_with_explicit_plu_map(
+                self.payload, catalog, {("MU11002", "OM21001"): "opt:MU11002:0:1"}
+            )
+
+    def test_legacy_mapping_requires_source_label(self):
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = ""
+        with self.assertRaisesRegex(DeliverooMappingError, "label mismatch"):
+            reconcile_with_explicit_plu_map(
+                self.payload, self.catalog, {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+            )
+
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             reconcile_with_explicit_plu_map(
