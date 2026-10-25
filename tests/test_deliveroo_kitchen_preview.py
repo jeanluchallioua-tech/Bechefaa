@@ -26,6 +26,8 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertFalse(result["ready_for_dispatch"])
         self.assertTrue(result["requires_price_policy"])
+        self.assertEqual(result["display_id"], "7866")
+        self.assertFalse(result["instructions_verified"])
 
     def test_explicit_legacy_mapping_previews_kitchen_without_dispatch(self):
         payload = sample()
