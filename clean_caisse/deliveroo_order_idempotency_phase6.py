@@ -9,7 +9,9 @@ from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 
 
 def external_order_key(order_id, environment="sandbox"):
-    order_id = str(order_id or "").strip()
+    if not isinstance(order_id, str):
+        raise DeliverooMappingError("Invalid Deliveroo order ID")
+    order_id = order_id.strip()
     if not order_id:
         raise DeliverooMappingError("Missing Deliveroo order ID")
     if environment not in ("sandbox", "production"):
@@ -25,10 +27,11 @@ def classify_replay(existing_order_id, incoming_order_id, environment="sandbox")
 
     The caller must enforce a unique key transactionally in PostgreSQL.
     """
-    if not existing_order_id:
+    # Validate the incoming ID and environment even when no previous
+    # order exists; otherwise a malformed event could be classified "create".
+    incoming_key = external_order_key(incoming_order_id, environment)
+    if existing_order_id is None or existing_order_id == "":
         return "create"
-    if external_order_key(existing_order_id, environment) == external_order_key(
-        incoming_order_id, environment
-    ):
+    if external_order_key(existing_order_id, environment) == incoming_key:
         return "replay"
     return "conflict"
