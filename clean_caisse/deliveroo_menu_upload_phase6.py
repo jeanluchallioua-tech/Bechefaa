@@ -203,8 +203,11 @@ def _deliveroo_compare_by_id(local_menu, remote_menu, limit=300):
 
 def _menu_plu_preflight_error(preview):
     """Fail closed before any outbound menu request when PLUs are ambiguous."""
-    if not isinstance(preview, dict) or preview.get("plu_contract_ready") is not True:
-        blockers = preview.get("plu_contract_blockers") if isinstance(preview, dict) else None
+    blockers = preview.get("plu_contract_blockers") if isinstance(preview, dict) else None
+    if (not isinstance(preview, dict)
+            or preview.get("plu_contract_ready") is not True
+            or not isinstance(blockers, list)
+            or bool(blockers)):
         return {
             "ok": False,
             "stage": "plu_contract",
