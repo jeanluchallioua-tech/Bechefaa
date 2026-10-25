@@ -36,6 +36,27 @@ class DeliverooMappingTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["modifiers"][0]["unit_price_eur"], "0.95")
         self.assertFalse(result["writes"])
 
+    def test_nontext_order_id_rejected(self):
+        for bad in (123, True, [], {"id": "x"}, None):
+            with self.subTest(bad=bad):
+                self.payload["body"]["order"]["id"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    parse_order_new(self.payload)
+
+    def test_nontext_product_pos_id_rejected(self):
+        for bad in (123, True, [], {"id": "x"}, None):
+            with self.subTest(bad=bad):
+                self.payload["body"]["order"]["items"][0]["pos_item_id"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    parse_order_new(self.payload)
+
+    def test_nontext_modifier_pos_id_rejected(self):
+        for bad in (123, True, [], {"id": "x"}, None):
+            with self.subTest(bad=bad):
+                self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    parse_order_new(self.payload)
+
     def test_noninteger_money_rejected_without_truncation(self):
         for bad in (12.5, True, "12.5", "12", None):
             with self.subTest(bad=bad):
