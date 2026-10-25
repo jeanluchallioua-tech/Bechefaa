@@ -23,6 +23,9 @@ def discount_total(subtotal, value, source, *, coupon_code=None, sales_channel=N
 def order_discount(subtotal, payload, source, existing=None):
     """Recompute a saved percentage when the basket changes; retain legacy euros."""
     existing = existing or {}
+    subtotal = Decimal(str(subtotal))
+    if not subtotal.is_finite() or subtotal < 0:
+        raise ValueError('Sous-total invalide.')
     percent = None
     explicit = 'manual_discount_percent' in payload or 'manual_discount_amount' in payload
     if 'manual_discount_percent' in payload:
