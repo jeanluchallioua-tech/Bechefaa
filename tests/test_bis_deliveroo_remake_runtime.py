@@ -17,11 +17,13 @@ def pos_id(external):
 
 
 class FakeConn:
-    def __init__(self, events=(), imported=(), displays=(), fail_events=False):
+    def __init__(self, events=(), imported=(), displays=(), fail_events=False, fail_lookup=False, fail_displays=False):
         self.events = list(events)
         self.imported = set(imported)
         self.displays = list(displays)
         self.fail_events = fail_events
+        self.fail_lookup = fail_lookup
+        self.fail_displays = fail_displays
 
     def execute(self, sql, params=()):
         if "remake_details,parent_order_id" in sql:
@@ -29,8 +31,12 @@ class FakeConn:
                 raise RuntimeError("sandbox events unavailable")
             return Rows(self.events)
         if "id = ANY(%s)" in sql:
+            if self.fail_lookup:
+                raise RuntimeError("POS replacement lookup unavailable")
             return Rows([{"id": oid} for oid in params[0] if oid in self.imported])
         if "display_id" in sql:
+            if self.fail_displays:
+                raise RuntimeError("display references unavailable")
             return Rows(self.displays)
         raise AssertionError(sql)
 
@@ -163,6 +169,22 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
                 orders[0]["created_at"] = invalid
                 result = self.render(FakeConn(), orders)
                 self.assertEqual(len(result), 3)
+
+    def test_failed_replacement_lookup_keeps_parent_visible(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")], fail_lookup=True)
+        result = self.render(conn, self.orders())
+        self.assertEqual({o["id"] for o in result},
+                         {pos_id("parent"), pos_id("child"), "local"})
+        self.assertFalse(any(o.get("is_deliveroo_remake") for o in result))
+
+    def test_failed_display_lookup_keeps_external_reference(self):
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")], fail_displays=True)
+        result = self.render(conn, self.orders())
+        child = next(o for o in result if o["id"] == pos_id("child"))
+        self.assertEqual(child["platform_reference"], "child")
+        self.assertTrue(child["is_deliveroo_remake"])
 
     def test_unavailable_event_store_preserves_orders(self):
         orders = self.orders()
