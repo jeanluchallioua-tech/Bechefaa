@@ -11,7 +11,13 @@ from clean_caisse.deliveroo_menu_upload_phase6 import (
 
 class DeliverooMenuUploadGuardTests(unittest.TestCase):
     def test_preflight_fails_closed_for_missing_contract(self):
-        for preview in (None, {}, {"plu_contract_ready": False}):
+        for preview in (
+            None, {}, {"plu_contract_ready": False},
+            {"plu_contract_ready": True},
+            {"plu_contract_ready": True, "plu_contract_blockers": [
+                {"type": "duplicate_catalog_product_plu"}
+            ]},
+        ):
             with self.subTest(preview=preview):
                 result = _menu_plu_preflight_error(preview)
                 self.assertFalse(result["ok"])
