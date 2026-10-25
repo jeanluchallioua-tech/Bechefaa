@@ -212,6 +212,12 @@ def build_deliveroo_menu_preview(db):
             })
             continue
 
+        if len(pos_id) > 50:
+            warnings.append({
+                "type": "truncated_product_plu",
+                "product_id": pos_id,
+                "reason": "incoming_order_will_not_match_catalogue_id",
+            })
         item_id = _safe_id("item", pos_id)
         modifier_ids = []
         mapping["products"][item_id] = {
