@@ -51,6 +51,16 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
         audit = preview.get("instruction_field_audit")
         if not isinstance(audit, dict) or audit.get("writes") is not False:
             blockers.append("instruction_audit_missing")
+        if isinstance(audit, dict):
+            for key, blocker in (
+                ("non_text_candidate_paths", "non_text_instruction_candidates"),
+                ("blank_candidate_paths", "blank_instruction_candidates"),
+            ):
+                flagged = audit.get(key)
+                if not isinstance(flagged, list):
+                    blockers.append("instruction_candidate_diagnostics_missing")
+                elif flagged:
+                    blockers.append(blocker)
         if instruction_schema_verified and (
             preview.get("instructions_verified") is not True
             or not isinstance(audit, dict)
