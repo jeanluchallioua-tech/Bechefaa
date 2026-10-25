@@ -56,7 +56,7 @@ class DeliverooReconcileTests(unittest.TestCase):
             reconcile(payload, self.catalog)
 
     def test_blank_option_name_rejected(self):
-        for bad in ("", "   ", "\\t"):
+        for bad in ("", "   ", "\t"):
             with self.subTest(bad=bad):
                 self.catalog["products"][0]["options"][0]["options"][0]["name"] = bad
                 with self.assertRaisesRegex(DeliverooMappingError, "Empty choice"):
