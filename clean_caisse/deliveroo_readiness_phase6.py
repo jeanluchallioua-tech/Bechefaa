@@ -57,6 +57,22 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
             or audit.get("schema_verified") is not True
         ):
             blockers.append("instruction_evidence_missing")
+        amount_audit = preview.get("amount_audit")
+        if not isinstance(amount_audit, dict) or amount_audit.get("writes") is not False:
+            blockers.append("amount_audit_missing")
+        else:
+            if amount_audit.get("ready_for_dispatch") is not False:
+                blockers.append("amount_audit_dispatch_guard_missing")
+            if amount_audit.get("price_policy_verified") is not False:
+                blockers.append("amount_audit_price_guard_missing")
+            if amount_audit.get("modifier_pricing_schema_verified") is not False:
+                blockers.append("modifier_pricing_guard_missing")
+            line_diagnostics = amount_audit.get("line_diagnostics")
+            if (not isinstance(line_diagnostics, list)
+                    or not isinstance(preview.get("items"), list)
+                    or len(line_diagnostics) != len(preview["items"])
+                    or any(not isinstance(line, dict) for line in line_diagnostics)):
+                blockers.append("amount_line_diagnostics_missing")
         if price_policy_approved and preview.get("requires_price_policy") is True:
             blockers.append("price_policy_evidence_missing")
     return {
