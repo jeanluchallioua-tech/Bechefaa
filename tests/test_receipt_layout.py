@@ -117,4 +117,18 @@ class ReceiptLayoutTests(unittest.TestCase):
             self.assertNotIn('window.print()',html)
             self.assertNotIn('epos-print',html)
 
+    def test_kitchen_font_is_larger_while_client_dimensions_stay_approved(self):
+        from unittest.mock import patch
+        from clean_caisse.receipt_photo_layout import Paper
+        dimensions=[]
+        original=Paper.__init__
+        def record(paper,*args,**kwargs):
+            original(paper,*args,**kwargs)
+            dimensions.append((paper.columns,paper.text_height,paper.row_height))
+        with patch.object(Paper,'__init__',record):
+            render_receipt(self.order,'client')
+            render_receipt(self.order,'kitchen')
+        self.assertEqual(dimensions,[(42,28,32),(34,34,40)])
+
 if __name__=='__main__':unittest.main()
+
