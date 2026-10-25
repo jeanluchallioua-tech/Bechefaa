@@ -8,7 +8,7 @@
 from flask import Response
 
 SW_JS = r"""
-const CACHE='bechefaa-pos-offline-v4';
+const CACHE='bechefaa-pos-offline-v4-discount1';
 const DB='bechefaa-offline-v1';
 const STORE='orders';
 
@@ -24,7 +24,7 @@ async function getOrder(id){const db=await dbOpen();return new Promise((res,rej)
 async function allOrders(){const db=await dbOpen();return new Promise((res,rej)=>{const r=db.transaction(STORE).objectStore(STORE).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)})}
 async function delOrder(id){const db=await dbOpen();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(id);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}})}
-function totalOf(body){return (body.items||[]).reduce((s,x)=>s+Number(x.unit_price||0)*Number(x.qty||1),0)}
+function totalOf(body){const subtotal=(body.items||[]).reduce((s,x)=>s+Number(x.unit_price||0)*Number(x.qty||1),0);return Math.round((subtotal-Number(body.manual_discount_amount||0))*100)/100}
 function ticketType(body){
   const mode=String(body.service_mode||body.ticket_type||'').toLowerCase();
   if(mode==='salle'||mode==='sur place'||mode==='sur_place')return 'Salle';
@@ -137,7 +137,7 @@ self.addEventListener('fetch',event=>{
         const cs=await self.clients.matchAll({includeUncontrolled:true,type:'window'});
         cs.forEach(c=>c.postMessage({type:'offline-count-result',pending:Number(n)}));
         return json({
-          ok:true,id,num:'HL-'+n,total:totalOf(body),
+          ok:true,id,num:'HL-'+n,total:totalOf(body),discount_amount:Number(body.manual_discount_amount||0),subtotal_before_discount:totalOf(body)+Number(body.manual_discount_amount||0),
           status:'Hors connexion - en attente de synchronisation',
           ticket_type:ticketType(body),offline:true
         },201);
@@ -251,4 +251,5 @@ def register_offline_mode_phase6(app):
 def request_path_is_pos(response):
     from flask import request
     return request.path == "/pos" and response.status_code == 200 and response.mimetype == "text/html"
+
 

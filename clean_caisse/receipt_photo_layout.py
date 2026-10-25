@@ -169,6 +169,9 @@ def render_receipt(order, kind, identity=None):
             p.gap(12)
         p.rule()
         ht, tax, total, rate = _tax_values(order)
+        if Decimal(str(order.get('discount_amount') or 0)) > 0:
+            p.price('Sous-total', Decimal(str(order.get('subtotal_before_discount') or 0)))
+            p.price('Remise', -Decimal(str(order['discount_amount'])))
         p.price('Total HT', ht)
         p.price(f'TVA {rate:g} %', tax)
         p.text('TOTAL TTC ' + f'{total:.2f}'.replace('.', ',') + ' €', columns=24, bold=True)
@@ -193,6 +196,7 @@ def receipt_xml(order, kind, identity=None):
         parts.append(f'<image width="{WIDTH}" height="{chunk.height}" color="color_1" mode="mono">{base64.b64encode(chunk.tobytes()).decode("ascii")}</image>')
     parts.extend(['<cut type="feed"/>', '</epos-print>'])
     return ''.join(parts)
+
 
 
 

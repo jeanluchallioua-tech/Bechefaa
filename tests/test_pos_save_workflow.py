@@ -15,7 +15,7 @@ const listeners={},windowListeners={},storage=new Map();let posts=0,fail=false,r
 const message={html:'',querySelector(){return null},set innerHTML(v){this.html=v},get innerHTML(){return this.html}};
 const orderBox={innerHTML:''},button={dataset:{},removeAttribute(){}};
 const document={readyState:'complete',getElementById:id=>id==='order-message'?message:id==='order'?orderBox:null,
-querySelector:()=>button,addEventListener:(name,fn)=>(listeners[name]??=[]).push(fn),
+querySelector:selector=>selector==='#manual-discount'?null:button,addEventListener:(name,fn)=>(listeners[name]??=[]).push(fn),
 dispatchEvent:e=>(listeners[e.type]||[]).forEach(fn=>fn(e))};
 const line={line_id:'l1',product_id:'burger',name:'Burger',qty:1,unit_price:12,options:[{name:'Sauce'}]};
 const order={id:'order-1',num:80,status:'Enregistrée',total:12,ticket_type:'Emporter',items:[line]};
@@ -23,7 +23,7 @@ const ctx={document,window:{addEventListener:(name,fn)=>(windowListeners[name]??
 sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
 CustomEvent:class{constructor(type,options){this.type=type;this.detail=options?.detail}},
 setTimeout:fn=>fn(),MutationObserver:class{observe(){}},alert(){},confirm:()=>true,
-ORDER:[line],LAST_SAVED_ORDER:null,TICKET_TYPE:'Emporter',esc:s=>String(s),
+manualDiscountForCart:()=>0,ORDER:[line],LAST_SAVED_ORDER:null,TICKET_TYPE:'Emporter',esc:s=>String(s),
 renderOrder:()=>{orderBox.innerHTML='EMPTY'},fetch:async(url,opts={})=>{
  if(opts.method==='POST'){posts++;await new Promise(r=>resolvePost=r);if(fail)throw Error('Failed to fetch');return{ok:true,json:async()=>({ok:true,...order})}}
  if(opts.method==='PUT')return{ok:true,json:async()=>({ok:true,...order,total:15})};
@@ -72,3 +72,4 @@ console.log('PASS saved summary, duplicate clicks, same order edit, network fail
 
 if __name__ == '__main__':
     unittest.main()
+

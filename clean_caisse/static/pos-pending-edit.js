@@ -20,7 +20,7 @@
         (order.items || []).map(item => '<div class="order-line"><div class="order-line-head"><span>' +
           esc(item.qty + ' × ' + item.name) + '</span><span>' + money(Number(item.unit_price) * Number(item.qty)) +
           '</span></div><div class="order-opts">' + esc(item.options_text || (item.options || []).map(o => o.name || o.label || '').filter(Boolean).join(' • ')) +
-          '</div></div>').join('') + '<div class="order-total"><span>Total</span><span>' + money(order.total) + '</span></div>';
+          '</div></div>').join('') + (Number(order.discount_amount)>0?'<div class="order-total" style="font-size:16px;color:#14804a"><span>Remise</span><span>−'+money(order.discount_amount)+'</span></div>':'') + '<div class="order-total"><span>Total</span><span>' + money(order.total) + '</span></div>';
       remember(order);
     }
 
@@ -75,6 +75,7 @@
           throw Error('Cette commande est déjà envoyée, réglée ou clôturée. Utilisez l’historique.');
         }
         state.editing = order;
+        if(typeof MANUAL_DISCOUNT!=='undefined')MANUAL_DISCOUNT=Number(order.discount_amount||0);
         ORDER = JSON.parse(JSON.stringify(order.items || []));
         message.innerHTML = '<div class="success"><b>' + esc(order.customer_name || 'Commande') +
           ' • Modification en cours</b><br>Ajoutez ou retirez les articles, puis enregistrez les modifications.</div>' +
@@ -85,13 +86,14 @@
     async function savePending() {
       if (!state.editing || state.busy) return;
       if (!ORDER.length) { alert('La commande doit contenir au moins un article.'); return; }
+      const discountInput=document.querySelector('#manual-discount');if(discountInput&&!discountInput.reportValidity())return;
       state.busy = true; renderOrder();
       try {
         const items = ORDER.map((item, index) => ({ ...item,
           line_id: item.line_id || 'pos-edit-' + Date.now() + '-' + index }));
         const response = await fetch('/api/orders/' + encodeURIComponent(state.editing.id), {
           method: 'PUT', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({items, edit_context:'pos_before_kitchen'})
+          body: JSON.stringify({items, edit_context:'pos_before_kitchen',manual_discount_amount:manualDiscountForCart()})
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw Error(data.error || 'Modification impossible');
@@ -163,3 +165,4 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
 })();
+

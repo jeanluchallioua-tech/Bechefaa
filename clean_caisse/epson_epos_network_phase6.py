@@ -366,6 +366,8 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
             return {}
 
     def _ensure_ticket_columns(conn):
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS subtotal_before_discount NUMERIC(12,2) NULL")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS delivery_details JSONB NULL")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
@@ -380,7 +382,7 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         conn.commit()
         row = conn.execute(
             """SELECT id,num,customer_id,customer_name,phone,email,address,postal_code,city,delivery_details,
-                      source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,
+                      source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,discount_amount,subtotal_before_discount,
                       table_number,table_label,created_at,updated_at
                FROM caisse_orders WHERE id=%s""",
             (order_id,),
@@ -783,6 +785,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
 
 
 

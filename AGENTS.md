@@ -24,3 +24,8 @@ L'aperçu et l'impression Epson utilisent le même rendu.
 Cette règle concerne les tickets papier et leurs aperçus. L'écran cuisine
 conserve sa présentation déjà validée.
 
+
+
+À la demande du propriétaire du 25 octobre 2026, le ticket client affiche
+le sous-total et la remise manuelle en euros lorsqu’une remise caisse est appliquée.
+Cette ligne conserve les dimensions et polices existantes.

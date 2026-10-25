@@ -72,9 +72,9 @@ class PendingEditTests(unittest.TestCase):
 const vm=require('vm'),fs=require('fs'),assert=require('assert');
 const calls=[],alerts=[];let handler,saveButton,failSave=true;
 const message={html:'',querySelector(){return null},set innerHTML(s){this.html=s},get innerHTML(){return this.html}};
-const document={readyState:'complete',getElementById(id){return id==='order-message'?message:null},querySelector(){return saveButton},addEventListener(name,fn){if(name==='click')handler=fn}};
+const document={readyState:'complete',getElementById(id){return id==='order-message'?message:null},querySelector(selector){return selector==='#manual-discount'?null:saveButton},addEventListener(name,fn){if(name==='click')handler=fn}};
 const context={document,window:{addEventListener(){}},setTimeout:fn=>fn(),MutationObserver:class{observe(){}},confirm:()=>true,alert:s=>alerts.push(s),
-LAST_SAVED_ORDER:{id:'order-1',num:60,status:'Enregistrée',total:17.5},ORDER:[],renderOrder(){saveButton={dataset:{},removeAttribute(){},textContent:'',disabled:false}},saveOrder(){throw Error('Must not create another order')},
+manualDiscountForCart:()=>0,LAST_SAVED_ORDER:{id:'order-1',num:60,status:'Enregistrée',total:17.5},ORDER:[],renderOrder(){saveButton={dataset:{},removeAttribute(){},textContent:'',disabled:false}},saveOrder(){throw Error('Must not create another order')},
 fetch:async(url,options)=>{calls.push({url,options});let data;
 if(options.method==='PUT'&&failSave)return {ok:false,json:async()=>({ok:false,error:'La commande a changé d’état'})};
 if(options.method==='PUT')data={ok:true,id:'order-1',num:60,total:20.5,status:'Enregistrée',kitchen_resend:false};
@@ -99,3 +99,4 @@ assert(message.html.includes('Envoyer en cuisine'));
         subprocess.run(['node','-e',script],check=True,capture_output=True)
 
 if __name__=='__main__':unittest.main()
+

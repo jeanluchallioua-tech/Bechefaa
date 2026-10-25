@@ -84,7 +84,7 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 with conn.transaction():
                     ensure_order_schema(conn)
                     order = conn.execute(
-                        "SELECT id, num, status, paid_amount, payment_status, z_closure_id, sales_channel FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
+                        "SELECT * FROM caisse_orders WHERE id=%s FOR UPDATE", (order_id,)
                     ).fetchone()
                     if not order:
                         return jsonify({"ok": False, "error": "Commande introuvable"}), 404
@@ -98,6 +98,21 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         return jsonify({'ok': False, 'error': 'Cette commande est déjà envoyée, réglée ou clôturée. Utilisez le parcours habituel dans l’historique.'}), 409
                     if order["status"] == "Terminée":
                         return jsonify({"ok": False, "error": "Une commande terminée en cuisine ne peut plus être modifiée"}), 409
+
+                    from .manual_discount import discount_total
+                    subtotal = total
+                    explicit_discount = 'manual_discount_amount' in payload
+                    try:
+                        discount, total = discount_total(subtotal,
+                            payload.get('manual_discount_amount') if explicit_discount else order.get('discount_amount'),
+                            order.get('source'), coupon_code=order.get('coupon_code'),
+                            sales_channel=order.get('sales_channel'), explicit=explicit_discount)
+                    except ValueError as exc:
+                        return jsonify(ok=False, error=str(exc)), 400
+                    if (discount or Decimal(str(order.get('discount_amount') or 0))) and (
+                        Decimal(str(order.get('paid_amount') or 0)) != 0 or order.get('z_closure_id') is not None
+                        or str(order.get('payment_status') or '').upper() in {'PAYÉ','PAYEE','PAYÉE','PAID'}):
+                        return jsonify(ok=False, error='Une commande réglée ou clôturée ne peut pas recevoir de remise.'), 409
 
                     old_status = order["status"]
                     # Une modification depuis l'historique est une nouvelle instruction
@@ -124,19 +139,22 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                         "new_status": new_status,
                         "kitchen_resend": sent_to_kitchen,
                         "item_count": len(normalized),
+                        "discount_amount": float(discount),
                     }
                     conn.execute(
                         """UPDATE caisse_orders
                            SET total=%s, status=%s, modification_flag=%s,
-                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s
+                               change_summary=%s::jsonb, updated_at=%s, modified_at=%s, discount_amount=%s, subtotal_before_discount=%s
                            WHERE id=%s""",
-                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, order_id),
+                        (total, new_status, not pending_edit, json.dumps(summary, ensure_ascii=False), now, now, discount, subtotal, order_id),
                     )
             return jsonify({
                 "ok": True,
                 "id": order_id,
                 "num": order["num"],
                 "total": float(total),
+                "discount_amount": float(discount),
+                "subtotal_before_discount": float(subtotal),
                 "status": new_status,
                 "kitchen_resend": sent_to_kitchen,
             })
@@ -193,4 +211,5 @@ document.getElementById('search').oninput=render;document.getElementById('status
     def clean_history_route():
         if request.path == "/historique":
             return redirect("/historique-modification", code=302)
+
 
