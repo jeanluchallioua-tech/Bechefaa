@@ -254,6 +254,14 @@ def build_deliveroo_menu_preview(db):
                 # Le PLU du CHOICE reste stable et décodable côté caisse pour les commandes entrantes.
                 choice_plu = f"opt:{pos_id}:{group_index}:{choice['index']}"
                 if len(choice_plu) > 50:
+                    # Hashed PLUs cannot currently be decoded by the incoming
+                    # order reconciler. Surface the incompatibility explicitly.
+                    warnings.append({
+                        "type": "unreconcilable_choice_plu",
+                        "product_id": pos_id,
+                        "group_index": group_index,
+                        "choice_index": choice["index"],
+                    })
                     choice_plu = "opt_" + hashlib.sha1(choice_plu.encode("utf-8")).hexdigest()[:32]
 
                 choice_price = _marked_price(choice["price"], markup) if choice["price"] > 0 else Decimal("0.00")
