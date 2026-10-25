@@ -55,6 +55,19 @@ class DeliverooReconcileTests(unittest.TestCase):
         with self.assertRaises(DeliverooMappingError):
             reconcile(payload, self.catalog)
 
+    def test_invalid_catalogue_product_collection_rejected(self):
+        for bad in ({}, "products", 7, True):
+            with self.subTest(bad=bad):
+                with self.assertRaises(DeliverooMappingError):
+                    reconcile(sample(), {"products": bad})
+
+    def test_nonstring_catalogue_product_id_rejected(self):
+        for bad in (12, True, None, ["MU11002"]):
+            with self.subTest(bad=bad):
+                self.catalog["products"][0]["id"] = bad
+                with self.assertRaises(DeliverooMappingError):
+                    reconcile(sample(), self.catalog)
+
     def test_missing_catalogue_product_id_rejected(self):
         self.catalog["products"][0]["id"] = "   "
         with self.assertRaises(DeliverooMappingError):
