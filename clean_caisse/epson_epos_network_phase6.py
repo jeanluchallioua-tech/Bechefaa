@@ -10,6 +10,7 @@ Configuration actuelle restaurant:
 - Device ID local_printer
 """
 import base64
+import json
 import re
 import textwrap
 from pathlib import Path
@@ -261,6 +262,39 @@ window.addEventListener('load',()=>setTimeout(launch,80));
     return Response(html, content_type="text/html; charset=utf-8")
 
 
+def enrich_order_delivery_contact(conn, order, row):
+    """Resolve the same customer fields for the receipt and on-screen preview."""
+    details=row.get('delivery_details')
+    if isinstance(details,str):
+        details=json.loads(details)
+    details=dict(details) if isinstance(details,dict) else {}
+    profile=None
+    if row.get('customer_id'):
+        # Also complete empty/partial snapshots from the linked customer file.
+        profile=conn.execute("SELECT door_intercom,floor,instructions,notes,phone,email FROM caisse_clients WHERE id=%s",(row['customer_id'],)).fetchone()
+    elif all(str(row.get(key) or '').strip() for key in ('customer_name','address','city')):
+        # Legacy orders can lack the customer link. Complete them only when
+        # the full name, street and city identify exactly one customer file.
+        matches=conn.execute("""SELECT door_intercom,floor,instructions,notes,phone,email
+            FROM caisse_clients
+            WHERE (LOWER(TRIM(display_name))=LOWER(TRIM(%s))
+                   OR LOWER(TRIM(first_name || ' ' || last_name))=LOWER(TRIM(%s)))
+              AND LOWER(TRIM(address))=LOWER(TRIM(%s))
+              AND LOWER(TRIM(city))=LOWER(TRIM(%s))
+            LIMIT 2""",(row['customer_name'],row['customer_name'],row['address'],row['city'])).fetchall()
+        if len(matches)==1:
+            profile=matches[0]
+    if profile:
+        for key in ('door_intercom','floor','instructions','notes'):
+            if str(profile.get(key) or '').strip() and (key!='notes' or not str(details.get(key) or '').strip()):
+                details[key]=str(profile[key]).strip()
+        for key in ('phone','email'):
+            if not str(order.get(key) or '').strip():
+                order[key]=profile.get(key) or ''
+    order['delivery_details']=details
+    return order
+
+
 def register_epson_epos_network_phase6(app, db, ensure_order_schema, order_payload):
     @app.get("/api/epson/receipt-layout")
     def receipt_layout_version():
@@ -332,6 +366,10 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
             return {}
 
     def _ensure_ticket_columns(conn):
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS manual_discount_percent NUMERIC(5,2) NULL")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS subtotal_before_discount NUMERIC(12,2) NULL")
+        conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS delivery_details JSONB NULL")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ttc NUMERIC(12,2)")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS total_ht NUMERIC(12,2)")
         conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,3)")
@@ -344,8 +382,8 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         _ensure_ticket_columns(conn)
         conn.commit()
         row = conn.execute(
-            """SELECT id,num,customer_name,phone,email,address,postal_code,city,
-                      source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,
+            """SELECT id,num,customer_id,customer_name,phone,email,address,postal_code,city,delivery_details,
+                      source,payment,status,total,total_ttc,total_ht,tax_rate,tax_amount,discount_amount,subtotal_before_discount,manual_discount_percent,
                       table_number,table_label,created_at,updated_at
                FROM caisse_orders WHERE id=%s""",
             (order_id,),
@@ -355,6 +393,7 @@ img{{width:330px;height:auto;display:block}}h2{{font-size:18px}}
         order = order_payload(conn, row)
         for key in ("phone","email","address","postal_code","city","total_ttc","total_ht","tax_rate","tax_amount","table_number","table_label"):
             order[key] = row.get(key)
+        enrich_order_delivery_contact(conn, order, row)
         order["service_mode"] = "SALLE" if row.get("table_number") else ("LIVRAISON" if str(row.get("source") or "").upper() in {"LIVRAISON","DELIVERY"} else "EMPORTER")
         return order
 
@@ -747,3 +786,8 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
+
+
+
+
