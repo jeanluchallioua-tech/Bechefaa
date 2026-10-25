@@ -22,6 +22,8 @@ jobs:
           python -m py_compile clean_caisse/app.py clean_caisse/manual_discount.py clean_caisse/offline_mode_phase6.py clean_caisse/history_modifier.py clean_caisse/receipt_photo_layout.py
       - name: Isolated BIS structural non-regression tests
         run: python -m unittest discover -s tests -p 'test_bis_integration_guard.py' -v
+      - name: Module registration checks
+        run: python -m unittest discover -s tests -p 'test_bis_module_registration.py' -v
       - name: Deliveroo remake sandbox safety guards
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_remake.py' -v
       - name: JavaScript POS and offline discount smoke tests
