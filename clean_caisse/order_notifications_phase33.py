@@ -241,7 +241,8 @@ def register_order_notifications_phase33(app):
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
    let orders;
    try{
-     const r=await fetch('/api/kitchen/board',{cache:'no-store',signal:controller.signal}),d=await r.json();
+     const endpoint=PAGE==='kitchen'?'/api/kitchen/orders':'/api/kitchen/board';
+     const r=await fetch(endpoint,{cache:'no-store',signal:controller.signal}),d=await r.json();
      if(!r.ok||!d||!d.ok||!Array.isArray(d.orders))throw Error('Alertes indisponibles');
      orders=d.orders;connectionRecovered();
    }catch(e){connectionFailed();}
