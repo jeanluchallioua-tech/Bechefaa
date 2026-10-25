@@ -3,6 +3,12 @@
 Candidate field names are diagnostic only: their semantics have not yet been
 confirmed against the actual Deliveroo order webhook contract.
 """
+def _unsafe_controls(value):
+    """Reject printer/control bytes; allow ordinary multiline customer notes."""
+    return any((ord(char) < 32 and char not in "\\t\\n\\r") or ord(char) == 127
+               for char in value)
+
+
 CANDIDATE_KEYS = frozenset({
     "notes", "note", "instructions", "special_instructions",
     "customer_note", "customer_notes", "cooking_instructions",
@@ -15,6 +21,7 @@ def audit_instruction_fields(payload):
     if not isinstance(order, dict):
         return {"candidate_paths": [], "candidate_values": [],
                 "non_text_candidate_paths": [], "blank_candidate_paths": [],
+                "unsafe_control_candidate_paths": [],
                 "schema_verified": False, "writes": False}
     paths = []
     values = []
@@ -57,6 +64,10 @@ def audit_instruction_fields(payload):
         "blank_candidate_paths": sorted(
             entry["path"] for entry in values
             if isinstance(entry["value"], str) and not entry["value"].strip()
+        ),
+        "unsafe_control_candidate_paths": sorted(
+            entry["path"] for entry in values
+            if isinstance(entry["value"], str) and _unsafe_controls(entry["value"])
         ),
         "schema_verified": False,
         "writes": False,
