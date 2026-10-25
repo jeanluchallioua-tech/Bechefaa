@@ -19,6 +19,8 @@ def reconcile(payload, catalog):
         product_id = raw_product_id.strip()
         if not product_id:
             raise DeliverooMappingError("Missing catalogue product ID")
+        if raw_product_id != product_id:
+            raise DeliverooMappingError("Non-canonical catalogue product ID")
         if product_id in by_id:
             raise DeliverooMappingError("Duplicate catalogue product ID")
         by_id[product_id] = product
