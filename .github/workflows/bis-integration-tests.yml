@@ -34,6 +34,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_deliveroo_order_reconcile.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_kitchen_origin.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_kitchen_preview.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_plu_audit.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_menu_plu_contract.py' -v
       - name: Deliveroo remake runtime behavior tests
         if: success() || failure()
