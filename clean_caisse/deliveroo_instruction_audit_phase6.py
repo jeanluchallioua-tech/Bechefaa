@@ -9,10 +9,15 @@ def _unsafe_controls(value):
                for char in value)
 
 
+# Deliveroo Order Events webhook examples document these at body.order level.
+# Source: https://api-docs.deliveroo.com/docs/fulfillment-types
+# Documented fields are not verified BÉCHÉFAA runtime payload semantics.
+DOCUMENTED_ORDER_NOTE_KEYS = frozenset({"order_notes", "cutlery_notes"})
+
 CANDIDATE_KEYS = frozenset({
     "notes", "note", "instructions", "special_instructions",
     "customer_note", "customer_notes", "cooking_instructions",
-})
+}) | DOCUMENTED_ORDER_NOTE_KEYS
 
 
 def audit_instruction_fields(payload):
@@ -20,6 +25,7 @@ def audit_instruction_fields(payload):
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict):
         return {"candidate_paths": [], "candidate_values": [],
+                "documented_order_note_paths": [],
                 "non_text_candidate_paths": [], "blank_candidate_paths": [],
                 "unsafe_control_candidate_paths": [],
                 "schema_verified": False, "writes": False}
@@ -55,6 +61,10 @@ def audit_instruction_fields(payload):
                             values.append({"path": path, "value": modifier[key]})
     return {
         "candidate_paths": sorted(paths),
+        "documented_order_note_paths": sorted(
+            "body.order." + key for key in DOCUMENTED_ORDER_NOTE_KEYS
+            if key in order and order[key] is not None
+        ),
         "candidate_values": sorted(values, key=lambda x: x["path"]),
         # Candidate field names are not a verified webhook schema. Do not
         # convert structured or empty values into printable kitchen notes.
