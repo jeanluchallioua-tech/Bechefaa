@@ -207,6 +207,18 @@ def register_deliveroo_sandbox_phase6(app, db):
         import time
         import uuid
         from clean_caisse.app import ensure_order_schema
+        def _required_eur_cents(value, label):
+            if not isinstance(value, dict) or value.get("currency_code") != "EUR":
+                raise ValueError("Deliveroo " + label + " must be EUR")
+            cents = value.get("fractional")
+            if type(cents) is not int or cents < 0:
+                raise ValueError("invalid Deliveroo " + label + " cents")
+            return cents
+
+        # A declared order total may include fees/discounts. Until their
+        # accounting policy is approved, reject rather than silently drop them.
+        reported_order_cents = (_required_eur_cents(order["total_price"], "order total")
+                                if "total_price" in order else None)
         normalized = []
         total = Decimal("0")
         for position, item in enumerate(items):
@@ -217,12 +229,11 @@ def register_deliveroo_sandbox_phase6(app, db):
             if type(qty) is not int or qty < 1:
                 raise ValueError("invalid Deliveroo item quantity")
             plu = _canonical_id(item.get("pos_item_id"), "POS item ID")
-            price = item.get("total_price")
-            if not isinstance(price, dict) or price.get("currency_code") != "EUR":
-                raise ValueError("Deliveroo item total must be EUR")
-            fractional = price.get("fractional")
-            if type(fractional) is not int or fractional < 0:
-                raise ValueError("invalid Deliveroo item total cents")
+            fractional = _required_eur_cents(item.get("total_price"), "item total")
+            # The reported unit price is evidence even when modifiers mean
+            # that it cannot safely be used as the POS accounting unit.
+            reported_unit_cents = (_required_eur_cents(item["unit_price"], "item unit price")
+                                   if "unit_price" in item else None)
             if not name or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in name):
                 raise ValueError("invalid Deliveroo item name")
             amount = Decimal(fractional) / Decimal("100")
@@ -251,18 +262,22 @@ def register_deliveroo_sandbox_phase6(app, db):
                     option["quantity"] = modifier_qty
                 options.append(option)
             unit = amount / qty
-            normalized.append((plu, name, qty, unit, options, position))
+            normalized.append((plu, name, qty, unit, options, position, reported_unit_cents))
             total += amount
+        if (reported_order_cents is not None
+                and Decimal(reported_order_cents) / Decimal("100") != total):
+            raise ValueError("Deliveroo order total differs from item totals; financial review required")
         # The external order ID is not sufficient to prove that a redelivery
         # contains the same products, prices and modifiers. Store a fingerprint
         # transactionally with the POS order, not merely with the webhook GUID.
         import hashlib
         fingerprint_body = {
             "total": str(total),
+            "reported_order_cents": reported_order_cents,
             "lines": [
                 {"plu": plu, "name": name, "qty": qty, "unit": str(unit),
-                 "options": options}
-                for plu, name, qty, unit, options, _ in normalized
+                 "reported_unit_cents": reported_unit_cents, "options": options}
+                for plu, name, qty, unit, options, _, reported_unit_cents in normalized
             ],
         }
         fingerprint = hashlib.sha256(json.dumps(
@@ -291,7 +306,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                     (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
                     VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
                     (pos_id,num,"Client Deliveroo",total,now,now,fingerprint))
-                for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
+                for position, (plu,name,qty,unit,options,_,reported_unit_cents) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
                         VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,FALSE,%s)""",
