@@ -173,5 +173,60 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
             preview_order(payload, self.catalog)
 
 
+
+    def test_optional_catalog_markup_is_read_only_and_never_approves(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        self.catalog["products"][0]["price"] = "10.00"
+        payload = sample()
+        self.assertNotIn("catalog_markup_audit", preview_order(payload, self.catalog))
+        preview = preview_order(
+            payload, self.catalog, assumed_markup_percentage="15"
+        )
+        audit = preview["catalog_markup_audit"]
+        self.assertEqual(audit["assumed_markup_percentage"], "15")
+        self.assertEqual(audit["line_diagnostics"][0]["expected_unit_eur"], "11.50")
+        self.assertEqual(audit["review_reasons"], [
+            "unit_price_differs_from_assumed_markup"
+        ])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["writes"])
+        self.assertFalse(preview["ready_for_dispatch"])
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn("catalog_markup_requires_financial_review", readiness["blockers"])
+        self.assertFalse(readiness["checks_passed"])
+        self.assertFalse(readiness["dispatch_performed"])
+
+    def test_matching_optional_markup_still_never_dispatches(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        self.catalog["products"][0]["price"] = "10.00"
+        payload = sample()
+        payload["body"]["order"]["items"][0]["unit_price"]["fractional"] = 1150
+        preview = preview_order(
+            payload, self.catalog, assumed_markup_percentage=15
+        )
+        self.assertEqual(preview["catalog_markup_audit"]["review_reasons"], [])
+        readiness = assess_kitchen_readiness(preview)
+        self.assertNotIn("catalog_markup_requires_financial_review", readiness["blockers"])
+        self.assertIn("price_policy_not_approved", readiness["blockers"])
+        self.assertFalse(readiness["checks_passed"])
+        self.assertFalse(readiness["dispatch_performed"])
+        self.assertFalse(readiness["writes"])
+
+    def test_tampered_markup_audit_is_rejected_by_readiness(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        self.catalog["products"][0]["price"] = "10.00"
+        preview = preview_order(
+            sample(), self.catalog, assumed_markup_percentage=15
+        )
+        preview["catalog_markup_audit"]["price_policy_verified"] = True
+        preview["catalog_markup_audit"]["ready_for_dispatch"] = True
+        preview["catalog_markup_audit"]["line_diagnostics"] = []
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn("catalog_markup_dispatch_guard_missing", readiness["blockers"])
+        self.assertIn("catalog_markup_diagnostics_missing", readiness["blockers"])
+        self.assertFalse(readiness["checks_passed"])
+        self.assertFalse(readiness["dispatch_performed"])
+
+
 if __name__ == "__main__":
     unittest.main()
