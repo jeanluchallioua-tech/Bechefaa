@@ -74,5 +74,97 @@ vm.runInContext(CODE,context);
         self.run_js(harness)
 
 
+    def test_site_notice_waits_for_click_then_launches_one_pack_per_order(self):
+        # Execute the actual injected POS script with a fake DOM and Epson
+        # function. No request is made to a real printer or deployed caisse.
+        source = (ROOT / "clean_caisse/order_notifications_phase33.py").read_text(encoding="utf-8")
+        js = source.split("<script>", 1)[1].split("</script>", 1)[0]
+        js = (js.replace("__PAGE__", "pos")
+                .replace("__PRINT_ENABLED__", "true")
+                .replace("__TEST_MODE__", "false"))
+        harness = r"""
+const vm=require('node:vm'), assert=require('node:assert/strict');
+const storage=new Map(), prints=[], now=Date.now();
+let toneStarts=0;
+const store={
+  getItem:k=>storage.has(k)?storage.get(k):null,
+  setItem:(k,v)=>storage.set(k,String(v)),
+  removeItem:k=>storage.delete(k)
+};
+const orders=[
+ {id:'site-1',status:'À préparer',sales_channel:'SITE',customer_name:'Alice',ticket_type:'À emporter',updated_at:now},
+ {id:'site-2',status:'À préparer',sales_channel:'SITE',customer_name:'Bob',ticket_type:'Livraison',updated_at:now}
+];
+function makeElement(){
+ const flags=new Set(),handlers={};
+ return {
+  id:'',dataset:{},style:{},textContent:'',tabIndex:0,
+  classList:{add:k=>flags.add(k),remove:k=>flags.delete(k),contains:k=>flags.has(k)},
+  addEventListener:(name,fn)=>{handlers[name]=fn;},
+  setAttribute(){},get offsetWidth(){return 1;},
+  click(){if(handlers.click)handlers.click();},
+  keydown(e){if(handlers.keydown)handlers.keydown(e);}
+ };
+}
+class FakeAudioContext{
+ state='running';currentTime=0;destination={};
+ createOscillator(){return {frequency:{setValueAtTime(){}},connect(){},start(){toneStarts++;},stop(){}};}
+ createGain(){return {gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}};}
+}
+function boot(items){
+ const elements={};
+ const document={
+  hidden:false,
+  body:{appendChild:el=>{if(el.id)elements[el.id]=el;}},
+  getElementById:id=>elements[id]||null,
+  createElement:()=>makeElement(),
+  addEventListener(){}
+ };
+ const window={
+  AudioContext:FakeAudioContext,
+  addEventListener(){},
+  bechefaaPrintOrderPack:async id=>{prints.push(id);return true;}
+ };
+ const context={
+  window,document,navigator:{userAgent:'Android',userActivation:{hasBeenActive:true}},
+  localStorage:store,sessionStorage:store,console,Date,Promise,AbortController,
+  setTimeout:()=>0,clearTimeout(){},setInterval(){},
+  fetch:async url=>({ok:true,json:async()=>url==='/api/kitchen/board'?
+    {ok:true,orders:items}:{ok:true,pos_enabled:true,pos_volume:82}})
+ };
+ vm.createContext(context);vm.runInContext(CODE,context);
+ return {notice:()=>elements['phase6-site-order-notice'],window};
+}
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+(async()=>{
+ const first=boot(orders);await tick();
+ assert.equal(prints.length,0,'polling must not print');
+ assert.equal(toneStarts,3,'one audible three-tone notification per new batch');
+ assert(first.notice().classList.contains('show'));
+ assert.equal(JSON.parse(store.getItem('bechefaa_site_pending_click_print_v1')).length,2);
+ // A browser restart must not acknowledge or lose an unclicked notice.
+ const resumed=boot(orders);await tick();
+ assert(resumed.notice().classList.contains('show'));
+ assert(resumed.notice().textContent.includes('Alice'));
+ assert.equal(prints.length,0);
+ resumed.notice().click();await tick();
+ assert.deepEqual(prints,['site-1']);
+ assert(resumed.notice().classList.contains('show'));
+ assert(resumed.notice().textContent.includes('Bob'));
+ resumed.notice().click();await tick();
+ assert.deepEqual(prints,['site-1','site-2']);
+ assert.equal(resumed.notice().classList.contains('show'),false);
+ resumed.notice().click();await tick();
+ assert.equal(prints.length,2,'repeated click must not print twice');
+ assert.equal(JSON.parse(store.getItem('bechefaa_site_pending_click_print_v1')).length,0);
+ // A replay of the same order after a reload must not print it again.
+ const replay=boot(orders);await tick();
+ assert.equal(replay.notice().classList.contains('show'),false);
+ assert.equal(prints.length,2);
+})().catch(e=>{console.error(e);process.exitCode=1;});
+""".replace("CODE", json.dumps(js))
+        self.run_js(harness)
+
+
 if __name__ == "__main__":
     unittest.main()
