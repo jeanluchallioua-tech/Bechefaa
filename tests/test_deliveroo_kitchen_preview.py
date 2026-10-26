@@ -228,5 +228,55 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(readiness["dispatch_performed"])
 
 
+    def test_modifier_markup_is_included_but_never_authorizes_dispatch(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        self.catalog["products"][0]["price"] = "10.00"
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "0.95"
+        payload = sample()
+        line = payload["body"]["order"]["items"][0]
+        line["unit_price"]["fractional"] = 1150
+        line["modifiers"][0]["unit_price"]["fractional"] = 109
+        line["total_price"]["fractional"] = 1259
+        payload["body"]["order"]["total_price"]["fractional"] = 1259
+        preview = preview_order(
+            payload, self.catalog, assumed_markup_percentage="15"
+        )
+        audit = preview["catalog_modifier_markup_audit"]
+        self.assertEqual(audit["modifier_diagnostics"][0]["expected_unit_eur"], "1.09")
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertFalse(preview["amount_audit"]["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn("price_policy_not_approved", readiness["blockers"])
+        self.assertFalse(readiness["checks_passed"])
+        self.assertFalse(readiness["dispatch_performed"])
+
+    def test_modifier_price_mismatch_blocks_kitchen_readiness(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        self.catalog["products"][0]["price"] = "10.00"
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "0.95"
+        preview = preview_order(
+            sample(), self.catalog, assumed_markup_percentage="15"
+        )
+        self.assertEqual(
+            preview["catalog_modifier_markup_audit"]["review_reasons"],
+            ["modifier_price_differs_from_assumed_markup"],
+        )
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn(
+            "catalog_modifier_markup_requires_financial_review",
+            readiness["blockers"],
+        )
+        self.assertFalse(readiness["dispatch_performed"])
+        preview["catalog_modifier_markup_audit"]["price_policy_verified"] = True
+        preview["catalog_modifier_markup_audit"]["modifier_diagnostics"] = []
+        tampered = assess_kitchen_readiness(preview)
+        self.assertIn("catalog_modifier_markup_dispatch_guard_missing", tampered["blockers"])
+        self.assertIn("catalog_modifier_markup_diagnostics_missing", tampered["blockers"])
+        self.assertFalse(tampered["checks_passed"])
+
+
 if __name__ == "__main__":
     unittest.main()
