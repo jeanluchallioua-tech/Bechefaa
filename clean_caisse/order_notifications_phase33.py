@@ -184,13 +184,23 @@ def register_order_notifications_phase33(app):
    if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
    let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
    if(printed[order.id])return;
-   if(typeof window.bechefaaPrintOrderPack!=='function')return;
+   if(typeof window.bechefaaPrintOrderPack!=='function'){
+     const el=ensureSiteNotice();
+     if(el){el.textContent='Impression automatique indisponible — imprimer les tickets manuellement';el.classList.add('show');}
+     console.error('BÉCHÉFAA: fonction Epson bechefaaPrintOrderPack absente');
+     return;
+   }
    printing=true;
    // Reserve this launch before leaving the page for Epson; other orders remain pending.
    printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
-   Promise.resolve(window.bechefaaPrintOrderPack(order.id)).catch(e=>{
-     delete printed[order.id];safeSet(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
-     const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée';el.classList.add('show');}
+   Promise.resolve().then(()=>window.bechefaaPrintOrderPack(order.id)).then(result=>{
+     if(result===false)throw new Error('Epson a refusé le lancement');
+   }).catch(e=>{
+     // Ne pas relancer automatiquement : une tentative Epson peut avoir abouti
+     // malgré une erreur de retour. La reprise est manuelle pour éviter les doublons.
+     printing=false;
+     console.error('BÉCHÉFAA: impression automatique non confirmée',e);
+     const el=ensureSiteNotice();if(el){el.textContent='Impression non confirmée — vérifier les tickets puis imprimer manuellement si nécessaire';el.classList.add('show');}
    });
  }
 
