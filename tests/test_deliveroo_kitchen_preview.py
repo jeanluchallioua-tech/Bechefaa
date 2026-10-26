@@ -278,5 +278,38 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(tampered["checks_passed"])
 
 
+    def test_documented_order_notes_are_inventory_only(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        payload = sample()
+        payload["body"]["order"]["order_notes"] = "Sans cornichons"
+        payload["body"]["order"]["cutlery_notes"] = "Sans couverts"
+        preview = preview_order(payload, self.catalog)
+        audit = preview["instruction_field_audit"]
+        self.assertEqual(audit["documented_order_note_paths"], [
+            "body.order.cutlery_notes", "body.order.order_notes",
+        ])
+        self.assertEqual(audit["candidate_paths"], [
+            "body.order.cutlery_notes", "body.order.order_notes",
+        ])
+        self.assertFalse(audit["schema_verified"])
+        self.assertFalse(preview["instructions_verified"])
+        self.assertFalse(preview["ready_for_dispatch"])
+        self.assertFalse(assess_kitchen_readiness(preview)["dispatch_performed"])
+
+    def test_documented_order_notes_control_bytes_are_flagged(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        payload = sample()
+        payload["body"]["order"]["order_notes"] = "Sans sel\\x1b[2J"
+        preview = preview_order(payload, self.catalog)
+        audit = preview["instruction_field_audit"]
+        self.assertEqual(audit["unsafe_control_candidate_paths"], [
+            "body.order.order_notes",
+        ])
+        self.assertIn(
+            "unsafe_instruction_candidates",
+            assess_kitchen_readiness(preview)["blockers"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
