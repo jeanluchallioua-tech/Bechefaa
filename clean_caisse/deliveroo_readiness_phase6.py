@@ -4,6 +4,15 @@ This is a diagnostic only. It never dispatches or changes a POS order.
 """
 
 
+def _safe_kitchen_label(value):
+    """Kitchen product/modifier labels must not contain terminal controls."""
+    return (
+        isinstance(value, str) and bool(value.strip())
+        and not any(ord(char) < 32 or 127 <= ord(char) <= 159
+                    for char in value)
+    )
+
+
 def assess_kitchen_readiness(preview, *, plu_approved=False,
                              price_policy_approved=False,
                              instruction_schema_verified=False):
@@ -23,7 +32,7 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
             if not isinstance(item, dict):
                 blockers.append("invalid_kitchen_item")
                 continue
-            if not isinstance(item.get("name"), str) or not item["name"].strip():
+            if not _safe_kitchen_label(item.get("name")):
                 blockers.append("invalid_kitchen_item")
             # Validate quantities and modifiers even when the label is invalid.
             # A malformed line must not hide additional kitchen blockers.
@@ -36,7 +45,7 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
                 continue
             for option in options:
                 if not isinstance(option, dict) or any(
-                    not isinstance(option.get(key), str) or not option[key].strip()
+                    not _safe_kitchen_label(option.get(key))
                     for key in ("group", "name")
                 ):
                     blockers.append("invalid_kitchen_modifier")

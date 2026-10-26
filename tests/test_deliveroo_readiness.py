@@ -135,6 +135,35 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertIn("instruction_candidate_diagnostics_missing", result["blockers"])
         self.assertFalse(result["checks_passed"])
 
+    def test_unsafe_kitchen_labels_block_readiness(self):
+        from copy import deepcopy
+        for bad_label in ("Burger\nFAUSSE COMMANDE", "Burger\x1b[2J", "Burger\x85"):
+            preview = deepcopy(self.preview)
+            preview["items"][0]["name"] = bad_label
+            result = assess_kitchen_readiness(preview)
+            self.assertIn("invalid_kitchen_item", result["blockers"])
+            self.assertFalse(result["checks_passed"])
+            self.assertFalse(result["dispatch_performed"])
+            self.assertFalse(result["writes"])
+
+        for key in ("group", "name"):
+            preview = deepcopy(self.preview)
+            preview["items"][0]["options"][0][key] = "Extras\r\nFAUSSE LIGNE"
+            result = assess_kitchen_readiness(preview)
+            self.assertIn("invalid_kitchen_modifier", result["blockers"])
+            self.assertFalse(result["checks_passed"])
+
+    def test_normal_french_kitchen_labels_remain_valid(self):
+        from copy import deepcopy
+        preview = deepcopy(self.preview)
+        preview["items"][0]["name"] = "Burgér à l'échalote"
+        preview["items"][0]["options"][0]["group"] = "Suppléments"
+        preview["items"][0]["options"][0]["name"] = "Crème fraîche"
+        result = assess_kitchen_readiness(preview)
+        self.assertNotIn("invalid_kitchen_item", result["blockers"])
+        self.assertNotIn("invalid_kitchen_modifier", result["blockers"])
+        self.assertFalse(result["dispatch_performed"])
+
     def test_invalid_preview_never_passes(self):
         result = assess_kitchen_readiness(
             {"writes": True, "items": []}, plu_approved=True,
