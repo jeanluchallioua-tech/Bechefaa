@@ -142,23 +142,34 @@ def register_deliveroo_sandbox_phase6(app, db):
                     payload JSONB NOT NULL,
                     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )""")
+                # Sequence GUID is an immutable delivery-event identity. A replay
+                # with the same body is harmless; a different body under that
+                # GUID must not overwrite audit evidence or reach the POS bridge.
+                guid = str(request.headers.get("X-Deliveroo-Sequence-Guid") or "")
+                body_json = json.dumps(payload, ensure_ascii=False)
                 cur.execute("""
                     INSERT INTO deliveroo_sandbox_events
                         (sequence_guid,event,order_id,accepted_in_status_log,payload)
                     VALUES (%s,%s,%s,%s,%s::jsonb)
-                    ON CONFLICT (sequence_guid) DO UPDATE SET
-                        event=EXCLUDED.event,
-                        order_id=EXCLUDED.order_id,
-                        accepted_in_status_log=EXCLUDED.accepted_in_status_log,
-                        payload=EXCLUDED.payload,
-                        received_at=NOW()
-                """,(
-                    str(request.headers.get("X-Deliveroo-Sequence-Guid") or ""),
+                    ON CONFLICT (sequence_guid) DO NOTHING
+                    RETURNING sequence_guid
+                """, (
+                    guid,
                     str(payload.get("event") or ""),
                     _extract_order_id(payload),
                     _accepted_in_status_log(payload),
-                    json.dumps(payload,ensure_ascii=False),
+                    body_json,
                 ))
+                if cur.fetchone() is None:
+                    # PostgreSQL JSONB equality ignores object key ordering.
+                    # This SELECT runs after the unique-index conflict wait.
+                    cur.execute("""
+                        SELECT payload = %s::jsonb AS same_payload
+                        FROM deliveroo_sandbox_events WHERE sequence_guid=%s
+                    """, (body_json, guid))
+                    existing = cur.fetchone()
+                    if not existing or existing["same_payload"] is not True:
+                        raise ValueError("Deliveroo sequence GUID replay payload conflict")
             conn.commit()
 
     def _bridge_order_new(payload):
