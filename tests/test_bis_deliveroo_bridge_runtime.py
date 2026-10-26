@@ -152,6 +152,34 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(db.orders), 1)
         self.assertEqual(len(db.items), 1)
 
+    def test_non_divisible_line_cents_require_review_before_database(self):
+        # Three units for EUR 10.00 cannot be represented as one POS
+        # cent-denominated unit price without changing the charged total.
+        for cents, qty in ((1000, 3), (1, 2), (1790, 3)):
+            with self.subTest(cents=cents, qty=qty):
+                db = FakeDB()
+                event = payload()
+                line = event["body"]["order"]["items"][0]
+                line["quantity"] = qty
+                line["total_price"]["fractional"] = cents
+                with self.assertRaisesRegex(ValueError, "exact cent unit price"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+                self.assertEqual(db.orders, {})
+                self.assertEqual(db.items, [])
+
+    def test_divisible_line_cents_keep_exact_pos_unit_price(self):
+        db = FakeDB()
+        event = payload()
+        line = event["body"]["order"]["items"][0]
+        line["quantity"] = 3
+        line["total_price"]["fractional"] = 1200
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(str(db.items[0][5]), "4")
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
     def test_order_total_difference_requires_financial_review_before_database(self):
         # Fees, discounts and modifier totals need an approved policy.
         for cents in (1791, 0, 1800):
