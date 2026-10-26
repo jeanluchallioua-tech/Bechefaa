@@ -4,10 +4,10 @@ from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
 from clean_caisse.deliveroo_explicit_plu_map_phase6 import reconcile_with_explicit_plu_map
 from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
-from clean_caisse.deliveroo_amount_audit_phase6 import audit_order_amounts
+from clean_caisse.deliveroo_amount_audit_phase6 import (audit_order_amounts, audit_catalog_base_markup)
 
 
-def preview_order(payload, catalog, approved_map=None):
+def preview_order(payload, catalog, approved_map=None, *, assumed_markup_percentage=None):
     mapped = (reconcile(payload, catalog) if approved_map is None
               else reconcile_with_explicit_plu_map(payload, catalog, approved_map))
     origin = kitchen_origin("DELIVEROO", mapped.get("display_id"))
@@ -27,7 +27,7 @@ def preview_order(payload, catalog, approved_map=None):
                 "quantity": option_qty,
             })
         items.append({"name": item["name"], "quantity": qty, "options": options})
-    return {
+    preview = {
         "origin": origin,
         "external_order_id": mapped["external_order_id"],
         "display_id": mapped["display_id"],
@@ -40,3 +40,8 @@ def preview_order(payload, catalog, approved_map=None):
         "requires_price_policy": True,
         "writes": False,
     }
+    if assumed_markup_percentage is not None:
+        preview["catalog_markup_audit"] = audit_catalog_base_markup(
+            payload, catalog, markup_percentage=assumed_markup_percentage
+        )
+    return preview
