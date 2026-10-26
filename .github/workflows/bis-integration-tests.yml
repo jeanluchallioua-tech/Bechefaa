@@ -44,6 +44,9 @@ jobs:
       - name: Deliveroo remake runtime behavior tests
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_remake_runtime.py' -v
+      - name: Deliveroo GUID immutable event replay checks
+        if: success() || failure()
+        run: python -m unittest discover -s tests -p 'test_bis_deliveroo_event_replay.py' -v
       - name: Deliveroo bridge runtime replay and strict input checks
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_bridge_runtime.py' -v
