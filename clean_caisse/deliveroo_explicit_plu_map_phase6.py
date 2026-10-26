@@ -72,3 +72,59 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
     result["ready_for_dispatch"] = False
     result["writes"] = False
     return result
+
+
+def audit_modifier_plu_sources(payload):
+    """Inventory legacy modifier IDs for human reconciliation (read-only).
+
+    This is not a mapping, does not guess targets by label, and never grants
+    approval to send an order to the kitchen. Repeated occurrences are grouped
+    by their exact parent product and modifier PLU.
+    """
+    parsed = parse_order_new(payload)
+    sources = {}
+    canonical_occurrences = 0
+    for item in parsed["items"]:
+        parent_id = item["pos_item_id"]
+        for modifier in item["modifiers"]:
+            source_id = modifier["pos_item_id"]
+            if source_id.startswith("opt:"):
+                # Presence of an opt: prefix is NOT evidence of a valid PLU.
+                canonical_occurrences += 1
+                continue
+            key = (parent_id, source_id)
+            entry = sources.setdefault(key, {
+                "parent_pos_item_id": parent_id,
+                "legacy_modifier_pos_item_id": source_id,
+                "source_labels": [],
+                "occurrences": 0,
+            })
+            entry["occurrences"] += 1
+            label = modifier["name"]
+            if label not in entry["source_labels"]:
+                entry["source_labels"].append(label)
+    inventory = []
+    conflicts = []
+    missing_labels = []
+    for key in sorted(sources):
+        entry = sources[key]
+        entry["source_labels"].sort()
+        normalized = {label.strip().casefold() for label in entry["source_labels"]}
+        entry["conflicting_labels"] = len(normalized) > 1
+        entry["missing_label"] = "" in normalized
+        if entry["conflicting_labels"]:
+            conflicts.append(list(key))
+        if entry["missing_label"]:
+            missing_labels.append(list(key))
+        inventory.append(entry)
+    return {
+        "legacy_sources": inventory,
+        "legacy_source_count": len(inventory),
+        "canonical_modifier_occurrences_unverified": canonical_occurrences,
+        "conflicting_label_sources": conflicts,
+        "missing_label_sources": missing_labels,
+        "requires_explicit_mapping_review": bool(inventory),
+        "mapping_approved": False,
+        "ready_for_dispatch": False,
+        "writes": False,
+    }
