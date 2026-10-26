@@ -10,6 +10,20 @@ jobs:
   bis-guards:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bechefaa_bis_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bechefaa_bis_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,6 +64,11 @@ jobs:
       - name: Deliveroo bridge runtime replay and strict input checks
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_bridge_runtime.py' -v
+      - name: Deliveroo real PostgreSQL concurrent replay checks (isolated CI only)
+        if: success() || failure()
+        env:
+          BECHEFAA_BIS_TEST_PG_DSN: postgresql://postgres:postgres@localhost:5432/bechefaa_bis_ci
+        run: python -m unittest tests.test_bis_deliveroo_bridge_runtime.PostgresDeliverooConcurrencyTests -v
       - name: JavaScript POS and offline discount smoke tests
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
       - name: Rendered POS cart edit button and injection guards
