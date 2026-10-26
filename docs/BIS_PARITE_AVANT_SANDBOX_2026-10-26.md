@@ -78,3 +78,11 @@ Le test Node isolé dans `tests/test_bis_js_smoke.py` vérifie l'absence d'impre
 - Retour du restaurant : l'absence de bip observée lors du test de commande site provenait du **volume baissé de la tablette**. Ne pas modifier la logique audio sans reproduction d'un défaut avec volume et paramètres vérifiés.
 - Le comportement à préserver est : **bip dès réception** ; **bandeau visible jusqu'au clic** ; **impression cuisine/client uniquement au clic**. Ce flux doit être testé sur tablette réelle, avec deux commandes rapprochées et retour depuis Epson.
 - **Bloquants maintenus** : erreur de vérification du retour Mollie côté site malgré paiement encaissé ; recette BIS PC/tablette et Epson ; test Deliveroo 2 sous concurrence PostgreSQL ; scénarios Deliveroo 12 et 16. Aucun de ces points n'est réputé validé par les tests isolés.
+
+
+## Vérification isolée PostgreSQL réelle — 27/10/2026
+
+- **CI validée sur PostgreSQL 16 jetable dans GitHub Actions**, sans application BIS déployée, sans webhook, commande externe, ticket ni imprimante : [run 40421482377](https://github.com/jeanluchallioua-tech/Bechefaa/actions/runs/40421482377) (**SUCCESS**, étape PostgreSQL **SUCCESS**).
+- Le test exécute la véritable fonction `_bridge_order_new` avec **deux connexions PostgreSQL concurrentes**. Trois cas sont couverts : (1) même ID et même panier : **une création + un doublon**, une seule ligne de commande et un seul article ; (2) même ID avec prix contradictoires : **une création + un conflit**, sans écrasement ; (3) deux IDs différents : **deux commandes et deux numéros POS distincts**. La base est créée et détruite avec le service CI.
+- Cette preuve lève la limite antérieure des **simulations uniquement en mémoire pour ces trois cas précis**. Elle **ne valide pas le test Deliveroo 2 de bout en bout** : webhook réel, GUID distincts, remakes, reconnaissance par Deliveroo, circuit cuisine et impression Epson restent à contrôler. Scénarios 12 et 16 toujours bloqués.
+- Comparaison Git consultée le 27/10 : BIS **311 commits en avance, 13 en retard** sur `phase4-encaissement`. Les 13 commits propres à la référence comprennent notamment les évolutions de remise en %, édition du panier, tables, livraison et horaires. Les tests isolés ne remplacent pas la recette fonctionnelle sur PC/tablette. **Ne pas fusionner automatiquement les branches.**
