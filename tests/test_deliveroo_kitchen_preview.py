@@ -129,6 +129,21 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         self.assertFalse(audit["schema_verified"])
         self.assertFalse(audit["writes"])
 
+    def test_c1_customer_note_controls_block_kitchen_readiness(self):
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+        payload = sample()
+        payload["body"]["order"]["notes"] = "Sans sel\x9b[2J"
+        preview = preview_order(payload, self.catalog)
+        self.assertEqual(
+            preview["instruction_field_audit"]["unsafe_control_candidate_paths"],
+            ["body.order.notes"],
+        )
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn("unsafe_instruction_candidates", readiness["blockers"])
+        self.assertFalse(readiness["checks_passed"])
+        self.assertFalse(readiness["dispatch_performed"])
+        self.assertFalse(readiness["writes"])
+
     def test_multiline_customer_note_is_not_an_unsafe_control(self):
         payload = sample()
         payload["body"]["order"]["notes"] = "Sans sel\nSans piment\tSVP"

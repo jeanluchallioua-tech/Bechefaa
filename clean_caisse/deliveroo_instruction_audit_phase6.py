@@ -5,7 +5,7 @@ confirmed against the actual Deliveroo order webhook contract.
 """
 def _unsafe_controls(value):
     """Reject printer/control bytes; allow ordinary multiline customer notes."""
-    return any((ord(char) < 32 and char not in "\t\n\r") or ord(char) == 127
+    return any((ord(char) < 32 and char not in "\t\n\r") or 127 <= ord(char) <= 159
                for char in value)
 
 
