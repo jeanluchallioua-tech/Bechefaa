@@ -249,6 +249,7 @@ def register_deliveroo_sandbox_phase6(app, db):
             if not isinstance(modifiers, list):
                 raise ValueError("invalid modifiers")
             options = []
+            modifier_unit_prices = []
             for modifier in modifiers:
                 if not isinstance(modifier, dict):
                     raise ValueError("invalid Deliveroo modifier")
@@ -258,6 +259,10 @@ def register_deliveroo_sandbox_phase6(app, db):
                 modifier_qty = modifier.get("quantity", 1)
                 if type(modifier_qty) is not int or modifier_qty < 1:
                     raise ValueError("invalid Deliveroo modifier quantity")
+                # Modifier prices are part of the immutable financial evidence.
+                # Keep the established POS options_json format unchanged.
+                modifier_unit_cents = (_required_eur_cents(modifier["unit_price"], "modifier unit price")
+                                       if "unit_price" in modifier else None)
                 label = str(modifier.get("name") or "").strip()
                 if not label or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in label):
                     raise ValueError("invalid Deliveroo modifier name")
@@ -267,8 +272,10 @@ def register_deliveroo_sandbox_phase6(app, db):
                 if modifier_qty != 1:
                     option["quantity"] = modifier_qty
                 options.append(option)
+                modifier_unit_prices.append(modifier_unit_cents)
             unit = amount / qty
-            normalized.append((plu, name, qty, unit, options, position, reported_unit_cents))
+            normalized.append((plu, name, qty, unit, options, position,
+                               reported_unit_cents, modifier_unit_prices))
             total += amount
         if (reported_order_cents is not None
                 and Decimal(reported_order_cents) / Decimal("100") != total):
@@ -282,8 +289,14 @@ def register_deliveroo_sandbox_phase6(app, db):
             "reported_order_cents": reported_order_cents,
             "lines": [
                 {"plu": plu, "name": name, "qty": qty, "unit": str(unit),
-                 "reported_unit_cents": reported_unit_cents, "options": options}
-                for plu, name, qty, unit, options, _, reported_unit_cents in normalized
+                 "reported_unit_cents": reported_unit_cents,
+                 "options": [
+                     dict(option, **({"reported_modifier_unit_cents": cents}
+                                     if cents is not None else {}))
+                     for option, cents in zip(options, modifier_unit_prices)
+                 ]}
+                for plu, name, qty, unit, options, _, reported_unit_cents,
+                    modifier_unit_prices in normalized
             ],
         }
         fingerprint = hashlib.sha256(json.dumps(
@@ -312,7 +325,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                     (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
                     VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
                     (pos_id,num,"Client Deliveroo",total,now,now,fingerprint))
-                for position, (plu,name,qty,unit,options,_,reported_unit_cents) in enumerate(normalized):
+                for position, (plu,name,qty,unit,options,_,reported_unit_cents,
+                               modifier_unit_prices) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
                         VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,FALSE,%s)""",
