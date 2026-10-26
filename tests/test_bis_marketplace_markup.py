@@ -35,7 +35,7 @@ class FakeConn:
                 if params:
                     channel, percentage = params
                 else:
-                    match = re.search(r"VALUES\\('([^']+)',([0-9.]+)\\)", sql)
+                    match = re.search(r"VALUES\('([^']+)',([0-9.]+)\)", sql)
                     if not match:
                         raise AssertionError(sql)
                     channel, percentage = match.groups()
