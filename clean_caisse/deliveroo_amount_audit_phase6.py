@@ -4,7 +4,7 @@ Deliveroo's line-total treatment of modifiers, fees and discounts must be
 confirmed against the actual webhook contract. These are *hypotheses*, not
 invoicing rules or authority to dispatch an order.
 """
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from clean_caisse.deliveroo_order_mapping_phase6 import parse_order_new
 
 
@@ -73,6 +73,101 @@ def audit_order_amounts(payload):
         "requires_financial_review": bool(review_reasons),
         "review_reasons": review_reasons,
         "modifier_pricing_schema_verified": False,
+        "price_policy_verified": False,
+        "ready_for_dispatch": False,
+        "writes": False,
+    }
+
+
+def _nonnegative_decimal(value, label):
+    """Parse policy inputs without accepting booleans, NaN or silent zeroes."""
+    if value is None or isinstance(value, bool):
+        raise ValueError("Invalid " + label)
+    try:
+        amount = Decimal(str(value))
+    except (ValueError, TypeError, ArithmeticError):
+        raise ValueError("Invalid " + label) from None
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("Invalid " + label)
+    return amount
+
+
+def audit_catalog_base_markup(payload, catalog, *, markup_percentage):
+    """Compare received ITEM unit prices to an *assumed* catalogue markup.
+
+    The percentage must be supplied explicitly; a match is evidence for
+    review, not approval of Deliveroo's pricing or modifier semantics.
+    This function performs no database, network, POS or printer operation.
+    """
+    from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+    from clean_caisse.deliveroo_order_reconcile_phase6 import catalogue_entry_active
+
+    parsed = parse_order_new(payload)
+    if not isinstance(catalog, dict) or not isinstance(catalog.get("products"), list):
+        raise DeliverooMappingError("Invalid catalogue for markup audit")
+    try:
+        percentage = _nonnegative_decimal(markup_percentage, "markup percentage")
+    except ValueError as exc:
+        raise DeliverooMappingError(str(exc)) from exc
+
+    by_id = {}
+    for product in catalog["products"]:
+        if not isinstance(product, dict):
+            raise DeliverooMappingError("Invalid catalogue product for markup audit")
+        product_id = product.get("id")
+        if (not isinstance(product_id, str) or not product_id
+                or product_id != product_id.strip()
+                or any(ord(char) < 32 or 127 <= ord(char) <= 159
+                       for char in product_id)):
+            raise DeliverooMappingError("Invalid catalogue product ID for markup audit")
+        if product_id in by_id:
+            raise DeliverooMappingError("Duplicate catalogue product ID for markup audit")
+        by_id[product_id] = product
+
+    diagnostics = []
+    for index, item in enumerate(parsed["items"]):
+        product_id = item["pos_item_id"]
+        reported = Decimal(item["unit_price_eur"])
+        product = by_id.get(product_id)
+        status = "matches_assumed_markup"
+        base_text = expected_text = difference_text = None
+        if product is None:
+            status = "missing_catalog_product"
+        elif not catalogue_entry_active(product, "product " + product_id):
+            status = "inactive_catalog_product"
+        else:
+            try:
+                base = _nonnegative_decimal(product.get("price"), "catalogue price")
+                base = base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                expected = (base * (Decimal("1") + percentage / Decimal("100"))).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            except (ValueError, ArithmeticError):
+                status = "invalid_catalog_price"
+            else:
+                base_text = _eur(base)
+                expected_text = _eur(expected)
+                difference_text = _eur(reported - expected)
+                if reported != expected:
+                    status = "unit_price_differs_from_assumed_markup"
+        diagnostics.append({
+            "index": index,
+            "pos_item_id": product_id,
+            "catalog_base_eur": base_text,
+            "expected_unit_eur": expected_text,
+            "reported_unit_eur": _eur(reported),
+            "difference_eur": difference_text,
+            "status": status,
+        })
+    reasons = sorted({
+        line["status"] for line in diagnostics
+        if line["status"] != "matches_assumed_markup"
+    })
+    return {
+        "assumed_markup_percentage": str(percentage),
+        "line_diagnostics": diagnostics,
+        "review_reasons": reasons,
+        "requires_financial_review": bool(reasons),
         "price_policy_verified": False,
         "ready_for_dispatch": False,
         "writes": False,
