@@ -40,6 +40,17 @@ class DeliverooIdempotencyTests(unittest.TestCase):
         with self.assertRaises(DeliverooMappingError):
             classify_replay(None, "fr:7866", environment="staging")
 
+    def test_replay_key_rejects_noncanonical_ids_like_webhook_parser(self):
+        for invalid in (" fr:7866", "fr:7866 ", "fr:\t7866",
+                        "fr:7866\n", "fr:7866\x1b[2J", "fr:7866\x9b[2J"):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaises(DeliverooMappingError):
+                    external_order_key(invalid)
+                with self.assertRaises(DeliverooMappingError):
+                    classify_replay(None, invalid)
+                with self.assertRaises(DeliverooMappingError):
+                    classify_replay(invalid, "fr:7866")
+
     def test_empty_id_rejected(self):
         with self.assertRaises(DeliverooMappingError):
             external_order_key("")
