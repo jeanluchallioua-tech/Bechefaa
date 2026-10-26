@@ -35,6 +35,8 @@ Les contrôles de code et les tests unitaires **ne remplacent pas** la recette s
 
 **Correctif BIS du 26/10/2026 :** le double POST `/send-kitchen-classic/<order_id>` ne doit plus réimprimer le pack cuisine/client après la première transition vers « À préparer ». Le verrou `FOR UPDATE` est conservé. Cela protège le chemin classique de la caisse mais **ne démontre pas** l'idempotence transactionnelle de l'import Deliveroo, ni l'absence de doublons dans le scénario 2. Un nouvel envoi volontaire doit utiliser le mécanisme de réimpression dédié.
 
+**Contrôle BIS complémentaire du 26/10/2026 (pont `order.new`) :** la fonction réelle `_bridge_order_new` refuse désormais les identifiants Deliveroo/PLU non canoniques, les quantités booléennes, fractionnaires ou textuelles, les montants non entiers ou hors EUR, et les options malformées **avant tout accès à la base**. Le format `options_json` des tickets est conservé. `tests/test_bis_deliveroo_bridge_runtime.py` exécute cette fonction avec une fausse base en mémoire : première création, replay identique, identifiants différents et refus des entrées invalides. Ces tests **ne reproduisent pas une concurrence PostgreSQL réelle** et ne prouvent ni le rapprochement PLU/prix ni le traitement complet du remake parent/enfant. **Le test 2 reste bloqué.**
+
 ## Critères de sortie avant sandbox
 
 1. CI de la **dernière révision** de BIS terminée en succès ; examiner les étapes individuellement.
