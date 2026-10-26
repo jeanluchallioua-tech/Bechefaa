@@ -299,7 +299,7 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
     def test_documented_order_notes_control_bytes_are_flagged(self):
         from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
         payload = sample()
-        payload["body"]["order"]["order_notes"] = "Sans sel\\x1b[2J"
+        payload["body"]["order"]["order_notes"] = "Sans sel\x1b[2J"
         preview = preview_order(payload, self.catalog)
         audit = preview["instruction_field_audit"]
         self.assertEqual(audit["unsafe_control_candidate_paths"], [
