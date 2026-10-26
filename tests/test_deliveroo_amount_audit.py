@@ -212,5 +212,103 @@ class DeliverooCatalogMarkupAuditTests(unittest.TestCase):
                     )
 
 
+
+class DeliverooModifierMarkupAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.payload = sample()
+        self.catalog = {"products": [{
+            "id": "MU11002", "name": "Veggie Burger",
+            "options": [{"name": "Extras", "options": [
+                {"name": "Guacamole", "price": "0.95"},
+            ]}],
+        }]}
+
+    def test_matching_modifier_markup_is_diagnostic_not_approval(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 109
+        before = deepcopy(self.payload)
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage="15"
+        )
+        self.assertEqual(self.payload, before)
+        self.assertEqual(audit["modifier_diagnostics"][0]["expected_unit_eur"], "1.09")
+        self.assertEqual(audit["modifier_diagnostics"][0]["status"], "matches_assumed_modifier_markup")
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertFalse(audit["modifier_pricing_schema_verified"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+    def test_mismatch_reports_exact_difference(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        line = audit["modifier_diagnostics"][0]
+        self.assertEqual(line["difference_eur"], "-0.14")
+        self.assertEqual(line["status"], "modifier_price_differs_from_assumed_markup")
+        self.assertTrue(audit["requires_financial_review"])
+
+    def test_legacy_plu_never_matches_by_label(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        modifier = self.payload["body"]["order"]["items"][0]["modifiers"][0]
+        modifier["pos_item_id"] = "OM21001"
+        modifier["name"] = "Guacamole"
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(audit["review_reasons"], ["unmapped_modifier_plu"])
+        self.assertIsNone(audit["modifier_diagnostics"][0]["expected_unit_eur"])
+        self.assertFalse(audit["ready_for_dispatch"])
+
+    def test_inactive_choice_and_invalid_price_are_flagged(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        choice = self.catalog["products"][0]["options"][0]["options"][0]
+        choice["active"] = 0
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(audit["review_reasons"], ["inactive_catalog_modifier_choice"])
+        choice["active"] = 1
+        choice["price"] = "invalid"
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(audit["review_reasons"], ["invalid_catalog_modifier_price"])
+
+    def test_zero_price_modifier_and_empty_modifier_list_never_approve(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = 0
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 0
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(audit["modifier_diagnostics"][0]["expected_unit_eur"], "0.00")
+        self.assertEqual(audit["review_reasons"], [])
+        self.payload["body"]["order"]["items"][0]["modifiers"] = []
+        empty = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(empty["modifier_diagnostics"], [])
+        self.assertFalse(empty["price_policy_verified"])
+        self.assertFalse(empty["ready_for_dispatch"])
+
+    def test_duplicate_catalogue_products_and_invalid_markup_fail_closed(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+        self.catalog["products"].append(deepcopy(self.catalog["products"][0]))
+        with self.assertRaisesRegex(DeliverooMappingError, "Duplicate catalogue"):
+            audit_catalog_modifier_markup(
+                self.payload, self.catalog, markup_percentage=15
+            )
+        self.catalog["products"].pop()
+        for bad in (None, True, "-1", "NaN", "Infinity"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(DeliverooMappingError):
+                    audit_catalog_modifier_markup(
+                        self.payload, self.catalog, markup_percentage=bad
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
