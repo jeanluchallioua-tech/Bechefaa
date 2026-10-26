@@ -159,6 +159,48 @@ class ExplicitPluMapTests(unittest.TestCase):
         self.assertEqual(audit["missing_label_sources"], [["MU11002", "OM21001"]])
         self.assertFalse(audit["mapping_approved"])
 
+    def test_inventory_malformed_opt_prefix_is_not_canonical(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        for plu in ("opt:MU11002:00:0", "opt:OTHER:0:0", "opt:MU11002:0"):
+            extra = deepcopy(modifiers[0])
+            extra["pos_item_id"] = plu
+            modifiers.append(extra)
+        modifiers[0]["pos_item_id"] = "opt:MU11002:00:0"
+        original = deepcopy(self.payload)
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(self.payload, original)
+        self.assertEqual(audit["legacy_sources"], [])
+        self.assertEqual(audit["canonical_modifier_occurrences_unverified"], 0)
+        self.assertEqual(audit["malformed_prefixed_sources"], [
+            {"parent_pos_item_id": "MU11002",
+             "received_modifier_pos_item_id": "opt:MU11002:0",
+             "occurrences": 1},
+            {"parent_pos_item_id": "MU11002",
+             "received_modifier_pos_item_id": "opt:MU11002:00:0",
+             "occurrences": 2},
+            {"parent_pos_item_id": "MU11002",
+             "received_modifier_pos_item_id": "opt:OTHER:0:0",
+             "occurrences": 1},
+        ])
+        self.assertTrue(audit["requires_explicit_mapping_review"])
+        self.assertFalse(audit["mapping_approved"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+    def test_inventory_separates_canonical_and_legacy(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        canonical = deepcopy(modifiers[0])
+        canonical["pos_item_id"] = "opt:MU11002:0:0"
+        modifiers.append(canonical)
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(audit["legacy_source_count"], 1)
+        self.assertEqual(audit["canonical_modifier_occurrences_unverified"], 1)
+        self.assertEqual(audit["malformed_prefixed_sources"], [])
+        self.assertTrue(audit["requires_explicit_mapping_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+
     def test_inventory_canonical_prefix_is_not_mapping_approval(self):
         from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
         modifier = self.payload["body"]["order"]["items"][0]["modifiers"][0]

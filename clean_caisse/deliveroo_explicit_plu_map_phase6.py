@@ -83,14 +83,29 @@ def audit_modifier_plu_sources(payload):
     """
     parsed = parse_order_new(payload)
     sources = {}
+    malformed_prefixed = {}
     canonical_occurrences = 0
     for item in parsed["items"]:
         parent_id = item["pos_item_id"]
         for modifier in item["modifiers"]:
             source_id = modifier["pos_item_id"]
             if source_id.startswith("opt:"):
-                # Presence of an opt: prefix is NOT evidence of a valid PLU.
-                canonical_occurrences += 1
+                parts = source_id.split(":")
+                # A prefix alone is not evidence of a canonical parent-scoped
+                # PLU. Malformed prefixed IDs cannot be legacy-map approved.
+                canonical = (
+                    len(parts) == 4 and parts[1] == parent_id
+                    and all(
+                        part.isascii() and part.isdecimal()
+                        and (part == "0" or not part.startswith("0"))
+                        for part in parts[2:]
+                    )
+                )
+                if canonical:
+                    canonical_occurrences += 1
+                else:
+                    key = (parent_id, source_id)
+                    malformed_prefixed[key] = malformed_prefixed.get(key, 0) + 1
                 continue
             key = (parent_id, source_id)
             entry = sources.setdefault(key, {
@@ -121,9 +136,15 @@ def audit_modifier_plu_sources(payload):
         "legacy_sources": inventory,
         "legacy_source_count": len(inventory),
         "canonical_modifier_occurrences_unverified": canonical_occurrences,
+        "malformed_prefixed_sources": [
+            {"parent_pos_item_id": parent_id,
+             "received_modifier_pos_item_id": source_id,
+             "occurrences": malformed_prefixed[(parent_id, source_id)]}
+            for parent_id, source_id in sorted(malformed_prefixed)
+        ],
         "conflicting_label_sources": conflicts,
         "missing_label_sources": missing_labels,
-        "requires_explicit_mapping_review": bool(inventory),
+        "requires_explicit_mapping_review": bool(inventory or malformed_prefixed),
         "mapping_approved": False,
         "ready_for_dispatch": False,
         "writes": False,
