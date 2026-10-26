@@ -95,6 +95,24 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
                     or len(line_diagnostics) != len(preview["items"])
                     or any(not isinstance(line, dict) for line in line_diagnostics)):
                 blockers.append("amount_line_diagnostics_missing")
+        # Optional catalogue markup diagnostics are review evidence only.
+        # They must never authorize kitchen dispatch or override price gates.
+        if "catalog_markup_audit" in preview:
+            markup_audit = preview["catalog_markup_audit"]
+            if not isinstance(markup_audit, dict) or markup_audit.get("writes") is not False:
+                blockers.append("catalog_markup_audit_invalid")
+            else:
+                if (markup_audit.get("price_policy_verified") is not False
+                        or markup_audit.get("ready_for_dispatch") is not False):
+                    blockers.append("catalog_markup_dispatch_guard_missing")
+                if markup_audit.get("requires_financial_review") is not False:
+                    blockers.append("catalog_markup_requires_financial_review")
+                diagnostics = markup_audit.get("line_diagnostics")
+                if (not isinstance(diagnostics, list)
+                        or not isinstance(preview.get("items"), list)
+                        or len(diagnostics) != len(preview["items"])
+                        or any(not isinstance(line, dict) for line in diagnostics)):
+                    blockers.append("catalog_markup_diagnostics_missing")
         if price_policy_approved and preview.get("requires_price_policy") is True:
             blockers.append("price_policy_evidence_missing")
     return {
