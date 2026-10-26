@@ -222,7 +222,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                 label = str(modifier.get("name") or "").strip()
                 if not label or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in label):
                     raise ValueError("invalid Deliveroo modifier name")
-                options.append({"name": label, "plu": modifier_plu, "quantity": modifier_qty})
+                options.append({"name": label, "plu": modifier_plu})
             unit = amount / qty
             normalized.append((plu, name, qty, unit, options, position))
             total += amount
