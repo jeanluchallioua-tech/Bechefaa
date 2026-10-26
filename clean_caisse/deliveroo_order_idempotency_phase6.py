@@ -5,15 +5,13 @@ before enabling any webhook-to-POS dispatch.
 """
 import hashlib
 
-from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, _canonical_id
 
 
 def external_order_key(order_id, environment="sandbox"):
-    if not isinstance(order_id, str):
-        raise DeliverooMappingError("Invalid Deliveroo order ID")
-    order_id = order_id.strip()
-    if not order_id:
-        raise DeliverooMappingError("Missing Deliveroo order ID")
+    # Match the webhook parser: never collapse distinct external IDs by
+    # trimming whitespace or accepting terminal control characters.
+    order_id = _canonical_id(order_id, "Deliveroo order ID")
     if environment not in ("sandbox", "production"):
         raise DeliverooMappingError("Unknown Deliveroo environment")
     digest = hashlib.sha256(
