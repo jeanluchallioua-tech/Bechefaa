@@ -41,6 +41,8 @@ Les contrôles de code et les tests unitaires **ne remplacent pas** la recette s
 
 **Contrôle BIS complémentaire du 26/10/2026 (rejeu du GUID webhook) :** le stockage de l'événement Deliveroo est désormais immuable pour un même `X-Deliveroo-Sequence-Guid` : un rejeu strictement identique conserve la première preuve, tandis qu'un même GUID accompagné d'un contenu JSON différent est refusé avant le pont POS. `tests/test_bis_deliveroo_event_replay.py` couvre ces chemins sur une fausse base SQL. Ce contrôle est distinct de l'unicité de commande par ID Deliveroo et **ne valide pas** la concurrence PostgreSQL réelle, le test 2, ni les scénarios Menu API 12/16. Aucun déploiement n'est autorisé par ce seul test.
 
+**Contrôle BIS complémentaire du 26/10/2026 (rejeu de l'ID commande Deliveroo) :** le pont POS enregistre maintenant une empreinte SHA-256 du contenu normalisé (lignes, quantités, PLU, prix, options et total) dans la même transaction que la création de la commande. Un second `order.new` portant le même ID Deliveroo mais des articles, prix ou options différents est refusé ; un rejeu strictement identique reste sans nouvel enregistrement. Les anciennes lignes dépourvues d'empreinte sont refusées pour examen, sans modification rétroactive. `tests/test_bis_deliveroo_bridge_runtime.py` couvre les conflits de prix, d'options et les anciennes lignes sur fausse base. **La concurrence PostgreSQL réelle, les remakes, les règles financières/PLU et l'impression ne sont pas validés ; le test 2 reste bloqué.**
+
 ## Critères de sortie avant sandbox
 
 1. CI de la **dernière révision** de BIS terminée en succès ; examiner les étapes individuellement.
