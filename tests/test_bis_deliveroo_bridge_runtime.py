@@ -427,6 +427,35 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                     self.bridge(db, event)
                 self.assertEqual(db.statements, [])
 
+    def test_prefixed_modifier_plu_must_match_parent_and_canonical_indices(self):
+        # Fail before touching the database: a cross-product or malformed
+        # option index could silently print a wrong kitchen selection.
+        invalid_plu = (
+            "opt:OTHER:0:0", "opt:MU11002:00:0",
+            "opt:MU11002:0:01", "opt:MU11002:-1:0",
+            "opt:MU11002:0:", "opt:MU11002:0:0:extra",
+            "opt:MU11002:٠:0", "opt:MU11002:0:0 ",
+        )
+        for value in invalid_plu:
+            with self.subTest(plu=value):
+                db = FakeDB()
+                event = payload()
+                event["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = value
+                with self.assertRaises(ValueError):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+
+    def test_canonical_parent_scoped_modifier_plu_preserves_kitchen_option(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "opt:MU11002:0:1"
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(json.loads(db.items[0][6]), [
+            {"name": "Guacamole", "plu": "opt:MU11002:0:1"}])
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
     def test_unmapped_customer_notes_are_not_silently_dropped(self):
         for scope, field in (("order", "order_notes"),
                              ("order", "cutlery_notes"),
