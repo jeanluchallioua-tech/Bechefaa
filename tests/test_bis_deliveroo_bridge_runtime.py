@@ -142,6 +142,69 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(db.orders), 1)
         self.assertEqual(len(db.items), 1)
 
+    def test_declared_order_total_matching_lines_is_imported_once(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["total_price"] = {
+            "fractional": 1790, "currency_code": "EUR"}
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
+    def test_order_total_difference_requires_financial_review_before_database(self):
+        # Fees, discounts and modifier totals need an approved policy.
+        for cents in (1791, 0, 1800):
+            with self.subTest(cents=cents):
+                db = FakeDB()
+                event = payload()
+                event["body"]["order"]["total_price"] = {
+                    "fractional": cents, "currency_code": "EUR"}
+                with self.assertRaisesRegex(ValueError, "financial review required"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+
+    def test_malformed_declared_order_and_unit_prices_fail_before_database(self):
+        for field in ("total_price", "unit_price"):
+            for invalid in (None, {"fractional": True, "currency_code": "EUR"},
+                            {"fractional": -1, "currency_code": "EUR"},
+                            {"fractional": 1790, "currency_code": "USD"},
+                            {"fractional": "1790", "currency_code": "EUR"}):
+                with self.subTest(field=field, invalid=invalid):
+                    db = FakeDB()
+                    event = payload()
+                    target = (event["body"]["order"] if field == "total_price"
+                              else event["body"]["order"]["items"][0])
+                    target[field] = invalid
+                    with self.assertRaises(ValueError):
+                        self.bridge(db, event)
+                    self.assertEqual(db.statements, [])
+
+    def test_changed_reported_unit_price_cannot_replay_same_order_id(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["items"][0]["unit_price"] = {
+            "fractional": 895, "currency_code": "EUR"}
+        self.assertEqual(self.bridge(db, event), "created")
+        replay = copy.deepcopy(event)
+        replay["body"]["order"]["items"][0]["unit_price"]["fractional"] = 900
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, replay)
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
+    def test_changed_declared_order_total_cannot_replay_same_order_id(self):
+        db = FakeDB()
+        event = payload()
+        self.assertEqual(self.bridge(db, event), "created")
+        replay = copy.deepcopy(event)
+        replay["body"]["order"]["total_price"] = {
+            "fractional": 1790, "currency_code": "EUR"}
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, replay)
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
     def test_legacy_existing_order_without_fingerprint_requires_review(self):
         db = FakeDB()
         first = payload()
