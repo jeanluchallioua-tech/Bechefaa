@@ -4,7 +4,9 @@ from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
 from clean_caisse.deliveroo_order_reconcile_phase6 import reconcile
 from clean_caisse.deliveroo_explicit_plu_map_phase6 import reconcile_with_explicit_plu_map
 from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
-from clean_caisse.deliveroo_amount_audit_phase6 import (audit_order_amounts, audit_catalog_base_markup)
+from clean_caisse.deliveroo_amount_audit_phase6 import (
+    audit_order_amounts, audit_catalog_base_markup, audit_catalog_modifier_markup,
+)
 
 
 def preview_order(payload, catalog, approved_map=None, *, assumed_markup_percentage=None):
@@ -42,6 +44,9 @@ def preview_order(payload, catalog, approved_map=None, *, assumed_markup_percent
     }
     if assumed_markup_percentage is not None:
         preview["catalog_markup_audit"] = audit_catalog_base_markup(
+            payload, catalog, markup_percentage=assumed_markup_percentage
+        )
+        preview["catalog_modifier_markup_audit"] = audit_catalog_modifier_markup(
             payload, catalog, markup_percentage=assumed_markup_percentage
         )
     return preview
