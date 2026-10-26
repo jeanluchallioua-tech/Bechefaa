@@ -113,6 +113,28 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
                         or len(diagnostics) != len(preview["items"])
                         or any(not isinstance(line, dict) for line in diagnostics)):
                     blockers.append("catalog_markup_diagnostics_missing")
+        # Modifier-price evidence is independent of item-base markup. Neither
+        # an exact match nor a manually supplied flag can authorize dispatch.
+        if "catalog_modifier_markup_audit" in preview:
+            modifier_audit = preview["catalog_modifier_markup_audit"]
+            if not isinstance(modifier_audit, dict) or modifier_audit.get("writes") is not False:
+                blockers.append("catalog_modifier_markup_audit_invalid")
+            else:
+                if (modifier_audit.get("price_policy_verified") is not False
+                        or modifier_audit.get("modifier_pricing_schema_verified") is not False
+                        or modifier_audit.get("ready_for_dispatch") is not False):
+                    blockers.append("catalog_modifier_markup_dispatch_guard_missing")
+                if modifier_audit.get("requires_financial_review") is not False:
+                    blockers.append("catalog_modifier_markup_requires_financial_review")
+                diagnostics = modifier_audit.get("modifier_diagnostics")
+                expected_count = sum(
+                    len(item["options"]) for item in preview.get("items", [])
+                    if isinstance(item, dict) and isinstance(item.get("options"), list)
+                ) if isinstance(preview.get("items"), list) else -1
+                if (not isinstance(diagnostics, list)
+                        or len(diagnostics) != expected_count
+                        or any(not isinstance(line, dict) for line in diagnostics)):
+                    blockers.append("catalog_modifier_markup_diagnostics_missing")
         if price_policy_approved and preview.get("requires_price_policy") is True:
             blockers.append("price_policy_evidence_missing")
     return {
