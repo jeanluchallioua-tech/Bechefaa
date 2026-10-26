@@ -109,7 +109,7 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(db.items), 1)
         self.assertEqual(db.items[0][2], "MU11002")
         self.assertEqual(db.items[0][4], 2)
-        self.assertEqual(db.items[0][5], 8.95)
+        self.assertEqual(str(db.items[0][5]), "8.95")
         self.assertEqual(db.items[0][6], json.dumps(
             [{"name": "Guacamole", "plu": "OM21001", "quantity": 1}],
             ensure_ascii=False))
@@ -126,7 +126,7 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
 
     def test_invalid_order_ids_rejected_before_database_access(self):
         for invalid in ("", " fr:test-order-1", "fr:test-order-1 ",
-                        "fr:\\ttest", "fr:\\x1btest", 123, True, []):
+                        "fr:\ttest", "fr:\x1btest", 123, True, []):
             with self.subTest(invalid=repr(invalid)):
                 db = FakeDB()
                 event = payload()
