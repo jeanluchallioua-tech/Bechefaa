@@ -16,7 +16,7 @@ def kitchen_origin(channel, external_number=None):
                                          or not isinstance(external_number, (str, int))):
         raise DeliverooMappingError("Invalid Deliveroo display number")
     number = str(external_number if external_number is not None else "").strip()
-    if any(ord(char) < 32 or ord(char) == 127 for char in number):
+    if any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in number):
         raise DeliverooMappingError("Unsafe Deliveroo display number")
     return {
         "channel": DELIVEROO_LABEL,

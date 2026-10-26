@@ -13,7 +13,7 @@ class DeliverooMappingError(ValueError):
 def _canonical_id(value, label):
     """Reject silent PLU/order-ID normalization and control characters."""
     if (not isinstance(value, str) or not value or value != value.strip()
-            or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)):
         raise DeliverooMappingError("Invalid or non-canonical " + label)
     return value
 

@@ -41,7 +41,7 @@ class DeliverooMappingTests(unittest.TestCase):
 
         for path in ("id", "product", "modifier"):
             for invalid in (" PADDED", "PADDED ", "\tPADDED",
-                            "PLU\nINJECT", "PLU\x1b[2J", "   "):
+                            "PLU\nINJECT", "PLU\x1b[2J", "PLU\x9b[2J", "   "):
                 with self.subTest(path=path, invalid=repr(invalid)):
                     payload = deepcopy(self.payload)
                     order = payload["body"]["order"]
