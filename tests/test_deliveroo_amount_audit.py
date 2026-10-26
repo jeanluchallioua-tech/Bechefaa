@@ -293,6 +293,24 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
         self.assertFalse(empty["price_policy_verified"])
         self.assertFalse(empty["ready_for_dispatch"])
 
+    def test_explicit_zero_modifier_price_beats_legacy_fallbacks(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+
+        choice = self.catalog["products"][0]["options"][0]["options"][0]
+        choice.update({"price": 0, "extraPrice": "0.95", "supplement": "1.50"})
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 0
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        line = audit["modifier_diagnostics"][0]
+        self.assertEqual(line["catalog_base_eur"], "0.00")
+        self.assertEqual(line["expected_unit_eur"], "0.00")
+        self.assertEqual(line["status"], "matches_assumed_modifier_markup")
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
     def test_duplicate_catalogue_products_and_invalid_markup_fail_closed(self):
         from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
         from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError

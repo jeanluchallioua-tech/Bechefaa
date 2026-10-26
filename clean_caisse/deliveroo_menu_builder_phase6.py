@@ -69,12 +69,12 @@ def _choice(raw, index):
             or raw.get("id")
             or ""
         ).strip()
-        price = _money(
-            raw.get("price")
-            or raw.get("extraPrice")
-            or raw.get("supplement")
-            or 0
-        )
+        # An explicit zero is a valid free choice, not a missing price.
+        # Match the precedence used by the read-only modifier price audit.
+        price = _money(next(
+            (raw[key] for key in ("price", "extraPrice", "supplement") if key in raw),
+            0,
+        ))
         choice_id = str(raw.get("id") or "").strip()
     else:
         name = str(raw or "").strip()

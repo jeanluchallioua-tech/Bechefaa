@@ -66,6 +66,19 @@ class DeliverooMenuIdentifierTests(unittest.TestCase):
         ])
         self.assertFalse(result["writes"])
 
+    def test_explicit_zero_choice_price_beats_legacy_fallbacks(self):
+        options = [{"name": "Sauces", "options": [
+            {"name": "Mayo", "price": 0, "extraPrice": 0.95,
+             "supplement": 1.50},
+        ]}]
+        preview = self.preview([self.product("MU11002", options=options)])
+        choice = next(
+            item for item in preview["payload"]["menu"]["items"]
+            if item["type"] == "CHOICE"
+        )
+        self.assertEqual(choice["price_info"]["price"], 0)
+        self.assertFalse(preview["upload_performed"])
+
     def test_duplicate_hidden_product_id_blocks_reconciliation(self):
         preview = self.preview([
             self.product("MU11002"),

@@ -255,9 +255,13 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                                     status = "inactive_catalog_modifier_choice"
                                 else:
                                     if isinstance(choice, dict):
-                                        raw_price = (choice.get("price")
-                                                     or choice.get("extraPrice")
-                                                     or choice.get("supplement") or 0)
+                                        # A present zero-price field takes precedence
+                                        # over legacy fallbacks, just like menu generation.
+                                        raw_price = next((
+                                            choice[key] for key in
+                                            ("price", "extraPrice", "supplement")
+                                            if key in choice
+                                        ), 0)
                                     elif isinstance(choice, (list, tuple)):
                                         raw_price = choice[1] if len(choice) > 1 else 0
                                     else:
