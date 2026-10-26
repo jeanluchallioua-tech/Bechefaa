@@ -253,20 +253,44 @@ def register_deliveroo_sandbox_phase6(app, db):
             unit = amount / qty
             normalized.append((plu, name, qty, unit, options, position))
             total += amount
+        # The external order ID is not sufficient to prove that a redelivery
+        # contains the same products, prices and modifiers. Store a fingerprint
+        # transactionally with the POS order, not merely with the webhook GUID.
+        import hashlib
+        fingerprint_body = {
+            "total": str(total),
+            "lines": [
+                {"plu": plu, "name": name, "qty": qty, "unit": str(unit),
+                 "options": options}
+                for plu, name, qty, unit, options, _ in normalized
+            ],
+        }
+        fingerprint = hashlib.sha256(json.dumps(
+            fingerprint_body, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
         now = int(time.time() * 1000)
         pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
         with db() as conn:
             with conn.transaction():
                 ensure_order_schema(conn)
                 conn.execute("LOCK TABLE caisse_orders IN EXCLUSIVE MODE")
-                existing = conn.execute("SELECT id FROM caisse_orders WHERE id=%s", (pos_id,)).fetchone()
+                # Preproduction-only metadata: do not rewrite existing orders.
+                conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS deliveroo_import_fingerprint TEXT")
+                existing = conn.execute(
+                    "SELECT id, deliveroo_import_fingerprint FROM caisse_orders WHERE id=%s",
+                    (pos_id,)
+                ).fetchone()
                 if existing:
+                    if existing["deliveroo_import_fingerprint"] != fingerprint:
+                        # Includes legacy rows without a fingerprint: fail closed.
+                        raise ValueError("Deliveroo order ID replay content conflict")
                     return "duplicate"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
                 conn.execute("""INSERT INTO caisse_orders
-                    (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at)
-                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
-                    (pos_id,num,"Client Deliveroo",total,now,now))
+                    (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
+                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
+                    (pos_id,num,"Client Deliveroo",total,now,now,fingerprint))
                 for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
