@@ -61,6 +61,33 @@ class FakeDB:
         raise AssertionError("Unexpected SQL: " + sql)
 
 
+
+class TransactionalFailureDB(FakeDB):
+    """Model rollback after a failed item INSERT; never contacts PostgreSQL."""
+
+    def __init__(self):
+        super().__init__()
+        self.fail_second_item_once = True
+
+    @contextlib.contextmanager
+    def transaction(self):
+        previous_orders = copy.deepcopy(self.orders)
+        previous_items = copy.deepcopy(self.items)
+        try:
+            yield
+        except Exception:
+            self.orders = previous_orders
+            self.items = previous_items
+            raise
+
+    def execute(self, sql, params=()):
+        if ("INSERT INTO caisse_order_items" in sql
+                and self.fail_second_item_once and len(self.items) == 1):
+            self.fail_second_item_once = False
+            raise RuntimeError("simulated second item INSERT failure")
+        return super().execute(sql, params)
+
+
 def payload():
     return {
         "event": "order.new",
@@ -439,6 +466,29 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                 self.assertIn(self.bridge(db, payload(), **flags),
                               ("disabled", "not_preproduction"))
                 self.assertEqual(db.statements, [])
+
+
+    def test_failed_second_item_rolls_back_then_retry_creates_one_complete_order(self):
+        # A partial kitchen order must never survive a failed transaction.
+        # This verifies the bridge's transaction boundary with a rollback
+        # double, not real PostgreSQL concurrency or printer behavior.
+        conn = TransactionalFailureDB()
+        event = payload()
+        second = copy.deepcopy(event["body"]["order"]["items"][0])
+        second.update(pos_item_id="MU11003", name="Second Burger",
+                      quantity=1, total_price={"fractional": 895, "currency_code": "EUR"})
+        event["body"]["order"]["items"].append(second)
+        with self.assertRaisesRegex(RuntimeError, "simulated second item INSERT failure"):
+            self.bridge(conn, event)
+        self.assertEqual(conn.orders, {})
+        self.assertEqual(conn.items, [])
+        self.assertEqual(self.bridge(conn, copy.deepcopy(event)), "created")
+        self.assertEqual(len(conn.orders), 1)
+        self.assertEqual(len(conn.items), 2)
+        self.assertEqual(self.bridge(conn, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(conn.orders), 1)
+        self.assertEqual(len(conn.items), 2)
+
 
 
 if __name__ == "__main__":
