@@ -48,6 +48,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
       - name: Rendered POS cart edit button and injection guards
         run: python -m unittest discover -s tests -p 'test_bis_pos_parity_render.py' -v
+      - name: Classic kitchen send idempotency (no duplicate print pack)
+        run: python -m unittest discover -s tests -p 'test_bis_classic_kitchen_idempotency.py' -v
       - name: POS save and pending-edit regression tests
         run: |
           python -m unittest discover -s tests -p 'test_pos_save_workflow.py' -v
