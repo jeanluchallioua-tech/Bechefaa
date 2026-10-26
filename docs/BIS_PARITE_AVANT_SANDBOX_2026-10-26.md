@@ -18,7 +18,7 @@ La comparaison Git `phase4-encaissement...bis-prod-sync-integration-2026-10-25` 
 | Majoration Marketplace | `clean_caisse/marketplace_markup_phase6.py`, `tests/test_bis_marketplace_markup.py` ; défaut Deliveroo 20 %, Uber Eats inchangé | **À vérifier en base BIS** : une ligne Deliveroo déjà enregistrée à 15 % ne devient pas automatiquement 20 % ; vérifier également les prix produits/options du menu généré |
 | Tables 1–9 | `clean_caisse/table_core_phase36.py`, `tests/test_table_occupancy.py` | Réservation, occupation jusqu'au règlement, libération et collisions multi-postes |
 | Livraison | `tests/test_customer_delivery_roundtrip.py`, `tests/test_delivery_details.py` | Nom, téléphone, adresse, code porte/interphone, étage, instructions dans aperçu et ticket |
-| Tickets / impression Epson | `tests/test_receipt_layout.py`, `clean_caisse/epson_epos_network_phase6.py` | Cuisine + client, absence de double impression, retour caisse, tests physiques sur matériel |
+| Tickets / impression Epson | `tests/test_receipt_layout.py`, `tests/test_bis_classic_kitchen_idempotency.py`, `clean_caisse/epson_epos_network_phase6.py` | Le POST classique répété pour une commande déjà « À préparer » n'ouvre plus le pack d'impression (test isolé) ; restent à vérifier le chemin d'impression direct, les reprints explicites, le circuit Deliveroo, le retour caisse et les essais physiques |
 | Historique et modification commande | `clean_caisse/history_modifier.py`, `tests/test_pos_pending_edit.py` | Modification avant cuisine, réouverture, conservation de l'identité de commande et statut, sans double envoi |
 | Hors connexion | `clean_caisse/offline_mode_phase6.py`, `tests/test_bis_js_smoke.py` | Plusieurs commandes hors ligne, reconnexion, reprise automatique unique, historique et alerte sonore |
 | Service sur place / emporter / livraison | `clean_caisse/service_mode_ui_phase42.py`, `tests/test_bis_module_registration.py` | Contrôle tactile complet et cohérence des libellés |
@@ -32,6 +32,8 @@ Les contrôles de code et les tests unitaires **ne remplacent pas** la recette s
 - **Menu API / scénario 12 : bloqué**. Réponse HTTP 200 à un POST d'indisponibilité ≠ reconnaissance de l'appel par le validateur Deliveroo.
 - **Menu API / scénario 16 : bloqué**. Obtenir le diagnostic précis de validation avant de déclarer le scénario terminé.
 - **PLU, prix, instructions** : audits read-only présents dans `clean_caisse/deliveroo_*_phase6.py` ; ne pas convertir un audit réussi en autorisation implicite de dispatch cuisine.
+
+**Correctif BIS du 26/10/2026 :** le double POST `/send-kitchen-classic/<order_id>` ne doit plus réimprimer le pack cuisine/client après la première transition vers « À préparer ». Le verrou `FOR UPDATE` est conservé. Cela protège le chemin classique de la caisse mais **ne démontre pas** l'idempotence transactionnelle de l'import Deliveroo, ni l'absence de doublons dans le scénario 2. Un nouvel envoi volontaire doit utiliser le mécanisme de réimpression dédié.
 
 ## Critères de sortie avant sandbox
 
