@@ -56,3 +56,5 @@ Les contrôles de code et les tests unitaires **ne remplacent pas** la recette s
 5. Autorisation explicite du propriétaire avant tout déploiement sandbox.
 
 Aucune modification de `phase4-encaissement`, `deliveroo-order-bridge-sandbox` ou des applications déployées n'est autorisée dans ce chantier.
+
+**Contrôle BIS complémentaire du 26/10/2026 (prix des suppléments Deliveroo) :** lorsqu'un modificateur contient `unit_price`, le pont opt-in valide le montant en centimes EUR non négatifs et l'inclut dans l'empreinte de rejeu de la commande, sans modifier `options_json` ni les tickets. Un rejeu du même ID avec un prix de supplément changé ou ajouté est refusé ; les anciens événements sans prix de supplément conservent leur empreinte initiale. Trois tests isolés utilisent une fausse base SQL. **Ce contrôle n'approuve pas la politique de prix des suppléments et ne valide pas le test 2, la concurrence PostgreSQL, ni les scénarios 12/16.**
