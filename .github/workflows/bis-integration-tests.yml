@@ -44,6 +44,9 @@ jobs:
       - name: Deliveroo remake runtime behavior tests
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_deliveroo_remake_runtime.py' -v
+      - name: Deliveroo bridge runtime replay and strict input checks
+        if: success() || failure()
+        run: python -m unittest discover -s tests -p 'test_bis_deliveroo_bridge_runtime.py' -v
       - name: JavaScript POS and offline discount smoke tests
         run: python -m unittest discover -s tests -p 'test_bis_js_smoke.py' -v
       - name: Rendered POS cart edit button and injection guards
