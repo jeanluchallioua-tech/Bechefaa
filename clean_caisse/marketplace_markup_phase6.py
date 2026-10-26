@@ -1,12 +1,13 @@
 """Phase 6 — gestion des majorations marketplace BÉCHÉFAA.
 
-Stocke séparément les pourcentages Uber Eats et Deliveroo. Valeur initiale 15 %.
+Stocke séparément les pourcentages Uber Eats et Deliveroo.
+Valeurs initiales : Uber Eats 15 %, Deliveroo 20 %.
 Aucun prix du catalogue RESTO/SITE n'est modifié.
 """
 from decimal import Decimal, InvalidOperation
 from flask import jsonify, request, Response
 
-DEFAULTS={"UBER_EATS":Decimal("15.00"),"DELIVEROO":Decimal("15.00")}
+DEFAULTS={"UBER_EATS":Decimal("15.00"),"DELIVEROO":Decimal("20.00")}
 
 def register_marketplace_markup_phase6(app, db):
     def ensure(conn):
@@ -26,8 +27,8 @@ def register_marketplace_markup_phase6(app, db):
         rows=conn.execute("SELECT channel,percentage,updated_at FROM marketplace_markup_settings ORDER BY channel").fetchall()
         out={r["channel"]:float(r["percentage"]) for r in rows}
         return {
-            "UBER_EATS":out.get("UBER_EATS",15.0),
-            "DELIVEROO":out.get("DELIVEROO",15.0),
+            "UBER_EATS":out.get("UBER_EATS",float(DEFAULTS["UBER_EATS"])),
+            "DELIVEROO":out.get("DELIVEROO",float(DEFAULTS["DELIVEROO"])),
         }
 
     @app.get("/api/marketplace/markups-phase6")
@@ -46,7 +47,10 @@ def register_marketplace_markup_phase6(app, db):
         source=payload.get("markups") if isinstance(payload.get("markups"),dict) else payload
         values={}
         for channel in DEFAULTS:
-            raw=source.get(channel,15)
+            # An omitted channel must retain its persisted percentage.
+            if channel not in source:
+                continue
+            raw=source[channel]
             try:
                 pct=Decimal(str(raw)).quantize(Decimal("0.01"))
             except (InvalidOperation,ValueError,TypeError):

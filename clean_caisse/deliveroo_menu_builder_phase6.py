@@ -131,12 +131,12 @@ def _markup_percentage(conn):
     )""")
     conn.execute(
         """INSERT INTO marketplace_markup_settings(channel,percentage)
-           VALUES('DELIVEROO',15.00) ON CONFLICT(channel) DO NOTHING"""
+           VALUES('DELIVEROO',20.00) ON CONFLICT(channel) DO NOTHING"""
     )
     row = conn.execute(
         "SELECT percentage FROM marketplace_markup_settings WHERE channel='DELIVEROO'"
     ).fetchone()
-    return _money(row["percentage"] if row else 15)
+    return _money(row["percentage"] if row else 20)
 
 
 def _marked_price(value, percentage):

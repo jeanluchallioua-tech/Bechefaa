@@ -64,3 +64,7 @@ jobs:
       - name: Pure discount calculations
         if: success() || failure()
         run: python -m unittest discover -s tests -p 'test_bis_discount_rules.py' -v
+
+      - name: BIS marketplace pricing and non-destructive update tests
+        if: success() || failure()
+        run: python -m unittest discover -s tests -p 'test_bis_marketplace_markup.py' -v
