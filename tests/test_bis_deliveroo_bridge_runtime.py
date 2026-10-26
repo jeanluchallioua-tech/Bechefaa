@@ -44,8 +44,12 @@ class FakeDB:
         self.statements.append(sql)
         if "LOCK TABLE caisse_orders IN EXCLUSIVE MODE" in sql:
             return Rows()
-        if "SELECT id FROM caisse_orders WHERE id=%s" in sql:
-            return Rows({"id": params[0]} if params[0] in self.orders else None)
+        if "ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS deliveroo_import_fingerprint" in sql:
+            return Rows()
+        if "SELECT id, deliveroo_import_fingerprint FROM caisse_orders WHERE id=%s" in sql:
+            stored = self.orders.get(params[0])
+            return Rows({"id": params[0], "deliveroo_import_fingerprint": stored[-1]}
+                        if stored is not None else None)
         if "SELECT COALESCE(MAX(num),0)+1" in sql:
             return Rows({"n": len(self.orders) + 1})
         if "INSERT INTO caisse_orders" in sql:
@@ -114,6 +118,40 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
             [{"name": "Guacamole", "plu": "OM21001"}],
             ensure_ascii=False))
         self.assertEqual(sum("LOCK TABLE" in sql for sql in db.statements), 2)
+
+    def test_same_external_id_with_changed_price_is_rejected_not_silently_replayed(self):
+        db = FakeDB()
+        first = payload()
+        changed = copy.deepcopy(first)
+        changed["body"]["order"]["items"][0]["total_price"]["fractional"] = 1990
+        self.assertEqual(self.bridge(db, first), "created")
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, changed)
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+        self.assertEqual(str(db.items[0][5]), "8.95")
+
+    def test_same_external_id_with_changed_options_is_rejected(self):
+        db = FakeDB()
+        first = payload()
+        changed = copy.deepcopy(first)
+        changed["body"]["order"]["items"][0]["modifiers"][0]["name"] = "Sans oignons"
+        self.assertEqual(self.bridge(db, first), "created")
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, changed)
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
+    def test_legacy_existing_order_without_fingerprint_requires_review(self):
+        db = FakeDB()
+        first = payload()
+        self.assertEqual(self.bridge(db, first), "created")
+        order_id = next(iter(db.orders))
+        db.orders[order_id] = db.orders[order_id][:-1] + (None,)
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, copy.deepcopy(first))
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
 
     def test_different_external_order_ids_remain_distinct(self):
         db = FakeDB()
