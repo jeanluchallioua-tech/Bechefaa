@@ -153,55 +153,91 @@ def register_order_notifications_phase33(app):
  window.addEventListener('focus',retryUnlockIfAllowed);
  document.addEventListener('visibilitychange',function(){if(!document.hidden)retryUnlockIfAllowed();});
 
- let siteNoticeTimer=null;
- function scheduleSiteNoticeDismiss(el){
-   if(siteNoticeTimer)clearTimeout(siteNoticeTimer);
-   siteNoticeTimer=setTimeout(()=>{
-     el.classList.remove('show');
-     try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}
-     siteNoticeTimer=null;
-   },8000);
+
+ // Site orders must be acknowledged on the POS banner before any print launch.
+ // Keep pending notices across reloads; never infer acknowledgement from a timer.
+ const SITE_PRINT_KEY='bechefaa_site_prints_v2';
+ const SITE_QUEUE_KEY='bechefaa_site_pending_click_print_v1';
+ let siteQueue=[];
+ try{
+   const saved=JSON.parse(localStorage.getItem(SITE_QUEUE_KEY)||'[]');
+   if(Array.isArray(saved))siteQueue=saved.filter(o=>o&&typeof o.id==='string'&&o.id.length>0);
+ }catch(_){}
+ let printing=false,siteNoticeError='';
+ function persistSiteQueue(){safeSet(SITE_QUEUE_KEY,JSON.stringify(siteQueue));}
+ function alreadyLaunched(orderId){
+   try{
+     const launched=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}');
+     return !!(launched&&typeof launched==='object'&&launched[orderId]);
+   }catch(_){return false;}
  }
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
-   el=document.createElement('span');el.id='phase6-site-order-notice';el.setAttribute('role','button');el.setAttribute('aria-live','assertive');el.tabIndex=0;function dismiss(){el.classList.remove('show');try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}}el.addEventListener('click',dismiss);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')dismiss();});document.body.appendChild(el);return el;
+   el=document.createElement('span');el.id='phase6-site-order-notice';el.setAttribute('role','button');el.setAttribute('aria-live','assertive');el.tabIndex=0;
+   el.addEventListener('click',handleSiteNoticeClick);
+   el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handleSiteNoticeClick();}});
+   document.body.appendChild(el);return el;
+ }
+ function renderSiteNotice(){
+   if(PAGE!=='pos')return;
+   const el=ensureSiteNotice();if(!el)return;
+   if(siteNoticeError){
+     el.dataset.kind='error';el.textContent=siteNoticeError;el.classList.add('show');return;
+   }
+   const order=siteQueue[0];
+   if(!order){el.classList.remove('show');el.dataset.kind='';return;}
+   const name=String(order.customer_name||'Client').trim();
+   const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
+   el.dataset.kind='order';
+   el.textContent='⚡ NOUVELLE COMMANDE SITE — '+name+' • '+mode+' — TOUCHER POUR IMPRIMER';
+   el.classList.add('show');
  }
  function showSiteNotice(order,simulation=false){
    if(PAGE!=='pos')return;
-   const el=ensureSiteNotice();if(!el)return;
-   const name=String(order.customer_name||'Client').trim();
-   const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE SITE — ')+name+' • '+mode;
-   el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
-   scheduleSiteNoticeDismiss(el);
-   if(!simulation){try{sessionStorage.setItem(PENDING_NOTICE,JSON.stringify({order:{id:order.id,customer_name:order.customer_name,ticket_type:order.ticket_type},at:Date.now()}))}catch(_){}}
+   if(simulation){
+     const el=ensureSiteNotice();if(!el)return;
+     el.dataset.kind='simulation';
+     el.textContent='TEST — NOUVELLE COMMANDE SITE (aucune impression)';
+     el.classList.add('show');return;
+   }
+   if(!order||order.id===undefined||order.id===null)return;
+   const id=String(order.id);
+   if(!id||alreadyLaunched(id)||siteQueue.some(o=>o.id===id))return;
+   siteQueue.push({id,customer_name:String(order.customer_name||'Client'),ticket_type:String(order.ticket_type||'')});
+   persistSiteQueue();renderSiteNotice();
  }
-
- const SITE_PRINT_KEY='bechefaa_site_prints_v2';
- let printing=false,printTimer=null;
- function autoPrintSiteOrder(order){
-   if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing||document.hidden)return;
-   let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
-   if(printed[order.id])return;
+ function handleSiteNoticeClick(){
+   if(PAGE!=='pos')return;
+   const el=ensureSiteNotice();if(!el||!el.classList.contains('show'))return;
+   if(el.dataset.kind==='simulation'){renderSiteNotice();return;}
+   if(el.dataset.kind==='error'){siteNoticeError='';renderSiteNotice();return;}
+   if(printing||!PRINT_ENABLED||!siteQueue.length)return;
+   const order=siteQueue[0];
+   if(alreadyLaunched(order.id)){
+     // A previous click may have launched Epson before a browser restart.
+     // Do not launch a second print pack on the same device.
+     siteQueue.shift();persistSiteQueue();
+     siteNoticeError='Impression déjà lancée — vérifier les tickets avant toute réimpression manuelle';
+     renderSiteNotice();return;
+   }
    if(typeof window.bechefaaPrintOrderPack!=='function'){
-     const el=ensureSiteNotice();
-     if(el){el.textContent='Impression automatique indisponible — imprimer les tickets manuellement';el.classList.add('show');}
-     console.error('BÉCHÉFAA: fonction Epson bechefaaPrintOrderPack absente');
-     return;
+     siteNoticeError='Impression indisponible — vérifier Epson puis toucher pour fermer ce message';
+     renderSiteNotice();return;
    }
    printing=true;
-   // Reserve this launch before leaving the page for Epson; other orders remain pending.
-   printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
+   // Reserve the launch before leaving Samsung Internet for TM Print Assistant.
+   // A failed/ambiguous return must NEVER trigger an automatic retry.
+   let launched={};try{launched=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')||{}}catch(_){}
+   launched[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(launched));
+   siteQueue.shift();persistSiteQueue();renderSiteNotice();
    Promise.resolve().then(()=>window.bechefaaPrintOrderPack(order.id)).then(result=>{
      if(result===false)throw new Error('Epson a refusé le lancement');
    }).catch(e=>{
-     // Ne pas relancer automatiquement : une tentative Epson peut avoir abouti
-     // malgré une erreur de retour. La reprise est manuelle pour éviter les doublons.
-     printing=false;
-     console.error('BÉCHÉFAA: impression automatique non confirmée',e);
-     const el=ensureSiteNotice();if(el){el.textContent='Impression non confirmée — vérifier les tickets puis imprimer manuellement si nécessaire';el.classList.add('show');}
-   });
+     console.error('BÉCHÉFAA: impression sur clic non confirmée',e);
+     siteNoticeError='Impression non confirmée — vérifier les tickets puis réimprimer manuellement si nécessaire';
+     renderSiteNotice();
+   }).finally(()=>{printing=false;});
  }
 
  function inspect(orders,{simulation=false}={}){
@@ -222,13 +258,9 @@ def register_order_notifications_phase33(app):
      const entries=Object.entries(known).sort((a,b)=>b[1]-a[1]).slice(0,500);
      seen=Object.fromEntries(entries);safeSet(LAST_KEY,JSON.stringify(seen));
    }
-   if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1],simulation);beep();}
-   if(PRINT_ENABLED&&!simulation){
-     // Retry unlaunched recent orders on return from Epson, not merely the newest order.
-     const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
-       const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
-     }).sort((a,b)=>Number(a.num)-Number(b.num));
-     if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}},1200);
+   if(fresh.length){
+     if(PAGE==='pos')for(const order of fresh)showSiteNotice(order,simulation);
+     beep();
    }
    return fresh.length;
  }
@@ -264,9 +296,13 @@ def register_order_notifications_phase33(app):
  window.addEventListener('bechefaa:print-return',resumeAlerts);
  window.addEventListener('pageshow',resumeAlerts);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeAlerts();});
- try{const pending=JSON.parse(sessionStorage.getItem(PENDING_NOTICE)||'null');if(pending&&pending.order&&Date.now()-pending.at<15*60*1000){showSiteNotice(pending.order);pendingBeep=true;updateButton();}}catch(_){}
-
- installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
+ // Migrate the old session-only notice without replaying an old sound.
+ try{
+   const pending=JSON.parse(sessionStorage.getItem(PENDING_NOTICE)||'null');
+   if(pending&&pending.order&&Date.now()-pending.at<15*60*1000)showSiteNotice(pending.order);
+   sessionStorage.removeItem(PENDING_NOTICE);
+ }catch(_){}
+ installButton();ensureSiteNotice();renderSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
 '''.replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false').replace('__TEST_MODE__', 'true' if request.args.get('test_notifications') == '1' else 'false')
