@@ -208,6 +208,36 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                         self.bridge(db, event)
                     self.assertEqual(db.statements, [])
 
+    def test_unexplained_unit_price_mismatch_without_modifiers_is_blocked_before_db(self):
+        # No modifier can explain the discrepancy; a discount or fee needs
+        # a reviewed accounting policy before the POS may import the order.
+        for unit_cents, line_cents, qty in ((800, 1790, 2), (900, 1790, 2),
+                                             (0, 100, 1)):
+            with self.subTest(unit=unit_cents, total=line_cents, qty=qty):
+                conn = FakeDB()
+                event = payload()
+                item = event["body"]["order"]["items"][0]
+                item["quantity"] = qty
+                item["modifiers"] = []
+                item["unit_price"] = {"fractional": unit_cents, "currency_code": "EUR"}
+                item["total_price"]["fractional"] = line_cents
+                with self.assertRaisesRegex(ValueError, "unit and line prices differ"):
+                    self.bridge(conn, event)
+                self.assertEqual(conn.statements, [])
+                self.assertEqual(conn.orders, {})
+                self.assertEqual(conn.items, [])
+
+    def test_exact_unit_price_without_modifiers_still_imports_once(self):
+        conn = FakeDB()
+        event = payload()
+        item = event["body"]["order"]["items"][0]
+        item["modifiers"] = []
+        item["unit_price"] = {"fractional": 895, "currency_code": "EUR"}
+        self.assertEqual(self.bridge(conn, event), "created")
+        self.assertEqual(self.bridge(conn, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(conn.orders), 1)
+        self.assertEqual(len(conn.items), 1)
+
     def test_declared_modifier_price_is_fingerprinted_but_not_added_to_pos_options(self):
         db = FakeDB()
         event = payload()

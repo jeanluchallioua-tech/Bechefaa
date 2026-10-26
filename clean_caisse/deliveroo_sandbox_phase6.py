@@ -248,6 +248,12 @@ def register_deliveroo_sandbox_phase6(app, db):
                 modifiers = []
             if not isinstance(modifiers, list):
                 raise ValueError("invalid modifiers")
+            # With no modifiers, the declared unit and line totals must agree
+            # exactly in cents. Discounts or fees need explicit review rather
+            # than silently importing a different POS unit price.
+            if (reported_unit_cents is not None and not modifiers
+                    and reported_unit_cents * qty != fractional):
+                raise ValueError("Deliveroo unit and line prices differ; financial review required")
             options = []
             modifier_unit_prices = []
             for modifier in modifiers:
