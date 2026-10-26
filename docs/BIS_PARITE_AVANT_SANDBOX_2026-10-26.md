@@ -39,6 +39,8 @@ Les contrôles de code et les tests unitaires **ne remplacent pas** la recette s
 
 **Contrôle BIS complémentaire du 26/10/2026 (notes et quantités Deliveroo) :** le pont opt-in refuse maintenant les événements autres que `order.new`, les collections d'options malformées et les instructions client non vides tant que leur transcription sur les tickets cuisine n'est pas approuvée. Cette protection est volontairement **bloquante** pour les commandes comportant des notes : elle évite leur perte silencieuse, mais ne constitue pas une prise en charge fonctionnelle des instructions. Les quantités d'options supérieures à 1 sont conservées dans `options_json` et `options_text` ; le format des options de quantité 1 reste inchangé. Les tests de ces comportements utilisent une base simulée et ne démontrent ni la parité de la tablette, ni la compatibilité d'impression Epson réelle. **Le test 2 et les scénarios 12/16 restent bloqués.**
 
+**Contrôle BIS complémentaire du 26/10/2026 (rejeu du GUID webhook) :** le stockage de l'événement Deliveroo est désormais immuable pour un même `X-Deliveroo-Sequence-Guid` : un rejeu strictement identique conserve la première preuve, tandis qu'un même GUID accompagné d'un contenu JSON différent est refusé avant le pont POS. `tests/test_bis_deliveroo_event_replay.py` couvre ces chemins sur une fausse base SQL. Ce contrôle est distinct de l'unicité de commande par ID Deliveroo et **ne valide pas** la concurrence PostgreSQL réelle, le test 2, ni les scénarios Menu API 12/16. Aucun déploiement n'est autorisé par ce seul test.
+
 ## Critères de sortie avant sandbox
 
 1. CI de la **dernière révision** de BIS terminée en succès ; examiner les étapes individuellement.
