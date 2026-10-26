@@ -174,9 +174,12 @@ def register_deliveroo_sandbox_phase6(app, db):
         order = body.get("order") if isinstance(body, dict) else None
         if not isinstance(order, dict):
             raise ValueError("order.new missing body.order")
-        external_id = str(order.get("id") or order.get("order_id") or "").strip()
-        if not external_id:
-            raise ValueError("order.new missing order id")
+        # Reject silently normalized IDs: a replay must always derive the
+        # same POS key from the exact identifier accepted by the read-only parser.
+        from clean_caisse.deliveroo_order_mapping_phase6 import _canonical_id
+        external_id = _canonical_id(
+            order.get("id") or order.get("order_id"), "Deliveroo order ID"
+        )
         items = order.get("items")
         if not isinstance(items, list) or not items:
             raise ValueError("order.new missing items")
@@ -190,25 +193,38 @@ def register_deliveroo_sandbox_phase6(app, db):
             if not isinstance(item, dict):
                 raise ValueError("invalid order item")
             name = str(item.get("name") or "").strip()
-            qty = int(item.get("quantity") or 0)
+            qty = item.get("quantity")
+            if type(qty) is not int or qty < 1:
+                raise ValueError("invalid Deliveroo item quantity")
+            plu = _canonical_id(item.get("pos_item_id"), "POS item ID")
             price = item.get("total_price")
-            fractional = price.get("fractional") if isinstance(price, dict) else None
-            if not name or qty <= 0 or fractional is None:
-                raise ValueError("order item missing name/quantity/total_price")
-            amount = Decimal(str(fractional)) / Decimal("100")
-            if amount < 0:
-                raise ValueError("negative item price")
+            if not isinstance(price, dict) or price.get("currency_code") != "EUR":
+                raise ValueError("Deliveroo item total must be EUR")
+            fractional = price.get("fractional")
+            if type(fractional) is not int or fractional < 0:
+                raise ValueError("invalid Deliveroo item total cents")
+            if not name or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in name):
+                raise ValueError("invalid Deliveroo item name")
+            amount = Decimal(fractional) / Decimal("100")
             modifiers = item.get("modifiers") or []
             if not isinstance(modifiers, list):
                 raise ValueError("invalid modifiers")
             options = []
             for modifier in modifiers:
-                if isinstance(modifier, dict):
-                    label = str(modifier.get("name") or "").strip()
-                    if label:
-                        options.append({"name": label, "plu": str(modifier.get("pos_item_id") or "")})
+                if not isinstance(modifier, dict):
+                    raise ValueError("invalid Deliveroo modifier")
+                modifier_plu = _canonical_id(
+                    modifier.get("pos_item_id"), "modifier POS item ID"
+                )
+                modifier_qty = modifier.get("quantity", 1)
+                if type(modifier_qty) is not int or modifier_qty < 1:
+                    raise ValueError("invalid Deliveroo modifier quantity")
+                label = str(modifier.get("name") or "").strip()
+                if not label or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in label):
+                    raise ValueError("invalid Deliveroo modifier name")
+                options.append({"name": label, "plu": modifier_plu, "quantity": modifier_qty})
             unit = amount / qty
-            normalized.append((str(item.get("pos_item_id") or ""), name, qty, unit, options, position))
+            normalized.append((plu, name, qty, unit, options, position))
             total += amount
         now = int(time.time() * 1000)
         pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
