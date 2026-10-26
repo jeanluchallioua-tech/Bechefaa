@@ -520,5 +520,115 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
 
 
 
+
+class PostgresDeliverooConcurrencyTests(unittest.TestCase):
+    """Real PostgreSQL transaction test; only the isolated GitHub CI database.
+
+    No HTTP/webhook, restaurant sandbox, kitchen, printer or production database.
+    The test is skipped unless an explicit local CI DSN is supplied.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dsn = os.environ.get("BECHEFAA_BIS_TEST_PG_DSN")
+        if not cls.dsn:
+            raise unittest.SkipTest("isolated PostgreSQL CI DSN not configured")
+        import psycopg
+        from psycopg.rows import dict_row
+        cls.psycopg = psycopg
+        cls.dict_row = dict_row
+        BisDeliverooBridgeRuntimeTests.setUpClass()
+        cls.bridge_code = BisDeliverooBridgeRuntimeTests.code
+        with cls.connect() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS caisse_orders (
+                id TEXT PRIMARY KEY, num INTEGER NOT NULL UNIQUE,
+                customer_name TEXT, source TEXT, sales_channel TEXT,
+                payment TEXT, status TEXT, total NUMERIC(12,2),
+                created_at BIGINT, updated_at BIGINT
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS caisse_order_items (
+                order_id TEXT NOT NULL REFERENCES caisse_orders(id),
+                line_id TEXT NOT NULL, product_id TEXT, name TEXT,
+                qty INTEGER, unit_price NUMERIC(12,2), options_json JSONB,
+                options_text TEXT, prepared BOOLEAN, position INTEGER,
+                PRIMARY KEY(order_id,line_id)
+            )""")
+
+    @classmethod
+    def connect(cls):
+        return cls.psycopg.connect(cls.dsn, row_factory=cls.dict_row)
+
+    def setUp(self):
+        with self.connect() as conn:
+            conn.execute("TRUNCATE caisse_order_items, caisse_orders")
+
+    def import_in_parallel(self, first, second):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        barrier = Barrier(2)
+        stub_app = SimpleNamespace(ensure_order_schema=lambda conn: None)
+
+        def import_one(event):
+            namespace = {
+                "os": os, "json": json,
+                "db": lambda: self.connect(),
+            }
+            exec(self.bridge_code, namespace)
+            barrier.wait(timeout=15)
+            try:
+                return ("ok", namespace["_bridge_order_new"](copy.deepcopy(event)))
+            except ValueError as exc:
+                return ("conflict", str(exc))
+
+        env = {
+            "CC_APP_ID": "app_fad0809f-954d-47e7-983d-afb7c3867cd0",
+            "BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED": "1",
+        }
+        with patch.dict(os.environ, env), patch.dict(
+            sys.modules, {"clean_caisse.app": stub_app}
+        ):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                left = pool.submit(import_one, first)
+                right = pool.submit(import_one, second)
+                return [left.result(timeout=40), right.result(timeout=40)]
+
+    def test_concurrent_identical_order_id_creates_one_complete_kitchen_order(self):
+        event = payload()
+        outcomes = self.import_in_parallel(event, event)
+        self.assertCountEqual(outcomes, [("ok", "created"), ("ok", "duplicate")])
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 1)
+            row = conn.execute("SELECT status, sales_channel, total FROM caisse_orders").fetchone()
+            self.assertEqual(row["status"], "À préparer")
+            self.assertEqual(row["sales_channel"], "DELIVEROO")
+            self.assertEqual(str(row["total"]), "17.90")
+
+    def test_concurrent_conflicting_replay_never_overwrites_first_order(self):
+        event = payload()
+        changed = copy.deepcopy(event)
+        changed["body"]["order"]["items"][0]["total_price"]["fractional"] = 1990
+        outcomes = self.import_in_parallel(event, changed)
+        self.assertEqual(sum(outcome == ("ok", "created") for outcome in outcomes), 1)
+        self.assertEqual(sum(kind == "conflict" and "replay content conflict" in value
+                             for kind, value in outcomes), 1)
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 1)
+            total = conn.execute("SELECT total FROM caisse_orders").fetchone()["total"]
+            self.assertIn(str(total), ("17.90", "19.90"))
+
+    def test_concurrent_distinct_order_ids_receive_unique_pos_numbers(self):
+        first = payload()
+        second = copy.deepcopy(first)
+        second["body"]["order"]["id"] = "fr:test-order-2"
+        outcomes = self.import_in_parallel(first, second)
+        self.assertCountEqual(outcomes, [("ok", "created"), ("ok", "created")])
+        with self.connect() as conn:
+            rows = conn.execute("SELECT num FROM caisse_orders ORDER BY num").fetchall()
+            self.assertEqual([row["num"] for row in rows], [1, 2])
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
