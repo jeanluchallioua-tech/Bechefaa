@@ -629,7 +629,9 @@ def send_order_to_kitchen_classic(order_id):
                 if not row:
                     return "Commande introuvable", 404
                 if row["status"] == "À préparer":
-                    pass
+                    # A repeated POST must not trigger a second kitchen/client
+                    # print pack. Reprints use their dedicated explicit action.
+                    return redirect("/?kitchen=already-sent", code=303)
                 elif row["status"] == "Enregistrée":
                     conn.execute(
                         "UPDATE caisse_orders SET status = %s, updated_at = %s WHERE id = %s",
