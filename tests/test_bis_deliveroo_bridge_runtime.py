@@ -178,6 +178,59 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                     self.bridge(db, event)
                 self.assertEqual(db.statements, [])
 
+    def test_modifier_quantity_survives_pos_json_and_kitchen_text(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["items"][0]["modifiers"][0]["quantity"] = 3
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(json.loads(db.items[0][6]), [
+            {"name": "Guacamole", "plu": "OM21001", "quantity": 3}])
+        self.assertEqual(db.items[0][7], "Guacamole ×3")
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        self.assertEqual(len(db.items), 1)
+
+    def test_invalid_modifier_containers_rejected_without_database_access(self):
+        for invalid in ("", {}, False, 0, "Guacamole"):
+            with self.subTest(invalid=repr(invalid)):
+                db = FakeDB()
+                event = payload()
+                event["body"]["order"]["items"][0]["modifiers"] = invalid
+                with self.assertRaises(ValueError):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+
+    def test_unmapped_customer_notes_are_not_silently_dropped(self):
+        for scope, field in (("order", "order_notes"),
+                             ("order", "cutlery_notes"),
+                             ("order", "special_instructions"),
+                             ("item", "instructions"),
+                             ("modifier", "customer_note")):
+            with self.subTest(scope=scope, field=field):
+                db = FakeDB()
+                event = payload()
+                order = event["body"]["order"]
+                target = (order if scope == "order" else
+                          order["items"][0] if scope == "item" else
+                          order["items"][0]["modifiers"][0])
+                target[field] = "Sans oignons"
+                with self.assertRaisesRegex(ValueError, "instructions require"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+
+    def test_empty_customer_note_does_not_block_import(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["order_notes"] = "   "
+        self.assertEqual(self.bridge(db, event), "created")
+
+    def test_other_event_cannot_enter_order_new_bridge(self):
+        db = FakeDB()
+        event = payload()
+        event["event"] = "order.status_update"
+        with self.assertRaisesRegex(ValueError, "order.new"):
+            self.bridge(db, event)
+        self.assertEqual(db.statements, [])
+
     def test_disabled_and_nonpreproduction_never_touch_database(self):
         for flags in ({"enabled": False}, {"sandbox": False}):
             with self.subTest(flags=flags):
