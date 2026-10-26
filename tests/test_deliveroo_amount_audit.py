@@ -1,7 +1,7 @@
 import unittest
 from copy import deepcopy
 
-from clean_caisse.deliveroo_amount_audit_phase6 import audit_order_amounts
+from clean_caisse.deliveroo_amount_audit_phase6 import (audit_order_amounts, audit_catalog_base_markup)
 from tests.test_deliveroo_order_reconcile import sample
 
 
@@ -124,6 +124,92 @@ class DeliverooAmountAuditTests(unittest.TestCase):
         self.assertTrue(audit["totals_match"])
         self.assertTrue(audit["line_diagnostics"][1]["matches_base_only"])
         self.assertFalse(audit["writes"])
+
+
+
+class DeliverooCatalogMarkupAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.payload = sample()
+        self.catalog = {"products": [{
+            "id": "MU11002", "name": "Veggie Burger", "price": "10.00",
+        }]}
+
+    def test_matching_assumed_fifteen_percent_never_approves_policy(self):
+        self.payload["body"]["order"]["items"][0]["unit_price"]["fractional"] = 1150
+        audit = audit_catalog_base_markup(
+            self.payload, self.catalog, markup_percentage="15"
+        )
+        line = audit["line_diagnostics"][0]
+        self.assertEqual(line["catalog_base_eur"], "10.00")
+        self.assertEqual(line["expected_unit_eur"], "11.50")
+        self.assertEqual(line["reported_unit_eur"], "11.50")
+        self.assertEqual(line["status"], "matches_assumed_markup")
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertFalse(audit["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+    def test_mismatch_reports_exact_difference_without_approving(self):
+        audit = audit_catalog_base_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        line = audit["line_diagnostics"][0]
+        self.assertEqual(line["reported_unit_eur"], "8.00")
+        self.assertEqual(line["expected_unit_eur"], "11.50")
+        self.assertEqual(line["difference_eur"], "-3.50")
+        self.assertEqual(audit["review_reasons"], [
+            "unit_price_differs_from_assumed_markup"
+        ])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["price_policy_verified"])
+
+    def test_round_half_up_matches_menu_builder_policy(self):
+        self.catalog["products"][0]["price"] = "0.10"
+        self.payload["body"]["order"]["items"][0]["unit_price"]["fractional"] = 11
+        audit = audit_catalog_base_markup(
+            self.payload, self.catalog, markup_percentage="5"
+        )
+        self.assertEqual(audit["line_diagnostics"][0]["expected_unit_eur"], "0.11")
+        self.assertEqual(audit["review_reasons"], [])
+
+    def test_missing_and_inactive_products_are_reviewed(self):
+        audit = audit_catalog_base_markup(
+            self.payload, {"products": []}, markup_percentage=15
+        )
+        self.assertEqual(audit["review_reasons"], ["missing_catalog_product"])
+        self.catalog["products"][0]["active"] = False
+        audit = audit_catalog_base_markup(
+            self.payload, self.catalog, markup_percentage=15
+        )
+        self.assertEqual(audit["review_reasons"], ["inactive_catalog_product"])
+
+    def test_invalid_catalogue_price_is_not_treated_as_zero(self):
+        for bad in (None, "not a price", True, "-1", "NaN", "Infinity"):
+            with self.subTest(bad=bad):
+                self.catalog["products"][0]["price"] = bad
+                audit = audit_catalog_base_markup(
+                    self.payload, self.catalog, markup_percentage=15
+                )
+                self.assertEqual(audit["review_reasons"], ["invalid_catalog_price"])
+                self.assertFalse(audit["price_policy_verified"])
+
+    def test_duplicate_catalogue_ids_fail_closed(self):
+        from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+        self.catalog["products"].append(deepcopy(self.catalog["products"][0]))
+        with self.assertRaisesRegex(DeliverooMappingError, "Duplicate catalogue"):
+            audit_catalog_base_markup(
+                self.payload, self.catalog, markup_percentage=15
+            )
+
+    def test_markup_must_be_supplied_as_valid_nonnegative_number(self):
+        from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+        for bad in (None, True, "-1", "NaN", "Infinity", "fifteen"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(DeliverooMappingError):
+                    audit_catalog_base_markup(
+                        self.payload, self.catalog, markup_percentage=bad
+                    )
 
 
 if __name__ == "__main__":
