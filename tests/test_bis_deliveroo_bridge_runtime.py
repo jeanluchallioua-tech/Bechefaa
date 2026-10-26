@@ -111,7 +111,7 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(db.items[0][4], 2)
         self.assertEqual(str(db.items[0][5]), "8.95")
         self.assertEqual(db.items[0][6], json.dumps(
-            [{"name": "Guacamole", "plu": "OM21001", "quantity": 1}],
+            [{"name": "Guacamole", "plu": "OM21001"}],
             ensure_ascii=False))
         self.assertEqual(sum("LOCK TABLE" in sql for sql in db.statements), 2)
 
