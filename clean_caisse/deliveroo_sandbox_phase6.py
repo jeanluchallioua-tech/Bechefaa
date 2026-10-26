@@ -262,6 +262,17 @@ def register_deliveroo_sandbox_phase6(app, db):
                 modifier_plu = _canonical_id(
                     modifier.get("pos_item_id"), "modifier POS item ID"
                 )
+                # A generated option PLU encodes its parent product and the
+                # zero-based group/choice indices. Reject mismatched parents
+                # and noncanonical indices before writing a kitchen order.
+                # Legacy unprefixed PLUs still require separate catalog review.
+                if modifier_plu.startswith("opt:"):
+                    parts = modifier_plu.split(":")
+                    if (len(parts) != 4 or parts[1] != plu
+                            or any(not index.isascii() or not index.isdecimal()
+                                   or str(int(index)) != index
+                                   for index in parts[2:])):
+                        raise ValueError("Deliveroo modifier PLU requires catalog reconciliation")
                 modifier_qty = modifier.get("quantity", 1)
                 if type(modifier_qty) is not int or modifier_qty < 1:
                     raise ValueError("invalid Deliveroo modifier quantity")
