@@ -311,5 +311,58 @@ class DeliverooKitchenPreviewTests(unittest.TestCase):
         )
 
 
+    def test_approved_legacy_plu_is_used_only_for_modifier_price_diagnostics(self):
+        from copy import deepcopy
+        from clean_caisse.deliveroo_readiness_phase6 import assess_kitchen_readiness
+
+        self.catalog["products"][0]["price"] = "10.00"
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "0.95"
+        payload = sample()
+        item = payload["body"]["order"]["items"][0]
+        item["modifiers"][0]["pos_item_id"] = "OM21001"
+        item["unit_price"]["fractional"] = 1150
+        item["modifiers"][0]["unit_price"]["fractional"] = 109
+        item["total_price"]["fractional"] = 1259
+        payload["body"]["order"]["total_price"]["fractional"] = 1259
+        original = deepcopy(payload)
+        preview = preview_order(
+            payload, self.catalog,
+            approved_map={("MU11002", "OM21001"): "opt:MU11002:0:0"},
+            assumed_markup_percentage=15,
+        )
+        self.assertEqual(payload, original)
+        audit = preview["catalog_modifier_markup_audit"]
+        self.assertEqual(audit["review_reasons"], [])
+        self.assertEqual(audit["modifier_diagnostics"][0]["status"],
+                         "matches_assumed_modifier_markup")
+        self.assertEqual(audit["approved_legacy_plu_translations"], [{
+            "item_index": 0, "modifier_index": 0,
+            "received_plu": "OM21001",
+            "approved_canonical_plu": "opt:MU11002:0:0",
+        }])
+        self.assertFalse(audit["price_policy_verified"])
+        self.assertFalse(audit["writes"])
+        self.assertFalse(preview["ready_for_dispatch"])
+        readiness = assess_kitchen_readiness(preview)
+        self.assertIn("price_policy_not_approved", readiness["blockers"])
+        self.assertFalse(readiness["dispatch_performed"])
+
+    def test_approved_legacy_plu_does_not_hide_real_modifier_price_mismatch(self):
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "0.95"
+        preview = preview_order(
+            payload, self.catalog,
+            approved_map={("MU11002", "OM21001"): "opt:MU11002:0:0"},
+            assumed_markup_percentage=15,
+        )
+        audit = preview["catalog_modifier_markup_audit"]
+        self.assertEqual(audit["review_reasons"],
+                         ["modifier_price_differs_from_assumed_markup"])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+
 if __name__ == "__main__":
     unittest.main()
