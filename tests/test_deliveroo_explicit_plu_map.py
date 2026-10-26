@@ -121,5 +121,56 @@ class ExplicitPluMapTests(unittest.TestCase):
             )
 
 
+    def test_legacy_plu_inventory_is_read_only_and_never_approves(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        original = deepcopy(self.payload)
+        self.payload["body"]["order"]["items"][0]["modifiers"].append(
+            deepcopy(self.payload["body"]["order"]["items"][0]["modifiers"][0])
+        )
+        expected_payload = deepcopy(self.payload)
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(self.payload, expected_payload)
+        self.assertEqual(audit["legacy_source_count"], 1)
+        self.assertEqual(audit["legacy_sources"], [{
+            "parent_pos_item_id": "MU11002",
+            "legacy_modifier_pos_item_id": "OM21001",
+            "source_labels": ["Guacamole"],
+            "occurrences": 2,
+            "conflicting_labels": False,
+            "missing_label": False,
+        }])
+        self.assertTrue(audit["requires_explicit_mapping_review"])
+        self.assertFalse(audit["mapping_approved"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        self.assertNotEqual(self.payload, original)
+
+    def test_inventory_flags_conflicting_or_missing_legacy_labels(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        conflicting = deepcopy(modifiers[0])
+        conflicting["name"] = "Cheddar"
+        modifiers.append(conflicting)
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(audit["conflicting_label_sources"], [["MU11002", "OM21001"]])
+        self.assertEqual(audit["missing_label_sources"], [])
+        modifiers[1]["name"] = ""
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(audit["missing_label_sources"], [["MU11002", "OM21001"]])
+        self.assertFalse(audit["mapping_approved"])
+
+    def test_inventory_canonical_prefix_is_not_mapping_approval(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        modifier = self.payload["body"]["order"]["items"][0]["modifiers"][0]
+        modifier["pos_item_id"] = "opt:MU11002:0:0"
+        audit = audit_modifier_plu_sources(self.payload)
+        self.assertEqual(audit["legacy_sources"], [])
+        self.assertEqual(audit["canonical_modifier_occurrences_unverified"], 1)
+        self.assertFalse(audit["requires_explicit_mapping_review"])
+        self.assertFalse(audit["mapping_approved"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+
+
 if __name__ == "__main__":
     unittest.main()
