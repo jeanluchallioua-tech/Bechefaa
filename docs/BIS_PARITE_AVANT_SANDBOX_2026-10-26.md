@@ -70,3 +70,11 @@ Le contrôle du code BIS a révélé deux régressions potentielles par rapport 
 
 Le test Node isolé dans `tests/test_bis_js_smoke.py` vérifie l'absence d'impression au polling, la persistance des deux commandes après rechargement, le lancement après chaque clic et l'absence de double lancement sur ce navigateur. **Aucun ticket n'a été réellement imprimé.** La parité PC/tablette, l'Epson, le volume/bip réel, la concurrence entre plusieurs terminaux et le retour Mollie restent à valider avant sandbox. Le mécanisme local ne constitue pas une garantie de non-duplication d'impression multi-appareils.
 
+
+## Complément de recette : échec transactionnel et retour utilisateur (26/10/2026)
+
+- Un test isolé supplémentaire (`tests/test_bis_deliveroo_bridge_runtime.py`) simule une erreur SQL lors de l'insertion du **deuxième article** d'une commande Deliveroo. Le faux gestionnaire transactionnel annule la commande et le premier article ; un rejeu complet peut ensuite créer **une seule** commande avec ses deux articles, puis un nouveau rejeu est classé comme doublon. Ce test vérifie la délimitation de transaction du pont, **pas** les garanties de PostgreSQL réel ni l'envoi cuisine/impression.
+- Comparaison Git actualisée au 26/10 : `phase4-encaissement...bis-prod-sync-integration-2026-10-25` reste **divergente** : **305 commits en avance et 13 en retard** au moment du contrôle, avant le présent ajout de test. Ces chiffres ne sont pas des preuves de parité fonctionnelle.
+- Retour du restaurant : l'absence de bip observée lors du test de commande site provenait du **volume baissé de la tablette**. Ne pas modifier la logique audio sans reproduction d'un défaut avec volume et paramètres vérifiés.
+- Le comportement à préserver est : **bip dès réception** ; **bandeau visible jusqu'au clic** ; **impression cuisine/client uniquement au clic**. Ce flux doit être testé sur tablette réelle, avec deux commandes rapprochées et retour depuis Epson.
+- **Bloquants maintenus** : erreur de vérification du retour Mollie côté site malgré paiement encaissé ; recette BIS PC/tablette et Epson ; test Deliveroo 2 sous concurrence PostgreSQL ; scénarios Deliveroo 12 et 16. Aucun de ces points n'est réputé validé par les tests isolés.
