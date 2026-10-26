@@ -24,7 +24,7 @@ def register_order_notifications_phase33(app):
             return response
 
         html = response.get_data(as_text=True)
-        page = "kitchen" if request.path == "/cuisine-preparation" else "pos"
+        page = "kitchen" if request.path == "/cuisine-preparation" else ("pos" if request.path == "/pos" else "other")
         addon = r'''
 <style>
 #phase6-site-order-notice{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483000;align-items:center;white-space:normal;max-width:calc(100vw - 24px);text-align:center;font-size:16px;font-weight:900;color:#111;background:#ffd21f;border:2px solid #fff3a6;border-radius:10px;padding:11px 16px;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 10px 30px rgba(0,0,0,.45);pointer-events:auto;cursor:pointer}
@@ -181,7 +181,7 @@ def register_order_notifications_phase33(app):
  const SITE_PRINT_KEY='bechefaa_site_prints_v2';
  let printing=false,printTimer=null;
  function autoPrintSiteOrder(order){
-   if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
+   if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing||document.hidden)return;
    let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
    if(printed[order.id])return;
    if(typeof window.bechefaaPrintOrderPack!=='function'){
