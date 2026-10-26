@@ -236,6 +236,12 @@ def register_deliveroo_sandbox_phase6(app, db):
                                    if "unit_price" in item else None)
             if not name or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in name):
                 raise ValueError("invalid Deliveroo item name")
+            # The POS persists a single unit price for every quantity. A line
+            # amount that cannot be divided into whole euro cents would be
+            # rounded when re-totalled or printed. Do not invent a discount
+            # allocation or silently lose cents without an approved policy.
+            if fractional % qty:
+                raise ValueError("Deliveroo line total has no exact cent unit price; financial review required")
             amount = Decimal(fractional) / Decimal("100")
             modifiers = item.get("modifiers")
             if modifiers is None:
