@@ -170,7 +170,9 @@ def register_deliveroo_sandbox_phase6(app, db):
             return "not_preproduction"
         if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
             return "disabled"
-        body = payload.get("body") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) or payload.get("event") != "order.new":
+            raise ValueError("Deliveroo bridge only accepts order.new events")
+        body = payload.get("body")
         order = body.get("order") if isinstance(body, dict) else None
         if not isinstance(order, dict):
             raise ValueError("order.new missing body.order")
@@ -183,6 +185,13 @@ def register_deliveroo_sandbox_phase6(app, db):
         items = order.get("items")
         if not isinstance(items, list) or not items:
             raise ValueError("order.new missing items")
+        # Customer instructions have not yet been mapped to the POS/kitchen
+        # ticket. Never acknowledge an opt-in bridge import that drops them.
+        from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
+        instruction_audit = audit_instruction_fields(payload)
+        if any(not isinstance(entry["value"], str) or entry["value"].strip()
+               for entry in instruction_audit["candidate_values"]):
+            raise ValueError("Deliveroo customer instructions require approved kitchen mapping")
         from decimal import Decimal
         import time
         import uuid
@@ -206,7 +215,9 @@ def register_deliveroo_sandbox_phase6(app, db):
             if not name or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in name):
                 raise ValueError("invalid Deliveroo item name")
             amount = Decimal(fractional) / Decimal("100")
-            modifiers = item.get("modifiers") or []
+            modifiers = item.get("modifiers")
+            if modifiers is None:
+                modifiers = []
             if not isinstance(modifiers, list):
                 raise ValueError("invalid modifiers")
             options = []
@@ -222,7 +233,12 @@ def register_deliveroo_sandbox_phase6(app, db):
                 label = str(modifier.get("name") or "").strip()
                 if not label or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in label):
                     raise ValueError("invalid Deliveroo modifier name")
-                options.append({"name": label, "plu": modifier_plu})
+                # Keep the established one-unit JSON contract; record higher
+                # quantities explicitly instead of silently losing them.
+                option = {"name": label, "plu": modifier_plu}
+                if modifier_qty != 1:
+                    option["quantity"] = modifier_qty
+                options.append(option)
             unit = amount / qty
             normalized.append((plu, name, qty, unit, options, position))
             total += amount
@@ -246,7 +262,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                         VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,FALSE,%s)""",
                         (pos_id,str(position),plu or None,name,qty,unit,
                          json.dumps(options,ensure_ascii=False),
-                         " • ".join(o["name"] for o in options),position))
+                         " • ".join(o["name"] + (" ×" + str(o["quantity"])
+                             if o.get("quantity", 1) != 1 else "") for o in options),position))
         return "created"
 
     def _send_sync_status(order_id):
