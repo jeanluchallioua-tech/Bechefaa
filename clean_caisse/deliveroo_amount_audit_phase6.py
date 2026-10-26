@@ -172,3 +172,133 @@ def audit_catalog_base_markup(payload, catalog, *, markup_percentage):
         "ready_for_dispatch": False,
         "writes": False,
     }
+
+
+def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
+    """Review received modifier unit prices against *hypothetical* menu prices.
+
+    Canonical opt:<product>:<group>:<choice> PLUs are required. Legacy IDs
+    remain unresolved, even if their names match catalogue options. This is
+    read-only evidence for manual review, never approval or kitchen dispatch.
+    """
+    from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+    from clean_caisse.deliveroo_order_reconcile_phase6 import catalogue_entry_active
+
+    parsed = parse_order_new(payload)
+    if not isinstance(catalog, dict) or not isinstance(catalog.get("products"), list):
+        raise DeliverooMappingError("Invalid catalogue for modifier markup audit")
+    try:
+        percentage = _nonnegative_decimal(markup_percentage, "markup percentage")
+    except ValueError as exc:
+        raise DeliverooMappingError(str(exc)) from exc
+
+    by_id = {}
+    for product in catalog["products"]:
+        if not isinstance(product, dict):
+            raise DeliverooMappingError("Invalid catalogue product for modifier markup audit")
+        product_id = product.get("id")
+        if (not isinstance(product_id, str) or not product_id
+                or product_id != product_id.strip()
+                or any(ord(char) < 32 or 127 <= ord(char) <= 159
+                       for char in product_id)):
+            raise DeliverooMappingError("Invalid catalogue product ID for modifier markup audit")
+        if product_id in by_id:
+            raise DeliverooMappingError("Duplicate catalogue product ID for modifier markup audit")
+        by_id[product_id] = product
+
+    diagnostics = []
+    for item_index, item in enumerate(parsed["items"]):
+        product_id = item["pos_item_id"]
+        product = by_id.get(product_id)
+        for modifier_index, modifier in enumerate(item["modifiers"]):
+            modifier_id = modifier["pos_item_id"]
+            reported = Decimal(modifier["unit_price_eur"])
+            status = "matches_assumed_modifier_markup"
+            base_text = expected_text = difference_text = None
+
+            if product is None:
+                status = "missing_catalog_product"
+            elif not catalogue_entry_active(product, "product " + product_id):
+                status = "inactive_catalog_product"
+            else:
+                parts = modifier_id.split(":")
+                if (len(parts) != 4 or parts[:2] != ["opt", product_id]
+                        or any(not p.isascii() or not p.isdecimal()
+                               or str(int(p)) != p for p in parts[2:])):
+                    status = "unmapped_modifier_plu"
+                else:
+                    groups = product.get("options")
+                    if groups is None:
+                        groups = []
+                    if not isinstance(groups, list):
+                        status = "invalid_catalog_modifier_groups"
+                    else:
+                        group_index, choice_index = int(parts[2]), int(parts[3])
+                        group = groups[group_index] if group_index < len(groups) else None
+                        if not isinstance(group, dict):
+                            status = "unknown_catalog_modifier_group"
+                        elif not catalogue_entry_active(group, "option group " + modifier_id):
+                            status = "inactive_catalog_modifier_group"
+                        else:
+                            choices = next((
+                                group[key] for key in ("options", "values", "items", "choices")
+                                if isinstance(group.get(key), list)
+                            ), [])
+                            if choice_index >= len(choices):
+                                status = "unknown_catalog_modifier_choice"
+                            else:
+                                choice = choices[choice_index]
+                                if (isinstance(choice, dict)
+                                        and not catalogue_entry_active(
+                                            choice, "option choice " + modifier_id
+                                        )):
+                                    status = "inactive_catalog_modifier_choice"
+                                else:
+                                    if isinstance(choice, dict):
+                                        raw_price = (choice.get("price")
+                                                     or choice.get("extraPrice")
+                                                     or choice.get("supplement") or 0)
+                                    elif isinstance(choice, (list, tuple)):
+                                        raw_price = choice[1] if len(choice) > 1 else 0
+                                    else:
+                                        raw_price = 0
+                                    try:
+                                        base = _nonnegative_decimal(
+                                            raw_price, "catalogue modifier price"
+                                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                                        expected = (
+                                            base * (Decimal("1") + percentage / Decimal("100"))
+                                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                                    except (ValueError, ArithmeticError):
+                                        status = "invalid_catalog_modifier_price"
+                                    else:
+                                        base_text = _eur(base)
+                                        expected_text = _eur(expected)
+                                        difference_text = _eur(reported - expected)
+                                        if reported != expected:
+                                            status = "modifier_price_differs_from_assumed_markup"
+            diagnostics.append({
+                "index": item_index,
+                "modifier_index": modifier_index,
+                "pos_item_id": product_id,
+                "modifier_pos_item_id": modifier_id,
+                "catalog_base_eur": base_text,
+                "expected_unit_eur": expected_text,
+                "reported_unit_eur": _eur(reported),
+                "difference_eur": difference_text,
+                "status": status,
+            })
+    reasons = sorted({
+        line["status"] for line in diagnostics
+        if line["status"] != "matches_assumed_modifier_markup"
+    })
+    return {
+        "assumed_markup_percentage": str(percentage),
+        "modifier_diagnostics": diagnostics,
+        "review_reasons": reasons,
+        "requires_financial_review": bool(reasons),
+        "modifier_pricing_schema_verified": False,
+        "price_policy_verified": False,
+        "ready_for_dispatch": False,
+        "writes": False,
+    }
