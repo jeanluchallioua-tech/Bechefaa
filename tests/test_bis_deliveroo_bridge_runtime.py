@@ -618,6 +618,70 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
             total = conn.execute("SELECT total FROM caisse_orders").fetchone()["total"]
             self.assertIn(str(total), ("17.90", "19.90"))
 
+    def test_postgres_second_item_constraint_failure_rolls_back_and_retry_is_safe(self):
+        """A real PostgreSQL error must not leave a partial kitchen order."""
+        event = payload()
+        second = copy.deepcopy(event["body"]["order"]["items"][0])
+        second.update({
+            "pos_item_id": "MU_BLOCKED",
+            "name": "Second item",
+            "quantity": 1,
+            "total_price": {"fractional": 500, "currency_code": "EUR"},
+            "modifiers": [],
+        })
+        event["body"]["order"]["items"].append(second)
+        namespace = {"os": os, "json": json, "db": lambda: self.connect()}
+        exec(self.bridge_code, namespace)
+        bridge = namespace["_bridge_order_new"]
+        stub_app = SimpleNamespace(ensure_order_schema=lambda conn: None)
+        env = {
+            "CC_APP_ID": "app_fad0809f-954d-47e7-983d-afb7c3867cd0",
+            "BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED": "1",
+        }
+        # Only the disposable CI database gets this temporary constraint.
+        with self.connect() as conn:
+            conn.execute("""ALTER TABLE caisse_order_items
+                ADD CONSTRAINT bis_reject_second_item
+                CHECK (product_id <> 'MU_BLOCKED')""")
+        try:
+            with patch.dict(os.environ, env), patch.dict(
+                sys.modules, {"clean_caisse.app": stub_app}
+            ):
+                with self.assertRaises(self.psycopg.errors.CheckViolation):
+                    bridge(copy.deepcopy(event))
+                with self.connect() as conn:
+                    self.assertEqual(
+                        conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 0
+                    )
+                    self.assertEqual(
+                        conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 0
+                    )
+        finally:
+            with self.connect() as conn:
+                conn.execute(
+                    "ALTER TABLE caisse_order_items DROP CONSTRAINT bis_reject_second_item"
+                )
+        with patch.dict(os.environ, env), patch.dict(
+            sys.modules, {"clean_caisse.app": stub_app}
+        ):
+            self.assertEqual(bridge(copy.deepcopy(event)), "created")
+            self.assertEqual(bridge(copy.deepcopy(event)), "duplicate")
+        with self.connect() as conn:
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 1
+            )
+            rows = conn.execute(
+                "SELECT product_id, qty FROM caisse_order_items ORDER BY position"
+            ).fetchall()
+            self.assertEqual(
+                [(row["product_id"], row["qty"]) for row in rows],
+                [("MU11002", 2), ("MU_BLOCKED", 1)],
+            )
+            self.assertEqual(
+                conn.execute("SELECT status FROM caisse_orders").fetchone()["status"],
+                "À préparer",
+            )
+
     def test_concurrent_distinct_order_ids_receive_unique_pos_numbers(self):
         first = payload()
         second = copy.deepcopy(first)
