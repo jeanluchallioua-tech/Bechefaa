@@ -19,6 +19,10 @@ CANDIDATE_KEYS = frozenset({
     "customer_note", "customer_notes", "cooking_instructions",
     "delivery_instructions", "delivery_notes", "dropoff_instructions",
     "customer_instructions", "special_requests", "allergy_information",
+    # Unmapped dietary/allergy and per-item preparation notes must not
+    # disappear from kitchen tickets even when the webhook uses these names.
+    "allergies", "food_allergies", "dietary_requirements",
+    "dietary_restrictions", "item_notes", "modifier_notes", "kitchen_notes",
     "specialInstructions", "deliveryInstructions", "customerInstructions",
     "orderNotes", "cutleryNotes", "allergyNotes",
 }) | DOCUMENTED_ORDER_NOTE_KEYS
