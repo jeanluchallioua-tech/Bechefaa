@@ -602,7 +602,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         ORDER BY created_at DESC LIMIT 40""")
                     orders = cur.fetchall()
                     cur.execute("""SELECT id, num, status FROM caisse_orders
-                        WHERE source = 'DELIVEROO'
+                        WHERE sales_channel = 'DELIVEROO'
                         ORDER BY created_at DESC LIMIT 100""")
                     order_states = {str(r["id"]): r for r in cur.fetchall()}
                     cur.execute("SELECT to_regclass('deliveroo_kitchen_schedule') AS table_name")
