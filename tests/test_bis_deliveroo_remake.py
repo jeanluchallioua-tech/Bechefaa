@@ -37,6 +37,12 @@ class BisDeliverooRemakeTests(unittest.TestCase):
         self.assertIn("return orders", self.code)
         self.assertIn("preserving all orders", self.code)
 
+    def test_deliveroo_channel_and_fulfillment_visible_on_bis_screens(self):
+        # A marketplace channel must not replace the operational pickup/delivery mode.
+        self.assertIn("?'DELIVEROO · '+esc(o.ticket_type):esc(o.ticket_type)", self.source)
+        self.assertIn("?'Deliveroo · '+esc(o.ticket_type):esc(o.ticket_type)", self.source)
+        self.assertIn("o.sales_channel", self.source)
+
     def test_filter_used_by_kitchen_and_history(self):
         self.assertGreaterEqual(self.source.count("_deliveroo_remake_view(conn, orders)"), 2)
 
