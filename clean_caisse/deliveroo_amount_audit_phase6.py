@@ -248,7 +248,13 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                                 status = "unknown_catalog_modifier_choice"
                             else:
                                 choice = choices[choice_index]
-                                if (isinstance(choice, dict)
+                                # A null or boolean catalogue slot is not a
+                                # zero-priced option. The PLU reconciliation
+                                # rejects these values; the read-only price
+                                # audit must not report a false match either.
+                                if choice is None or isinstance(choice, bool):
+                                    status = "invalid_catalog_modifier_choice"
+                                elif (isinstance(choice, dict)
                                         and not catalogue_entry_active(
                                             choice, "option choice " + modifier_id
                                         )):
