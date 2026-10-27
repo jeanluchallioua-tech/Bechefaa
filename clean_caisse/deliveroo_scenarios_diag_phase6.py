@@ -85,6 +85,44 @@ def register_deliveroo_scenarios_diag_phase6(app):
             return out
         return body
 
+    @app.get("/api/deliveroo/scenarios-12-16-readiness")
+    def scenarios_12_16_readiness():
+        """Read-only, redacted readiness check; never contacts Deliveroo."""
+        is_preprod = os.environ.get("CC_APP_ID", "").strip() == "app_fad0809f-954d-47e7-983d-afb7c3867cd0"
+        if not is_preprod:
+            return jsonify({"ok": False, "error": "preproduction_only"}), 403
+        keys = (
+            "BECHEFAA_DELIVEROO_CLIENT_ID",
+            "BECHEFAA_DELIVEROO_CLIENT_SECRET",
+            "BECHEFAA_DELIVEROO_SCENARIOS_CLIENT_ID",
+            "BECHEFAA_DELIVEROO_SCENARIOS_CLIENT_SECRET",
+            "BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED",
+            "BECHEFAA_DELIVEROO_API_URL",
+            "BECHEFAA_DELIVEROO_AUTH_URL",
+        )
+        present = {key: bool((os.environ.get(key) or "").strip()) for key in keys}
+        return jsonify({
+            "ok": True,
+            "read_only": True,
+            "preproduction": True,
+            "scenario_run_triggered": False,
+            "production_publish_triggered": False,
+            "variables_present": present,
+            "scenarios_api_ready": present["BECHEFAA_DELIVEROO_SCENARIOS_CLIENT_ID"] and present["BECHEFAA_DELIVEROO_SCENARIOS_CLIENT_SECRET"],
+            "scenario_12": {
+                "expected_item": "whole_milk",
+                "required_action": "POST item unavailability after scenario start",
+                "checks": ["request path and site/menu IDs", "HTTP status", "response body", "request timing"],
+                "status": "requires controlled sandbox execution and response evidence",
+            },
+            "scenario_16": {
+                "previous_error": "400 invalid params for publish_menu_to_live",
+                "checks": ["request parameters", "HTTP status", "sanitized error response"],
+                "status": "do not publish to live",
+            },
+            "next": "If scenarios credentials are absent, diagnose the sandbox menu request and its HTTP response directly; no production change required.",
+        })
+
     @app.get("/api/deliveroo/scenarios-api-diagnostic-phase6")
     def scenarios_api_diagnostic_phase6():
         try:
