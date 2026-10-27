@@ -108,25 +108,29 @@ def register_deliveroo_sandbox_phase6(app, db):
         return ""
 
     def _accepted_in_status_log(payload):
-        # Deliveroo may nest the status log differently between sandbox event
-        # payloads. Only consider an accepted status on a status-update event.
-        if not isinstance(payload,dict) or str(payload.get("event") or "").strip().lower()!="order.status_update":
+        # Never infer order acceptance from arbitrary text (e.g. a customer's
+        # note saying "accepted"). Only explicit status/state fields count.
+        # Bound nesting to avoid recursion exhaustion on malformed payloads.
+        if (not isinstance(payload, dict)
+                or str(payload.get("event") or "").strip().lower() != "order.status_update"):
             return False
 
-        def _walk(value):
-            if isinstance(value,dict):
-                for key,item in value.items():
-                    k=str(key or "").strip().lower()
-                    if k in {"status","order_status","state"} and str(item or "").strip().lower()=="accepted":
+        def _walk(value, depth=0):
+            if depth > 16:
+                return False
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    k = str(key or "").strip().lower()
+                    if (k in {"status", "order_status", "state"}
+                            and isinstance(item, str)
+                            and item.strip().lower() == "accepted"):
                         return True
-                    if _walk(item):
+                    if isinstance(item, (dict, list)) and _walk(item, depth + 1):
                         return True
-            elif isinstance(value,list):
+            elif isinstance(value, list):
                 for item in value:
-                    if _walk(item):
+                    if isinstance(item, (dict, list)) and _walk(item, depth + 1):
                         return True
-            elif isinstance(value,str) and value.strip().lower()=="accepted":
-                return True
             return False
 
         return _walk(payload)
