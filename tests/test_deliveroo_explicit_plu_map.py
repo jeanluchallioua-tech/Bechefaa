@@ -188,6 +188,23 @@ class ExplicitPluMapTests(unittest.TestCase):
         self.assertFalse(audit["ready_for_dispatch"])
         self.assertFalse(audit["writes"])
 
+    def test_inventory_oversized_prefixed_plu_requires_review(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
+        for plu in ("opt:MU11002:1234567890:0",
+                    "opt:MU11002:0:" + "9" * 5000):
+            with self.subTest(length=len(plu)):
+                payload = deepcopy(self.payload)
+                payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = plu
+                result = audit_modifier_plu_sources(payload)
+                self.assertEqual(result["canonical_modifier_occurrences_unverified"], 0)
+                self.assertEqual(result["malformed_prefixed_sources"], [{
+                    "parent_pos_item_id": "MU11002",
+                    "received_modifier_pos_item_id": plu,
+                    "occurrences": 1,
+                }])
+                self.assertTrue(result["requires_explicit_mapping_review"])
+                self.assertFalse(result["ready_for_dispatch"])
+
     def test_inventory_separates_canonical_and_legacy(self):
         from clean_caisse.deliveroo_explicit_plu_map_phase6 import audit_modifier_plu_sources
         modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
