@@ -289,7 +289,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                     parts = modifier_plu.split(":")
                     if (len(parts) != 4 or parts[1] != plu
                             or any(not index.isascii() or not index.isdecimal()
-                                   or str(int(index)) != index
+                                   or len(index) > 9
+                                   or (len(index) > 1 and index.startswith("0"))
                                    for index in parts[2:])):
                         raise ValueError("Deliveroo modifier PLU requires catalog reconciliation")
                 modifier_qty = modifier.get("quantity", 1)
