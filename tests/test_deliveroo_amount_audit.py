@@ -299,6 +299,35 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
                 self.assertEqual(self.payload, before_payload)
                 self.assertEqual(catalog, before_catalog)
 
+    def test_blank_catalogue_modifier_labels_never_pass_price_audit(self):
+        # A zero-price placeholder used to look like a valid free supplement
+        # in this price audit, although the strict PLU reconciler rejects it.
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 0
+        for invalid_choice in (
+            "", "   ", [], ["  ", 0],
+            {"name": "", "price": 0},
+            {"label": "   ", "price": 0},
+        ):
+            with self.subTest(choice=invalid_choice):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["options"][0] = invalid_choice
+                before_payload = deepcopy(self.payload)
+                before_catalog = deepcopy(catalog)
+                audit = audit_catalog_modifier_markup(
+                    self.payload, catalog, markup_percentage="20"
+                )
+                line = audit["modifier_diagnostics"][0]
+                self.assertEqual(line["status"], "invalid_catalog_modifier_choice")
+                self.assertIsNone(line["expected_unit_eur"])
+                self.assertEqual(audit["review_reasons"], ["invalid_catalog_modifier_choice"])
+                self.assertTrue(audit["requires_financial_review"])
+                self.assertFalse(audit["ready_for_dispatch"])
+                self.assertFalse(audit["writes"])
+                self.assertEqual(self.payload, before_payload)
+                self.assertEqual(catalog, before_catalog)
+
     def test_zero_price_modifier_and_empty_modifier_list_never_approve(self):
         from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
         self.catalog["products"][0]["options"][0]["options"][0]["price"] = 0
