@@ -127,6 +127,21 @@ class DeliverooReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks_passed"])
         self.assertFalse(result["writes"])
 
+    def test_incomplete_or_missing_instruction_scan_blocks_readiness(self):
+        from copy import deepcopy
+        for incomplete in (False, None, "true"):
+            with self.subTest(scan_complete=incomplete):
+                preview = deepcopy(self.preview)
+                if incomplete is None:
+                    preview["instruction_field_audit"].pop("scan_complete")
+                else:
+                    preview["instruction_field_audit"]["scan_complete"] = incomplete
+                result = assess_kitchen_readiness(preview)
+                self.assertIn("instruction_scan_incomplete", result["blockers"])
+                self.assertFalse(result["checks_passed"])
+                self.assertFalse(result["dispatch_performed"])
+                self.assertFalse(result["writes"])
+
     def test_missing_control_diagnostic_blocks_readiness(self):
         from copy import deepcopy
         preview = deepcopy(self.preview)
