@@ -25,8 +25,10 @@ def register_history_identity_phase44(app):
   let table=String(o.table_label||'').trim();
   if(table)return table.toUpperCase();
   let source=String(o.source||'').toUpperCase();
+  let deliveroo=String(o.sales_channel||'').toUpperCase()==='DELIVEROO'||source==='DELIVEROO';
   let customer=String(o.customer_name||'').trim();
   let generic=/^client\s+(comptoir|livraison|emporter)$/i.test(customer);
+  if(deliveroo)return generic||!customer?'LIVRAISON · DELIVEROO':'LIVRAISON · DELIVEROO — '+customer;
   if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
   if(source==='EMPORTER'||source==='TAKEAWAY')return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
   return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
@@ -135,7 +137,16 @@ def register_history_identity_phase44(app):
     const deliveryAddress=document.createElement('div');
     deliveryAddress.style.cssText='display:none;margin:8px 0;font-size:17px;line-height:1.45;font-weight:700;color:#111827;white-space:pre-line';
     title.insertAdjacentElement('afterend',deliveryAddress);
+    const contactDetails=document.createElement('div');
+    contactDetails.style.cssText='display:none;margin:8px 0;font-size:16px;font-weight:700;color:#111827';
+    deliveryAddress.insertAdjacentElement('afterend',contactDetails);
     function showDeliveryAddress(o){
+      const channel=String(o.sales_channel||o.source||'').toUpperCase();
+      const deliveroo=channel==='DELIVEROO';
+      const phone=String(o.phone||'').trim();
+      contactDetails.textContent=phone?'Téléphone : '+phone:'';
+      contactDetails.style.display=phone?'block':'none';
+      if(deliveroo)sub.textContent=([sub.textContent,'Deliveroo'].filter(Boolean).join(' · ')).replace(/( · Deliveroo)+$/,' · Deliveroo');
       const delivery=['LIVRAISON','DELIVERY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase().includes('livraison');
       const text=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join('\n'):'';
       deliveryAddress.textContent=text;deliveryAddress.style.display=text?'block':'none';
@@ -151,6 +162,7 @@ def register_history_identity_phase44(app):
       restore();actions.innerHTML='';
       title.textContent=(typeof historyIdentity==='function'?historyIdentity(o):String(o.customer_name||'Commande'));
       sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':o.ticket_type].filter(Boolean).join(' · ');
+      showDeliveryAddress(o);
       const arr=o.items||[];
       lines.innerHTML=arr.length?arr.map(i=>'<div class="history-clean-line"><div class="history-clean-line-top"><span>'+esc(i.qty+'× '+i.name)+'</span><span>'+euro(Number(i.unit_price||0)*Number(i.qty||0))+'</span></div>'+(i.options_text?'<div class="history-clean-opt">'+esc(i.options_text)+'</div>':'')+'</div>').join(''):'<div class="history-clean-empty">Aucun article</div>';
       total.textContent=euro(o.total);
