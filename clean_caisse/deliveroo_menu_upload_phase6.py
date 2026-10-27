@@ -761,7 +761,20 @@ def register_deliveroo_menu_upload_phase6(app, db):
 
     @app.get("/api/deliveroo/scenario12-last-trace-phase6")
     def deliveroo_scenario12_last_trace_phase6():
+        # Read-only: the trace table is created by the first scenario 12 POST.
         try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('deliveroo_scenario12_trace') AS table_name")
+                    table_row = cur.fetchone()
+                if not table_row or not table_row.get("table_name"):
+                    return jsonify({
+                        "ok": True,
+                        "trace_available": False,
+                        "read_only": True,
+                        "message": "Aucune trace du scenario 12 dans cette base de preproduction.",
+                        "next": "Ne pas relancer le scenario avant validation de la procedure."
+                    }), 200
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
