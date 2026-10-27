@@ -126,6 +126,28 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertEqual(payload, original)
 
+    def test_flat_object_and_scalar_array_exhaust_scan_budget(self):
+        # A large object/list of scalars used to bypass the container-only
+        # counter, permitting unbounded scanning before a later instruction.
+        for oversized in (
+            {f"metadata_{i}": "value" for i in range(6000)},
+            ["value"] * 6000,
+        ):
+            with self.subTest(container=type(oversized).__name__):
+                payload = event()
+                payload["body"]["order"]["metadata"] = oversized
+                result = audit_instruction_fields(payload)
+                self.assertFalse(result["scan_complete"])
+                self.assertFalse(result["schema_verified"])
+                self.assertFalse(result["writes"])
+
+    def test_small_flat_metadata_stays_complete(self):
+        payload = event()
+        payload["body"]["order"]["metadata"] = {"label": "ok", "count": 3}
+        result = audit_instruction_fields(payload)
+        self.assertTrue(result["scan_complete"])
+        self.assertEqual(result["candidate_paths"], [])
+
     def test_unrelated_fields_are_not_mistaken_for_customer_notes(self):
         payload = event()
         payload["body"]["order"]["customer_name"] = "Camille"
