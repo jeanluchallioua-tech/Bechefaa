@@ -253,7 +253,21 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                                 # zero-priced option. The PLU reconciliation
                                 # rejects these values; the read-only price
                                 # audit must not report a false match either.
-                                if choice is None or isinstance(choice, bool):
+                                # Match the strict PLU reconciler: an empty
+                                # choice label is not a valid zero-price
+                                # supplement, even if its price is numeric.
+                                if isinstance(choice, dict):
+                                    choice_label = str(
+                                        choice.get("name") or choice.get("label")
+                                        or choice.get("title") or choice.get("value")
+                                        or choice.get("id") or ""
+                                    ).strip()
+                                elif isinstance(choice, (list, tuple)):
+                                    choice_label = str(choice[0] if choice else "").strip()
+                                else:
+                                    choice_label = str(choice).strip()
+                                if (choice is None or isinstance(choice, bool)
+                                        or not choice_label):
                                     status = "invalid_catalog_modifier_choice"
                                 elif (isinstance(choice, dict)
                                         and not catalogue_entry_active(
