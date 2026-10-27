@@ -56,7 +56,9 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         node = next(n for n in source.body if isinstance(n, ast.FunctionDef)
                     and n.name == "_deliveroo_remake_view")
         cls.namespace = {"app": type("App", (), {"logger": logging.getLogger(__name__)})()}
-        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), "exec"),
+        ticket = next(n for n in source.body if isinstance(n, ast.FunctionDef)
+                      and n.name == "ticket_type")
+        exec(compile(ast.Module(body=[ticket, node], type_ignores=[]), str(SOURCE), "exec"),
              cls.namespace)
 
     def render(self, conn, orders, *, enabled=True, app_id=True):
