@@ -530,9 +530,15 @@ small{color:#53636c}</style></head><body>
 <form id="form"><label for="pin">PIN de la caisse</label>
 <input id="pin" type="password" autocomplete="off" required>
 <button type="submit">Afficher le diagnostic</button></form>
+<hr><h2>Correction du ticket 43</h2><p>Commande Deliveroo 3541 — uniquement en préproduction.</p>
+<form id="repair-form"><label for="repair-pin">PIN de la caisse</label>
+<input id="repair-pin" type="password" autocomplete="off" required>
+<button type="submit">Corriger le ticket 43 en À emporter Deliveroo</button></form>
+<p id="repair-state" role="status"></p>
 <p id="state" role="status"></p><div id="result"></div>
 <script>
 const form=document.getElementById('form'),state=document.getElementById('state'),out=document.getElementById('result');
+document.getElementById('repair-form').addEventListener('submit',async e=>{e.preventDefault();const status=document.getElementById('repair-state');const field=document.getElementById('repair-pin');const pin=field.value;field.value='';if(!confirm('Corriger uniquement le ticket Deliveroo 43 en À emporter ?'))return;status.textContent='Correction en cours…';try{const res=await fetch('/api/deliveroo/repair-customer-collect-43',{method:'POST',headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});const data=await res.json().catch(()=>({}));status.textContent=res.ok&&data.ok?(data.result==='already_correct'?'Ticket 43 déjà corrigé.':'Ticket 43 corrigé en À emporter Deliveroo.'):('Correction non effectuée : '+(data.error||'HTTP '+res.status));}catch(err){status.textContent='Correction non effectuée : '+err.message;}});
 function cell(row,value){const td=document.createElement('td');td.textContent=value==null?'—':String(value);row.appendChild(td)}
 function table(title,rows,columns){const h=document.createElement('h2');h.textContent=title;out.appendChild(h);
 const t=document.createElement('table'),head=document.createElement('tr');
