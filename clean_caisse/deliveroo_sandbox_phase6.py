@@ -518,7 +518,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -544,6 +544,17 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         visit(child, prefix + "[]", depth + 1)
         visit(root)
         return found
+
+    def _safe_schedule_time(value):
+        if not isinstance(value, str) or len(value) > 45:
+            return "absent ou format non reconnu"
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return "sans fuseau horaire"
+            return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except (ValueError, OverflowError):
+            return "format non reconnu"
 
     @app.get("/api/deliveroo/diagnostic-doublons")
     def deliveroo_diagnostic_doublons():
@@ -600,6 +611,9 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         "status", "type", "fulfilment_type", "restaurant_id",
                         "site_id", "brand_id", "reference", "display_id",
                     })),
+                    "asap_value": str(order.get("asap")) if isinstance(order.get("asap"), bool) else "non renseigné",
+                    "start_preparing_at_value": _safe_schedule_time(order.get("start_preparing_at")),
+                    "prepare_for_value": _safe_schedule_time(order.get("prepare_for")),
                     "schedule_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("schedul", "time", "date", "ready", "deliver", "collect", "pickup", "prepar", "fulfil", "asap", "slot", "window", "promise", "due", "target", "deadline")))),
                     "body_fields": ", ".join(sorted(k for k in body.keys() if k in {
                         "order", "order_id", "id", "event_id", "timestamp",
