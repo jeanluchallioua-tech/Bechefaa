@@ -357,10 +357,28 @@ def register_deliveroo_sandbox_phase6(app, db):
                         raise ValueError("Deliveroo order ID replay content conflict")
                     return "duplicate"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
+                # Deliveroo is the sales channel, not the POS fulfillment mode.
+                # Preserve customer details when Deliveroo supplies them; never
+                # invent a name, address or telephone number.
+                customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
+                delivery = order.get("delivery") if isinstance(order.get("delivery"), dict) else {}
+                address_data = delivery.get("address")
+                if not isinstance(address_data, dict):
+                    address_data = {}
+                first = str(customer.get("first_name") or customer.get("firstName") or "").strip()
+                last = str(customer.get("last_name") or customer.get("lastName") or "").strip()
+                customer_name = (str(customer.get("name") or "").strip()
+                                 or " ".join(x for x in (first, last) if x)
+                                 or "Client Deliveroo")
+                phone = str(customer.get("phone") or delivery.get("phone") or "").strip()
+                address = str(address_data.get("address_line_1") or address_data.get("line_1")
+                              or address_data.get("street_address") or "").strip()
+                postal_code = str(address_data.get("postcode") or address_data.get("postal_code") or "").strip()
+                city = str(address_data.get("city") or "").strip()
                 conn.execute("""INSERT INTO caisse_orders
-                    (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
-                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
-                    (pos_id,num,"Client Deliveroo",total,now,now,fingerprint))
+                    (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
+                    (pos_id,num,customer_name,phone,address,postal_code,city,total,now,now,fingerprint))
                 for position, (plu,name,qty,unit,options,_,reported_unit_cents,
                                modifier_unit_prices) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
