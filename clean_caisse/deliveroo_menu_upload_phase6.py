@@ -1752,7 +1752,12 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"sandbox_guard",
                     "error":"Creation du job S15 interdite hors Sandbox Deliveroo"
                 }),403
-            job_payload={"action":"publish_menu_to_live"}
+            # Deliveroo exige menu_id dans les parametres de publication V3.
+            # Limite strictement cette action a l'API Sandbox.
+            job_payload={
+                "action":"publish_menu_to_live",
+                "params":{"menu_id":menu_id},
+            }
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
             fallback_used=False
             primary_job_status=job_status
