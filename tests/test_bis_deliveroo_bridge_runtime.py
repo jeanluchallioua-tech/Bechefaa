@@ -186,6 +186,41 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         insert_sql = next(sql for sql in db.statements if "INSERT INTO caisse_orders" in sql)
         self.assertIn("'LIVRAISON','DELIVEROO'", insert_sql)
 
+    def test_observed_deliveroo_delivery_fields_survive_to_pos_once(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["customer"] = {"name": "Legacy Customer", "phone": "0100000000"}
+        event["body"]["order"]["delivery"] = {
+            "customer_name": "John D.",
+            "contact_number": "0200000000",
+            "city": "London",
+            "postcode": "SW1A 1AA",
+            "location": {"latitude": 51.5, "longitude": -0.1},
+        }
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        saved = next(iter(db.orders.values()))
+        self.assertEqual(saved[2:7], (
+            "John D.", "0200000000", "", "SW1A 1AA", "London"))
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
+    def test_missing_delivery_contact_keeps_legacy_customer_fallback(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["customer"] = {
+            "first_name": "Alice", "last_name": "Martin", "phone": "0600000000"}
+        event["body"]["order"]["delivery"] = {
+            "customer_name": "", "contact_number": "", "city": "",
+            "postcode": "", "address": {
+                "address_line_1": "12 rue Exemple",
+                "postcode": "75001", "city": "Paris"},
+        }
+        self.assertEqual(self.bridge(db, event), "created")
+        saved = next(iter(db.orders.values()))
+        self.assertEqual(saved[2:7], (
+            "Alice Martin", "0600000000", "12 rue Exemple", "75001", "Paris"))
+
     def test_same_external_id_with_changed_price_is_rejected_not_silently_replayed(self):
         db = FakeDB()
         first = payload()
