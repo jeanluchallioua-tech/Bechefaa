@@ -96,6 +96,50 @@ class DeliverooRemakeRuntimeTests(unittest.TestCase):
         self.assertEqual(child["payment"], "PAYÉ EN LIGNE")
         self.assertEqual(child["platform_reference"], "D-123")
 
+    def test_actual_pos_delivery_channel_suppresses_remake_parent(self):
+        # The real bridge stores source=LIVRAISON, sales_channel=DELIVEROO.
+        now = int(time.time() * 1000) - 20000
+        orders = [
+            {"id": pos_id("parent"), "source": "LIVRAISON",
+             "sales_channel": "DELIVEROO", "created_at": now},
+            {"id": pos_id("child"), "source": "LIVRAISON",
+             "sales_channel": "DELIVEROO", "created_at": now},
+            {"id": "local", "source": "LIVRAISON",
+             "sales_channel": "RESTO", "created_at": now},
+        ]
+        conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
+                        imported=[pos_id("child")])
+        result = self.render(conn, orders)
+        self.assertEqual([o["id"] for o in result], [pos_id("child"), "local"])
+        self.assertTrue(result[0]["is_deliveroo_remake"])
+        self.assertEqual(result[0]["ticket_type"], "Livraison")
+        self.assertEqual(result[0]["platform"], "Deliveroo")
+        self.assertEqual(result[1], orders[2])
+
+    def test_customer_collect_remains_emporter_and_is_held(self):
+        now = int(time.time() * 1000)
+        collect = {"id": pos_id("collect"), "source": "EMPORTER",
+                   "sales_channel": "DELIVEROO", "created_at": now - 20000}
+        fresh = dict(collect, id=pos_id("fresh"), created_at=now - 1000)
+        result = self.render(FakeConn(), [collect, fresh])
+        self.assertEqual([o["id"] for o in result], [pos_id("collect")])
+        self.assertEqual(result[0]["ticket_type"], "Emporter")
+        self.assertEqual(result[0]["service_mode"], "Emporter")
+        self.assertEqual(result[0]["platform"], "Deliveroo")
+
+    def test_history_and_kitchen_queries_retain_sales_channel(self):
+        tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+        for name in ("orders_history", "kitchen_orders"):
+            with self.subTest(endpoint=name):
+                node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                            and n.name == name)
+                source = ast.get_source_segment(SOURCE.read_text(encoding="utf-8"), node)
+                self.assertIn("source, sales_channel, payment", source)
+        payload_node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                            and n.name == "order_payload")
+        self.assertIn('"sales_channel": order_row.get("sales_channel")',
+                      ast.get_source_segment(SOURCE.read_text(encoding="utf-8"), payload_node))
+
     def test_blank_display_id_keeps_external_reference(self):
         conn = FakeConn(events=[{"order_id": "child", "parent_id": "parent"}],
                         imported=[pos_id("child")],
