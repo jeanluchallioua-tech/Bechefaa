@@ -129,3 +129,12 @@ Le détecteur utilisé avant l'éventuel `sync_status` n'assimile plus une chaî
 L'audit des GUID couvre aussi deux événements distincts pour **un même ID commande** : deux preuves d'événements doivent être conservées ; la création d'une seule commande POS est contrôlée séparément par les tests de rejeu et de concurrence PostgreSQL. **Ces tests n'envoient aucun `sync_status` et ne valident ni le test Deliveroo 2 de bout en bout, ni les scénarios 12/16.** Vérifier les résultats de la CI de la dernière révision avant toute conclusion.
 
 **Parité caisse avant sandbox : toujours NON VALIDÉE.** Refaire les essais PC et tablette : remise manuelle en % pour emporter, Modifier du panier, majoration Deliveroo effectivement stockée à 20 % et Uber Eats inchangé, tables, livraison, tickets, historique, Epson et hors connexion. Aucune impression, commande ou synchronisation externe n'est autorisée sans accord.
+
+
+## Contrôle ciblé — statut Deliveroo et parité avant sandbox (27/10/2026)
+
+- Le statut `accepted` n'est plus recherché dans toutes les métadonnées de l'événement : seuls les champs de statut de `body` ou `body.order`, et leurs journaux explicites `status_log`/`status_history`, sont considérés. Un `status: accepted` dans `customer`, `items` ou `metadata` ne suffit plus à autoriser le diagnostic `sync_status`. Les tests de non-régression sont isolés : ils n'émettent aucune requête vers Deliveroo.
+- GitHub Actions sur le commit `bb1ace59` : [run 40450528546](https://github.com/jeanluchallioua-tech/Bechefaa/actions/runs/40450528546), **SUCCESS** (incluant les contrôles PostgreSQL 16, le rejeu GUID, les prix et les tests caisse).
+- Divergence Git consultée avant ce complément documentaire : **327 commits BIS en avance et 13 en retard** sur `phase4-encaissement`. Il s'agit d'un indicateur de divergence, **pas** d'une preuve de parité fonctionnelle.
+- **Recette bloquante avant sandbox** : PC et tablette pour remise manuelle en % à emporter, bouton Modifier du panier, paramètres Marketplace (Deliveroo stocké à 20 %, Uber Eats conservé), tables, livraison, tickets et aperçu, historique, clic d'impression Epson, bip au volume normal et hors connexion/reconnexion. Le code ne permet pas de conclure à leur fonctionnement matériel.
+- **Non validés** : test Deliveroo 2 de bout en bout, circuit cuisine et impression réels, rapprochement exhaustif PLU/prix et instructions clients, scénarios Deliveroo 12 et 16. Retour Mollie du site toujours à traiter séparément. Aucun déploiement ni action externe autorisé.
