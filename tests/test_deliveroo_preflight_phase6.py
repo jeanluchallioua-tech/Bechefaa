@@ -1,0 +1,93 @@
+"""Isolated, read-only regression for the BIS Deliveroo 20% audit."""
+from copy import deepcopy
+import unittest
+
+from clean_caisse.deliveroo_preflight_phase6 import audit_deliveroo_20pct_preflight
+from tests.test_deliveroo_order_reconcile import sample
+
+
+class Deliveroo20PercentPreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.payload = sample()
+        line = self.payload["body"]["order"]["items"][0]
+        line["unit_price"]["fractional"] = 1200
+        line["total_price"]["fractional"] = 1320
+        line["modifiers"][0]["unit_price"]["fractional"] = 120
+        self.payload["body"]["order"]["total_price"]["fractional"] = 1320
+        self.catalog = {"products": [{
+            "id": "MU11002", "name": "Veggie Burger", "price": "10.00",
+            "options": [{"name": "Extras", "options": [
+                {"name": "Guacamole", "price": "1.00"},
+            ]}],
+        }]}
+
+    def audit(self):
+        original_payload = deepcopy(self.payload)
+        original_catalog = deepcopy(self.catalog)
+        result = audit_deliveroo_20pct_preflight(self.payload, self.catalog)
+        self.assertEqual(self.payload, original_payload)
+        self.assertEqual(self.catalog, original_catalog)
+        self.assertEqual(result["deliveroo_markup_assumption_percent"], "20")
+        self.assertFalse(result["writes"])
+        self.assertFalse(result["ready_for_dispatch"])
+        self.assertTrue(result["requires_explicit_dispatch_approval"])
+        return result
+
+    def test_matching_twenty_percent_is_still_not_dispatch_approval(self):
+        result = self.audit()
+        self.assertEqual(result["blockers"], [])
+        self.assertFalse(result["base_price_audit"]["price_policy_verified"])
+        self.assertFalse(result["modifier_price_audit"]["price_policy_verified"])
+
+    def test_wrong_base_price_is_reported(self):
+        self.payload["body"]["order"]["items"][0]["unit_price"]["fractional"] = 1100
+        result = self.audit()
+        self.assertIn("base_prices_differ_from_20pct_policy", result["blockers"])
+        self.assertEqual(
+            result["base_price_audit"]["line_diagnostics"][0]["expected_unit_eur"],
+            "12.00",
+        )
+
+    def test_wrong_modifier_price_is_reported(self):
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 100
+        result = self.audit()
+        self.assertIn("modifier_prices_differ_from_20pct_policy", result["blockers"])
+        self.assertEqual(
+            result["modifier_price_audit"]["modifier_diagnostics"][0]["expected_unit_eur"],
+            "1.20",
+        )
+
+    def test_legacy_plu_cannot_be_approved_by_matching_label(self):
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
+        result = self.audit()
+        self.assertIn("modifier_plu_review_required", result["blockers"])
+        self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+        self.assertIn("modifier_prices_differ_from_20pct_policy", result["blockers"])
+
+    def test_unknown_product_is_not_silently_mapped(self):
+        self.payload["body"]["order"]["items"][0]["pos_item_id"] = "UNKNOWN"
+        result = self.audit()
+        self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+        self.assertIn("base_prices_differ_from_20pct_policy", result["blockers"])
+
+    def test_customer_instructions_are_not_lost_or_printed(self):
+        self.payload["body"]["order"]["order_notes"] = "Sans oignons"
+        result = self.audit()
+        self.assertIn("customer_instructions_need_mapping", result["blockers"])
+        self.assertEqual(result["instruction_candidate_paths"], ["body.order.order_notes"])
+        self.assertNotIn("Sans oignons", str(result))
+
+    def test_order_amount_discrepancy_is_reviewed(self):
+        self.payload["body"]["order"]["total_price"]["fractional"] = 1500
+        result = self.audit()
+        self.assertIn("order_amounts_require_review", result["blockers"])
+
+    def test_oversized_instruction_tree_fails_closed(self):
+        self.payload["body"]["order"]["metadata"] = ["x"] * 6000
+        result = self.audit()
+        self.assertIn("instruction_scan_incomplete", result["blockers"])
+        self.assertFalse(result["instruction_scan_complete"])
+
+
+if __name__ == "__main__":
+    unittest.main()
