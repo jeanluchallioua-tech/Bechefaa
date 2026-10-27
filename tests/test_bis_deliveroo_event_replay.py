@@ -135,5 +135,48 @@ class DeliverooGuidReplayTests(unittest.TestCase):
         self.assertEqual(len(conn.events), 1)
 
 
+class DeliverooAcceptedStatusGuardTests(unittest.TestCase):
+    """Read-only test of the actual status-log detector; no sync HTTP calls."""
+
+    @classmethod
+    def setUpClass(cls):
+        tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+        register = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == "register_deliveroo_sandbox_phase6")
+        detector = next(n for n in register.body if isinstance(n, ast.FunctionDef)
+                        and n.name == "_accepted_in_status_log")
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(
+            ast.Module(body=[detector], type_ignores=[])), str(SOURCE), "exec"), namespace)
+        cls.detect = staticmethod(namespace["_accepted_in_status_log"])
+
+    def test_explicit_nested_status_is_accepted(self):
+        payload = {"event": "order.status_update", "body": {
+            "order": {"status_log": [{"status": " Accepted "}]}}}
+        self.assertTrue(self.detect(payload))
+
+    def test_unrelated_accepted_text_does_not_trigger_sync(self):
+        for field in ("order_notes", "customer_note", "description", "status_log"):
+            with self.subTest(field=field):
+                payload = {"event": "order.status_update", "body": {
+                    "order": {field: "accepted"}}}
+                self.assertFalse(self.detect(payload))
+
+    def test_order_new_never_triggers_status_sync(self):
+        self.assertFalse(self.detect({"event": "order.new", "body": {
+            "order": {"status": "accepted"}}}))
+
+    def test_untrusted_deep_payload_fails_closed(self):
+        node = {"status": "accepted"}
+        for _ in range(20):
+            node = {"nested": node}
+        self.assertFalse(self.detect({"event": "order.status_update", "body": node}))
+
+    def test_other_status_does_not_trigger_sync(self):
+        self.assertFalse(self.detect({"event": "order.status_update", "body": {
+            "order": {"status_log": [{"status": "pending"}],
+                      "order_notes": "accepted"}}}))
+
+
 if __name__ == "__main__":
     unittest.main()
