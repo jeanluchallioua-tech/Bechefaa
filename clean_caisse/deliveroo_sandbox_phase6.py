@@ -161,6 +161,57 @@ def register_deliveroo_sandbox_phase6(app, db):
                 ))
             conn.commit()
 
+    def _rejected_in_latest_status(payload):
+        """Only the latest explicit status is authoritative; old status_log entries are not."""
+        if not isinstance(payload, dict) or str(payload.get("event") or "").lower() != "order.status_update":
+            return False
+        body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
+        order = body.get("order") if isinstance(body.get("order"), dict) else {}
+        for node in (order, body):
+            for key in ("status", "order_status", "state"):
+                value = node.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip().lower() in {"rejected", "reject", "declined"}
+        log = order.get("status_log") or body.get("status_log")
+        if isinstance(log, list) and log:
+            latest = log[-1]
+            if isinstance(latest, dict):
+                value = latest.get("status") or latest.get("order_status") or latest.get("state")
+                return str(value or "").strip().lower() in {"rejected", "reject", "declined"}
+        return False
+
+    def _bridge_order_rejected(payload):
+        """Mark an existing sandbox order rejected without touching other channels."""
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return "not_preproduction"
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
+            return "disabled"
+        if not _rejected_in_latest_status(payload):
+            return "not_rejected"
+        external_id = _extract_order_id(payload)
+        if not external_id:
+            return "missing_order_id"
+        import uuid
+        import time
+        pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
+        with db() as conn:
+            with conn.transaction():
+                from clean_caisse.app import ensure_order_schema
+                ensure_order_schema(conn)
+                row = conn.execute(
+                    "SELECT id,status FROM caisse_orders WHERE id=%s AND sales_channel='DELIVEROO' FOR UPDATE",
+                    (pos_id,),
+                ).fetchone()
+                if not row:
+                    return "not_imported"
+                if str(row["status"] or "").lower() in {"terminée", "annulée", "rejetée"}:
+                    return "already_terminal"
+                conn.execute(
+                    "UPDATE caisse_orders SET status=%s, updated_at=%s WHERE id=%s AND sales_channel='DELIVEROO'",
+                    ("Rejetée", int(time.time() * 1000), pos_id),
+                )
+        return "rejected"
+
     def _bridge_order_new(payload):
         """Import an order.new into the isolated preproduction POS, once per Deliveroo ID.
 
@@ -362,6 +413,14 @@ def register_deliveroo_sandbox_phase6(app, db):
                     except Exception:
                         sync_error=str(exc)[:300]
                     app.logger.exception("Deliveroo sync status failed order=%s: %s", order_id, exc)
+
+        if kind=="orders" and event.strip().lower()=="order.status_update":
+            try:
+                rejection_result=_bridge_order_rejected(payload)
+                app.logger.info("Deliveroo preproduction rejection result=%s order=%s", rejection_result, order_id)
+            except Exception as exc:
+                app.logger.exception("Deliveroo preproduction rejection handling failed: %s", exc)
+                return Response(status=500)
 
         if kind=="orders" and event.strip().lower()=="order.new":
             try:
