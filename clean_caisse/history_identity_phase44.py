@@ -8,12 +8,15 @@ remboursement, tickets ou PostgreSQL.
 - Masque les identifiants techniques et les actions secondaires de la liste.
 - Les actions opérationnelles restent accessibles derrière « Voir ».
 """
+import os
 from flask import request
 
 
 def register_history_identity_phase44(app):
     @app.after_request
     def history_identity_phase44(response):
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return response
         if request.method != "GET" or request.path != "/historique-modification":
             return response
         if response.status_code != 200 or response.mimetype != "text/html":
@@ -28,7 +31,11 @@ def register_history_identity_phase44(app):
   let deliveroo=String(o.sales_channel||'').toUpperCase()==='DELIVEROO'||source==='DELIVEROO';
   let customer=String(o.customer_name||'').trim();
   let generic=/^client\s+(comptoir|livraison|emporter)$/i.test(customer);
-  if(deliveroo)return generic||!customer?'LIVRAISON · DELIVEROO':'LIVRAISON · DELIVEROO — '+customer;
+  if(deliveroo){
+    let collect=source==='EMPORTER'||source==='TAKEAWAY'||String(o.ticket_type||'').toUpperCase()==='EMPORTER';
+    let label=collect?'À EMPORTER · DELIVEROO':'LIVRAISON · DELIVEROO';
+    return generic||!customer?label:label+' — '+customer;
+  }
   if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
   if(source==='EMPORTER'||source==='TAKEAWAY')return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
   return generic||!customer?'À EMPORTER':'À EMPORTER — '+customer;
@@ -142,12 +149,13 @@ def register_history_identity_phase44(app):
     deliveryAddress.insertAdjacentElement('afterend',contactDetails);
     function showDeliveryAddress(o){
       const channel=String(o.sales_channel||o.source||'').toUpperCase();
-      const deliveroo=channel==='DELIVEROO';
+      const deliveroo=channel==='DELIVEROO'||String(o.sales_channel||'').toUpperCase()==='DELIVEROO';
       const phone=String(o.phone||'').trim();
       contactDetails.textContent=phone?'Téléphone : '+phone:'';
       contactDetails.style.display=phone?'block':'none';
       if(deliveroo)sub.textContent=([sub.textContent,'Deliveroo'].filter(Boolean).join(' · ')).replace(/( · Deliveroo)+$/,' · Deliveroo');
-      const delivery=['LIVRAISON','DELIVERY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase().includes('livraison');
+      const collect=deliveroo&&(['EMPORTER','TAKEAWAY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase()==='emporter');
+      const delivery=!collect&&(['LIVRAISON','DELIVERY'].includes(String(o.source||'').toUpperCase())||String(o.ticket_type||'').toLowerCase().includes('livraison'));
       const text=delivery?[o.address,[o.postal_code,o.city].filter(Boolean).join(' ')].filter(Boolean).join('\n'):'';
       deliveryAddress.textContent=text;deliveryAddress.style.display=text?'block':'none';
     }
@@ -161,7 +169,7 @@ def register_history_identity_phase44(app):
       fetch('/api/orders/'+encodeURIComponent(id),{cache:'no-store'}).then(async r=>{if(!r.ok)return;const d=await r.json();if(d.ok&&d.order&&previewId===String(id))showDeliveryAddress({...o,...d.order});}).catch(()=>{});
       restore();actions.innerHTML='';
       title.textContent=(typeof historyIdentity==='function'?historyIdentity(o):String(o.customer_name||'Commande'));
-      sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':o.ticket_type].filter(Boolean).join(' · ');
+      sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':(typeof historyIdentity==='function'&&String(o.sales_channel||'').toUpperCase()==='DELIVEROO'?(String(o.source||'').toUpperCase()==='EMPORTER'||String(o.ticket_type||'').toLowerCase()==='emporter'?'À emporter Deliveroo':'Livraison Deliveroo'):o.ticket_type)].filter(Boolean).join(' · ');
       showDeliveryAddress(o);
       const arr=o.items||[];
       lines.innerHTML=arr.length?arr.map(i=>'<div class="history-clean-line"><div class="history-clean-line-top"><span>'+esc(i.qty+'× '+i.name)+'</span><span>'+euro(Number(i.unit_price||0)*Number(i.qty||0))+'</span></div>'+(i.options_text?'<div class="history-clean-opt">'+esc(i.options_text)+'</div>':'')+'</div>').join(''):'<div class="history-clean-empty">Aucun article</div>';
