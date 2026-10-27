@@ -99,6 +99,19 @@ class DeliverooReconcileTests(unittest.TestCase):
         result = reconcile(sample(), self.catalog)
         self.assertEqual(result["mapped_items"][0]["options"][0]["name"], "Guacamole")
 
+    def test_null_and_boolean_catalogue_choices_rejected(self):
+        # The menu builder skips a null choice; the read-only reconciler must
+        # not invent a printable "None" or "True" option for its PLU.
+        from copy import deepcopy
+        for invalid in (None, True, False):
+            with self.subTest(choice=invalid):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["options"][0] = invalid
+                with self.assertRaisesRegex(
+                    DeliverooMappingError, "Invalid catalogue option choice"
+                ):
+                    reconcile(sample(), catalog)
+
     def test_inactive_option_group_rejected(self):
         self.catalog["products"][0]["options"][0]["active"] = False
         with self.assertRaisesRegex(DeliverooMappingError, "Inactive catalogue option group"):
