@@ -191,5 +191,41 @@ class DeliverooAcceptedStatusGuardTests(unittest.TestCase):
                       "order_notes": "accepted"}}}))
 
 
+    def test_customer_and_item_status_cannot_accept_order(self):
+        # These fields describe people/items, not the Deliveroo order.
+        for nested in (
+            {"customer": {"status": "accepted"}},
+            {"order": {"customer": {"state": "accepted"}}},
+            {"order": {"items": [{"status": "accepted"}]}},
+            {"order": {"metadata": {"order_status": "accepted"}}},
+        ):
+            with self.subTest(nested=nested):
+                self.assertFalse(self.detect({
+                    "event": "order.status_update", "body": nested}))
+
+    def test_explicit_order_status_and_status_history_are_recognized(self):
+        for body in (
+            {"status": "accepted"},
+            {"order": {"state": "Accepted"}},
+            {"order": {"status_history": [{"status": "pending"},
+                                          {"status": "accepted"}]}},
+        ):
+            with self.subTest(body=body):
+                self.assertTrue(self.detect({
+                    "event": "order.status_update", "body": body}))
+
+    def test_status_log_note_is_not_status(self):
+        self.assertFalse(self.detect({
+            "event": "order.status_update",
+            "body": {"order": {"status_log": [
+                {"description": "accepted", "note": "accepted"},
+                {"status": "pending"}]}}}))
+
+    def test_unrecognized_nested_status_is_not_order_status(self):
+        self.assertFalse(self.detect({
+            "event": "order.status_update",
+            "body": {"unverified": {"status": "accepted"}}}))
+
+
 if __name__ == "__main__":
     unittest.main()
