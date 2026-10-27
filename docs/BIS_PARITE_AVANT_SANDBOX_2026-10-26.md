@@ -86,3 +86,28 @@ Le test Node isolé dans `tests/test_bis_js_smoke.py` vérifie l'absence d'impre
 - Le test exécute la véritable fonction `_bridge_order_new` avec **deux connexions PostgreSQL concurrentes**. Trois cas sont couverts : (1) même ID et même panier : **une création + un doublon**, une seule ligne de commande et un seul article ; (2) même ID avec prix contradictoires : **une création + un conflit**, sans écrasement ; (3) deux IDs différents : **deux commandes et deux numéros POS distincts**. La base est créée et détruite avec le service CI.
 - Cette preuve lève la limite antérieure des **simulations uniquement en mémoire pour ces trois cas précis**. Elle **ne valide pas le test Deliveroo 2 de bout en bout** : webhook réel, GUID distincts, remakes, reconnaissance par Deliveroo, circuit cuisine et impression Epson restent à contrôler. Scénarios 12 et 16 toujours bloqués.
 - Comparaison Git consultée le 27/10 : BIS **311 commits en avance, 13 en retard** sur `phase4-encaissement`. Les 13 commits propres à la référence comprennent notamment les évolutions de remise en %, édition du panier, tables, livraison et horaires. Les tests isolés ne remplacent pas la recette fonctionnelle sur PC/tablette. **Ne pas fusionner automatiquement les branches.**
+
+
+## Audit ciblé des 13 commits de production absents de BIS — 27/10/2026
+
+Comparaison Git en lecture seule : `bis-prod-sync-integration-2026-10-25...phase4-encaissement` ; **13 commits présents uniquement dans la branche de référence**. Ces écarts imposent une recette fonctionnelle : le nombre de commits ne suffit pas à établir si les changements ont été reproduits autrement dans BIS. **Ne pas fusionner aveuglément.**
+
+| Commit production absent | Fonction à comparer en priorité | Preuve exigée avant sandbox |
+| --- | --- | --- |
+| `144125c4` | Nom/prénom obligatoires, téléphone facultatif en caisse à emporter | Création et validation d'un client sur PC/tablette |
+| `a230bde4` | Paramètres publics des avis Google | Aucun effet de bord sur la caisse ou l'API du site |
+| `cdb2f772` | Modification des options dans le panier ; accès livraison sur tickets | Modifier sans doubler la ligne ; ticket complet |
+| `e2e45128` | Accès livraison depuis les fiches clients | Persistance et ticket après reprise client |
+| `c68f571d` | Tables occupées jusqu'au paiement ; catégorie conservée en modification | Cycle table 1–9, encaissement, retour catégorie |
+| `4b404361` | Étage/instructions client ; taille des tickets cuisine | Champs enregistrés et lisibles sur ticket |
+| `b40758e2` | Libellés Code / Interph. permanents | Valeurs visibles dans la fiche et le reçu |
+| `24179464` | Accès livraison dans l'aperçu de commande | Vérification visuelle sur PC/tablette |
+| `a399fdbf` | Détails livraison dans l'historique actif | Réouverture d'une commande sans perte de champs |
+| `2a2f5a84` | Horaires modifiables du calendrier hébraïque | Enregistrement et effet sur ouverture/fermeture |
+| `e0289223`, `ce96fe6d`, `db13f102` | Remise manuelle **discrète en pourcentage** pour emporter | Visibilité tactile, calcul, persistance, impression |
+
+**Vérifications transverses supplémentaires** : paramétrage Marketplace Deliveroo effectivement enregistré à **20 %** (une valeur préexistante à 15 % peut persister), majoration Uber Eats inchangée ; commandes site avec **bip à réception**, bandeau persistant et **impression seulement au clic** ; historique, hors connexion, reconnexion et Epson. Les tests unitaires ne prouvent pas ces interactions matérielles.
+
+**Test PostgreSQL ajouté le 27/10** (`tests/test_bis_deliveroo_bridge_runtime.py`) : contrainte SQL temporaire qui force l'échec d'insertion du **deuxième article** ; vérifie le rollback complet puis un import réussi et son rejeu sans doublon. Il ne contacte que la base PostgreSQL jetable de CI, pas Deliveroo ni une caisse déployée. **Résultat CI à contrôler sur le commit concerné** avant toute revendication de succès.
+
+**Blocages inchangés** : test Deliveroo 2 non validé de bout en bout (webhook, cuisine et Epson), scénarios Deliveroo 12 et 16 bloqués, retour Mollie du site en erreur malgré paiement réel. Aucun déploiement autorisé.
