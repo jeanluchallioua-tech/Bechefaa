@@ -15,6 +15,15 @@ from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fi
 DELIVEROO_AUDIT_MARKUP = "20"
 
 
+def _safe_kitchen_label(value):
+    """Do not report a label match for text unsafe for kitchen display."""
+    return (
+        isinstance(value, str) and bool(value.strip())
+        and not any(ord(char) < 32 or 127 <= ord(char) <= 159
+                    for char in value)
+    )
+
+
 def audit_deliveroo_20pct_preflight(payload, catalog):
     """Collect independent PLU, amount, markup and instruction diagnostics.
 
@@ -42,7 +51,8 @@ def audit_deliveroo_20pct_preflight(payload, catalog):
             product_id = received["pos_item_id"]
             received_label = " ".join(received["name"].split()).casefold()
             catalog_label = " ".join(mapped["name"].split()).casefold()
-            if not received_label or not catalog_label:
+            if not (_safe_kitchen_label(received["name"])
+                    and _safe_kitchen_label(mapped["name"])):
                 label_unverifiable.append({
                     "kind": "product", "line_index": line_index,
                     "pos_item_id": product_id,
@@ -62,7 +72,9 @@ def audit_deliveroo_20pct_preflight(payload, catalog):
                     "modifier_index": modifier_index,
                     "pos_item_id": incoming_option["pos_item_id"],
                 }
-                if not received_label or not catalog_label:
+                if not (_safe_kitchen_label(incoming_option["name"])
+                        and _safe_kitchen_label(catalog_option["name"])
+                        and _safe_kitchen_label(catalog_option["group"])):
                     label_unverifiable.append(entry)
                 elif received_label != catalog_label:
                     label_drift.append(entry)
