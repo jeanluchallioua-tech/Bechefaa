@@ -123,6 +123,41 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         self.assertEqual(result["catalogue_label_drift"], [])
         self.assertEqual(result["catalogue_label_unverifiable"], [])
 
+    def test_control_characters_in_product_labels_require_review(self):
+        # Whitespace normalization previously hid line breaks that would be
+        # unsafe on a kitchen ticket, reporting a misleading clean preflight.
+        for location in ("incoming", "catalogue"):
+            with self.subTest(location=location):
+                self.setUp()
+                if location == "incoming":
+                    self.payload["body"]["order"]["items"][0]["name"] = "Veggie\nBurger"
+                else:
+                    self.catalog["products"][0]["name"] = "Veggie\nBurger"
+                result = self.audit()
+                self.assertIn("catalogue_labels_unverifiable", result["blockers"])
+                self.assertEqual(result["catalogue_label_unverifiable"], [{
+                    "kind": "product", "line_index": 0, "pos_item_id": "MU11002",
+                }])
+                self.assertFalse(result["ready_for_dispatch"])
+
+    def test_control_characters_in_modifier_or_group_require_review(self):
+        for location in ("incoming", "choice", "group"):
+            with self.subTest(location=location):
+                self.setUp()
+                if location == "incoming":
+                    self.payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = "Guaca\nmole"
+                elif location == "choice":
+                    self.catalog["products"][0]["options"][0]["options"][0]["name"] = "Guaca\nmole"
+                else:
+                    self.catalog["products"][0]["options"][0]["name"] = "Extras\n"
+                result = self.audit()
+                self.assertIn("catalogue_labels_unverifiable", result["blockers"])
+                self.assertEqual(result["catalogue_label_unverifiable"], [{
+                    "kind": "modifier", "line_index": 0, "modifier_index": 0,
+                    "pos_item_id": "opt:MU11002:0:0",
+                }])
+                self.assertFalse(result["ready_for_dispatch"])
+
     def test_failed_reconciliation_does_not_claim_label_check_complete(self):
         self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
         result = self.audit()
