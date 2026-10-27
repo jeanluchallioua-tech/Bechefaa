@@ -52,6 +52,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_deliveroo_explicit_plu_map.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_readiness.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_amount_audit.py' -v
+          python -m unittest discover -s tests -p 'test_deliveroo_preflight_phase6.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_instruction_audit.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_menu_plu_contract.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_menu_identifier_collisions.py' -v
