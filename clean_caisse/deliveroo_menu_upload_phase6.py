@@ -1587,6 +1587,40 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 """)
             conn.commit()
 
+    @app.get("/api/deliveroo/scenario15-job-preflight-phase6")
+    def deliveroo_scenario15_job_preflight_phase6():
+        """Lecture seule : verifier la dependance S15 -> S16 sans creer de job."""
+        site_id=str(request.args.get("site_id") or "101").strip()
+        menu_id=str(request.args.get("menu_id") or "bechefaa-menu-01").strip()
+        if not site_id or not menu_id:
+            return jsonify({"ok":False,"error":"site_id et menu_id requis"}),400
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('deliveroo_scenario15_state') AS table_name")
+                    row=cur.fetchone()
+                    if not row or not row.get("table_name"):
+                        return jsonify({"ok":True,"read_only":True,"job_present":False,
+                                        "reason":"state_table_missing","site_id":site_id,
+                                        "menu_id":menu_id}),200
+                    cur.execute("""
+                        SELECT brand_id,job_id,created_at
+                        FROM deliveroo_scenario15_state
+                        WHERE site_id=%s AND menu_id=%s
+                    """,(site_id,menu_id))
+                    state=cur.fetchone()
+            return jsonify({
+                "ok":True,"read_only":True,"site_id":site_id,"menu_id":menu_id,
+                "job_present":bool(state and state.get("job_id")),
+                "brand_id":state.get("brand_id") if state else None,
+                "job_id":state.get("job_id") if state else None,
+                "created_at":state["created_at"].isoformat() if state and state.get("created_at") else None,
+                "reason":"stored_job_found" if state and state.get("job_id") else "no_stored_job",
+            }),200
+        except Exception as exc:
+            return jsonify({"ok":False,"read_only":True,"error":"Lecture job S15 impossible",
+                            "detail":str(exc)}),500
+
     @app.post("/api/deliveroo/scenario15-v3-async-upload-phase6")
     def deliveroo_scenario15_v3_async_upload_phase6():
         payload=request.get_json(silent=True) or {}
