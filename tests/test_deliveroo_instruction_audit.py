@@ -178,6 +178,34 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         ])
         self.assertFalse(result["schema_verified"])
 
+    def test_allergen_and_preparation_aliases_are_flagged_read_only(self):
+        # These aliases are precautionary, not claims about the webhook schema.
+        for scope, key in (
+            ("customer", "Allergen Information"),
+            ("customer", "allergen_notes"),
+            ("order", "customer_comments"),
+            ("order", "special_request"),
+            ("item", "preparationInstructions"),
+            ("item", "cooking_notes"),
+            ("modifier", "modifier_instructions"),
+            ("modifier", "dietary_notes"),
+        ):
+            with self.subTest(scope=scope, key=key):
+                payload = event()
+                order = payload["body"]["order"]
+                target = (order.setdefault("customer", {}) if scope == "customer"
+                          else order if scope == "order"
+                          else order["items"][0] if scope == "item"
+                          else order["items"][0]["modifiers"][0])
+                target[key] = "Sans allergenes"
+                original = copy.deepcopy(payload)
+                result = audit_instruction_fields(payload)
+                self.assertEqual(len(result["candidate_paths"]), 1)
+                self.assertTrue(result["candidate_paths"][0].endswith("." + key))
+                self.assertTrue(result["scan_complete"])
+                self.assertFalse(result["writes"])
+                self.assertEqual(payload, original)
+
     def test_unrelated_fields_are_not_mistaken_for_customer_notes(self):
         payload = event()
         payload["body"]["order"]["customer_name"] = "Camille"
