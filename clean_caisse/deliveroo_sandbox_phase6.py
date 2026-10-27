@@ -240,7 +240,9 @@ def register_deliveroo_sandbox_phase6(app, db):
                     return "duplicate"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
                 # Preserve delivery and customer contact data for POS history/preview.
-                # Deliveroo is the sales channel; LIVRAISON is the POS order type.
+                # Customer Collect is collected at the restaurant, not delivered.
+                fulfillment_type = str(order.get("fulfillment_type") or "").strip().lower()
+                pos_source = "EMPORTER" if fulfillment_type == "customer" else "LIVRAISON"
                 customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
                 delivery = order.get("delivery") if isinstance(order.get("delivery"), dict) else {}
                 address_data = delivery.get("address")
@@ -262,8 +264,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                 city = str(delivery.get("city") or address_data.get("city") or "").strip()
                 conn.execute("""INSERT INTO caisse_orders
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
-                    (pos_id,num,customer_name,phone,address,postal_code,city,total,now,now))
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
+                    (pos_id,num,customer_name,phone,address,postal_code,city,pos_source,total,now,now))
                 if scheduled_start_ms is not None:
                     conn.execute(
                         "INSERT INTO deliveroo_kitchen_schedule (order_id, start_preparing_at_ms) VALUES (%s, %s)",
