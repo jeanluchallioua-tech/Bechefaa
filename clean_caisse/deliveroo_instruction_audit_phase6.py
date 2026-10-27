@@ -17,57 +17,56 @@ DOCUMENTED_ORDER_NOTE_KEYS = frozenset({"order_notes", "cutlery_notes"})
 CANDIDATE_KEYS = frozenset({
     "notes", "note", "instructions", "special_instructions",
     "customer_note", "customer_notes", "cooking_instructions",
+    "delivery_instructions", "delivery_notes", "dropoff_instructions",
+    "customer_instructions", "special_requests", "allergy_information",
+    "specialInstructions", "deliveryInstructions", "customerInstructions",
+    "orderNotes", "cutleryNotes", "allergyNotes",
 }) | DOCUMENTED_ORDER_NOTE_KEYS
 
 
 def audit_instruction_fields(payload):
+    """Inventory candidate notes anywhere inside body.order, without writes.
+
+    A bounded traversal prevents pathological payloads from exhausting the
+    webhook worker. An incomplete scan is a hard stop for the opt-in bridge,
+    never an implicit approval to drop potentially uninspected instructions.
+    """
     body = payload.get("body") if isinstance(payload, dict) else None
     order = body.get("order") if isinstance(body, dict) else None
-    if not isinstance(order, dict):
-        return {"candidate_paths": [], "candidate_values": [],
-                "documented_order_note_paths": [],
-                "non_text_candidate_paths": [], "blank_candidate_paths": [],
-                "unsafe_control_candidate_paths": [],
-                "schema_verified": False, "writes": False}
     paths = []
     values = []
-    for key in sorted(CANDIDATE_KEYS):
-        if key in order and order[key] is not None:
-            path = "body.order." + key
-            paths.append(path)
-            values.append({"path": path, "value": order[key]})
-    items = order.get("items")
-    if isinstance(items, list):
-        for index, item in enumerate(items):
-            if not isinstance(item, dict):
-                continue
-            for key in sorted(CANDIDATE_KEYS):
-                if key in item and item[key] is not None:
-                    path = f"body.order.items[{index}].{key}"
-                    paths.append(path)
-                    values.append({"path": path, "value": item[key]})
-            modifiers = item.get("modifiers")
-            if isinstance(modifiers, list):
-                for modifier_index, modifier in enumerate(modifiers):
-                    if not isinstance(modifier, dict):
+    scan_complete = True
+    if isinstance(order, dict):
+        pending = [("body.order", order, 0)]
+        visited = 0
+        while pending:
+            path, node, depth = pending.pop()
+            visited += 1
+            if visited > 5000 or depth > 16:
+                scan_complete = False
+                break
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if not isinstance(key, str):
+                        scan_complete = False
                         continue
-                    for key in sorted(CANDIDATE_KEYS):
-                        if key in modifier and modifier[key] is not None:
-                            path = (
-                                f"body.order.items[{index}].modifiers"
-                                f"[{modifier_index}].{key}"
-                            )
-                            paths.append(path)
-                            values.append({"path": path, "value": modifier[key]})
+                    child_path = path + "." + key
+                    if key in CANDIDATE_KEYS and value is not None:
+                        paths.append(child_path)
+                        values.append({"path": child_path, "value": value})
+                    if isinstance(value, (dict, list)):
+                        pending.append((child_path, value, depth + 1))
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    if isinstance(value, (dict, list)):
+                        pending.append((f"{path}[{index}]", value, depth + 1))
     return {
         "candidate_paths": sorted(paths),
         "documented_order_note_paths": sorted(
             "body.order." + key for key in DOCUMENTED_ORDER_NOTE_KEYS
-            if key in order and order[key] is not None
+            if isinstance(order, dict) and key in order and order[key] is not None
         ),
         "candidate_values": sorted(values, key=lambda x: x["path"]),
-        # Candidate field names are not a verified webhook schema. Do not
-        # convert structured or empty values into printable kitchen notes.
         "non_text_candidate_paths": sorted(
             entry["path"] for entry in values if not isinstance(entry["value"], str)
         ),
@@ -79,6 +78,7 @@ def audit_instruction_fields(payload):
             entry["path"] for entry in values
             if isinstance(entry["value"], str) and _unsafe_controls(entry["value"])
         ),
+        "scan_complete": scan_complete,
         "schema_verified": False,
         "writes": False,
     }
