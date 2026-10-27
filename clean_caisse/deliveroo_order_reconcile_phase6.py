@@ -59,8 +59,10 @@ def reconcile(payload, catalog):
             try:
                 # PLU indices are zero-based and must never use Python's
                 # negative indexing or accept non-canonical representations.
-                if any(not part.isascii() or not part.isdecimal() or
-                       str(int(part)) != part for part in parts[2:]):
+                if any(not part.isascii() or not part.isdecimal()
+                       or len(part) > 9
+                       or (len(part) > 1 and part.startswith("0"))
+                       for part in parts[2:]):
                     raise ValueError("Non-canonical modifier index")
                 group_index, choice_index = int(parts[2]), int(parts[3])
                 group = groups[group_index]
