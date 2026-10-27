@@ -774,13 +774,37 @@ def kitchen_orders():
         with db() as conn:
             ensure_order_schema(conn)
             conn.commit()
-            rows = conn.execute(
-                """SELECT id, num, customer_name, phone, address, postal_code, city, source, sales_channel, payment, status, total, created_at, updated_at
-                   FROM caisse_orders
-                   WHERE status IN ('À préparer', 'En préparation')
-                   ORDER BY updated_at ASC, num ASC
-                   LIMIT 100"""
-            ).fetchall()
+            # Only the isolated Deliveroo preproduction bridge uses a deferred
+            # kitchen schedule; production keeps its existing query unchanged.
+            preprod_schedule = os.environ.get("CC_APP_ID", "").strip() == "app_fad0809f-954d-47e7-983d-afb7c3867cd0"
+            if preprod_schedule:
+                conn.execute("""CREATE TABLE IF NOT EXISTS deliveroo_kitchen_schedule (
+                    order_id TEXT PRIMARY KEY,
+                    start_preparing_at_ms BIGINT NOT NULL
+                )""")
+                conn.commit()
+                rows = conn.execute(
+                    """SELECT o.id, o.num, o.customer_name, o.phone, o.address,
+                              o.postal_code, o.city, o.source, o.sales_channel,
+                              o.payment, o.status, o.total, o.created_at,
+                              CASE WHEN sch.start_preparing_at_ms IS NOT NULL
+                                   THEN GREATEST(o.updated_at, sch.start_preparing_at_ms)
+                                   ELSE o.updated_at END AS updated_at
+                       FROM caisse_orders o
+                       LEFT JOIN deliveroo_kitchen_schedule sch ON sch.order_id = o.id
+                       WHERE o.status IN ('À préparer', 'En préparation')
+                         AND (sch.order_id IS NULL OR sch.start_preparing_at_ms <= %s)
+                       ORDER BY o.updated_at ASC, o.num ASC
+                       LIMIT 100""", (int(time.time() * 1000),)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT id, num, customer_name, phone, address, postal_code, city, source, sales_channel, payment, status, total, created_at, updated_at
+                       FROM caisse_orders
+                       WHERE status IN ('À préparer', 'En préparation')
+                       ORDER BY updated_at ASC, num ASC
+                       LIMIT 100"""
+                ).fetchall()
             orders = [order_payload(conn, row) for row in rows]
             orders = _deliveroo_remake_view(conn, orders)
     except Exception as exc:
