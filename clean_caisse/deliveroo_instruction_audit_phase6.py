@@ -23,6 +23,15 @@ CANDIDATE_KEYS = frozenset({
     "orderNotes", "cutleryNotes", "allergyNotes",
 }) | DOCUMENTED_ORDER_NOTE_KEYS
 
+# Webhook field casing/separators may vary across producers. Recognize known
+# instruction concepts even when a producer changes only their spelling form.
+# Keep the original path/value for diagnostics; never interpret or print notes.
+def _instruction_key(key):
+    return "".join(char for char in key.casefold() if "a" <= char <= "z" or "0" <= char <= "9")
+
+
+NORMALIZED_CANDIDATE_KEYS = frozenset(_instruction_key(key) for key in CANDIDATE_KEYS)
+
 
 def audit_instruction_fields(payload):
     """Inventory candidate notes anywhere inside body.order, without writes.
@@ -51,7 +60,7 @@ def audit_instruction_fields(payload):
                         scan_complete = False
                         continue
                     child_path = path + "." + key
-                    if key in CANDIDATE_KEYS and value is not None:
+                    if _instruction_key(key) in NORMALIZED_CANDIDATE_KEYS and value is not None:
                         paths.append(child_path)
                         values.append({"path": child_path, "value": value})
                     if isinstance(value, (dict, list)):
