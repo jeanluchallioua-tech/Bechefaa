@@ -321,6 +321,12 @@ def register_deliveroo_sandbox_phase6(app, db):
         # transactionally with the POS order, not merely with the webhook GUID.
         import hashlib
         # Deliveroo is the sales channel, not the POS fulfillment mode.
+        # Customer Collect is pickup; do not label it as a delivery.
+        # Unknown nonempty modes require review rather than guessing.
+        fulfillment_type = str(order.get("fulfillment_type") or "").strip().casefold()
+        if fulfillment_type not in ("", "customer", "deliveroo", "restaurant"):
+            raise ValueError("Unrecognized Deliveroo fulfillment type; manual review required")
+        fulfillment_source = "EMPORTER" if fulfillment_type == "customer" else "LIVRAISON"
         # Preserve customer details when Deliveroo supplies them; never
         # invent a name, address or telephone number.
         customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
@@ -351,6 +357,7 @@ def register_deliveroo_sandbox_phase6(app, db):
         fingerprint_body = {
             "total": str(total),
             "reported_order_cents": reported_order_cents,
+            "fulfillment_source": fulfillment_source,
             "delivery_contact": [customer_name, phone, address, postal_code, city],
             "lines": [
                 {"plu": plu, "name": name, "qty": qty, "unit": str(unit),
@@ -388,8 +395,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
                 conn.execute("""INSERT INTO caisse_orders
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
-                    (pos_id,num,customer_name,phone,address,postal_code,city,total,now,now,fingerprint))
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
+                    (pos_id,num,customer_name,phone,address,postal_code,city,fulfillment_source,total,now,now,fingerprint))
                 for position, (plu,name,qty,unit,options,_,reported_unit_cents,
                                modifier_unit_prices) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
