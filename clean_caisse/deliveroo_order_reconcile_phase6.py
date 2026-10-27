@@ -73,6 +73,11 @@ def reconcile(payload, catalog):
                 choice = choices[choice_index]
             except (ValueError, IndexError, KeyError, TypeError, StopIteration):
                 raise DeliverooMappingError("Invalid modifier PLU: " + plu)
+            # The menu preview omits null choices. Never interpret a missing
+            # catalogue slot as the printable option name "None", or a
+            # boolean placeholder as a legitimate customer selection.
+            if choice is None or isinstance(choice, bool):
+                raise DeliverooMappingError("Invalid catalogue option choice: " + plu)
             if not catalogue_entry_active(group, "option group " + plu):
                 raise DeliverooMappingError("Inactive catalogue option group: " + plu)
             if isinstance(choice, dict) and not catalogue_entry_active(choice, "option choice " + plu):
