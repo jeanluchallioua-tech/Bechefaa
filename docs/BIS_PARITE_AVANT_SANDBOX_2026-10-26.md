@@ -111,3 +111,12 @@ Comparaison Git en lecture seule : `bis-prod-sync-integration-2026-10-25...phase
 **Test PostgreSQL ajouté le 27/10** (`tests/test_bis_deliveroo_bridge_runtime.py`) : contrainte SQL temporaire qui force l'échec d'insertion du **deuxième article** ; vérifie le rollback complet puis un import réussi et son rejeu sans doublon. Il ne contacte que la base PostgreSQL jetable de CI, pas Deliveroo ni une caisse déployée. **Résultat CI à contrôler sur le commit concerné** avant toute revendication de succès.
 
 **Blocages inchangés** : test Deliveroo 2 non validé de bout en bout (webhook, cuisine et Epson), scénarios Deliveroo 12 et 16 bloqués, retour Mollie du site en erreur malgré paiement réel. Aucun déploiement autorisé.
+
+
+## Contrôle complémentaire — notes Deliveroo imbriquées (27/10/2026)
+
+Le diagnostic en lecture seule parcourt désormais les objets et listes de `body.order` au-delà des seuls niveaux commande/article/modificateur. Il relève les champs de consignes de livraison, d'allergies et les variantes de noms de champs en camelCase, **sans interpréter ni imprimer leur contenu**. Une exploration incomplète (profondeur ou nombre d'objets excessif) entraîne le refus conservateur de l'import opt-in avant toute requête SQL. Des tests vérifient les consignes imbriquées, les valeurs structurées et les événements trop profonds.
+
+**Ce n'est pas une validation des consignes clients** : le schéma réel des webhooks et la transcription exacte sur tickets cuisine doivent être confirmés avant d'autoriser leur import. Aucun scénario Deliveroo 2, 12 ou 16 n'est déclaré validé par ce changement. Le rapprochement complet des PLU/prix et la recette PC/tablette/Epson restent obligatoires.
+
+Comparaison Git consultée le 27/10 : BIS **320 commits en avance et 13 en retard** sur `phase4-encaissement` (constat ponctuel, sans preuve de parité). Les paramètres Marketplace doivent être vérifiés en base BIS : **Deliveroo 20 %**, **Uber Eats au taux déjà existant**, sans écrasement automatique d'anciennes valeurs.
