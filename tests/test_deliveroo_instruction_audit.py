@@ -107,6 +107,25 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         self.assertFalse(result["scan_complete"])
         self.assertFalse(result["writes"])
 
+    def test_alternate_instruction_key_spelling_is_discovered_without_rewriting(self):
+        payload = event()
+        order = payload["body"]["order"]
+        order["ORDER_NOTES"] = "Sans oignons"
+        order["delivery"] = {"Delivery-Instructions": "Code porte"}
+        order["items"][0]["Customer Notes"] = "Sans sauce"
+        order["items"][0]["modifiers"][0]["SPECIAL_INSTRUCTIONS"] = "Bien cuit"
+        original = copy.deepcopy(payload)
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["candidate_paths"], [
+            "body.order.ORDER_NOTES",
+            "body.order.delivery.Delivery-Instructions",
+            "body.order.items[0].Customer Notes",
+            "body.order.items[0].modifiers[0].SPECIAL_INSTRUCTIONS",
+        ])
+        self.assertTrue(result["scan_complete"])
+        self.assertFalse(result["writes"])
+        self.assertEqual(payload, original)
+
     def test_unrelated_fields_are_not_mistaken_for_customer_notes(self):
         payload = event()
         payload["body"]["order"]["customer_name"] = "Camille"
