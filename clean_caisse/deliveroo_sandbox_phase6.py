@@ -518,7 +518,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -600,6 +600,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         "status", "type", "fulfilment_type", "restaurant_id",
                         "site_id", "brand_id", "reference", "display_id",
                     })),
+                    "schedule_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("schedul", "time", "date", "ready", "deliver", "collect", "pickup", "prepar", "fulfil", "asap", "slot", "window", "promise", "due", "target", "deadline")))),
                     "body_fields": ", ".join(sorted(k for k in body.keys() if k in {
                         "order", "order_id", "id", "event_id", "timestamp",
                         "scenario", "scenario_id", "test_id", "site_id",
