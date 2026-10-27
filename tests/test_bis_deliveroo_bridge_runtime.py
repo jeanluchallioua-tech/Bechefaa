@@ -578,6 +578,22 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                     self.bridge(db, event)
                 self.assertEqual(db.statements, [])
 
+    def test_alternate_spelling_of_customer_notes_blocks_before_sql(self):
+        for scope, field in (("order", "ORDER_NOTES"),
+                             ("item", "Special-Instructions"),
+                             ("modifier", "Customer Notes")):
+            with self.subTest(scope=scope, field=field):
+                db = FakeDB()
+                event = payload()
+                order = event["body"]["order"]
+                target = (order if scope == "order" else
+                          order["items"][0] if scope == "item" else
+                          order["items"][0]["modifiers"][0])
+                target[field] = "Allergie : arachides"
+                with self.assertRaisesRegex(ValueError, "instructions require"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+
     def test_empty_customer_note_does_not_block_import(self):
         db = FakeDB()
         event = payload()
