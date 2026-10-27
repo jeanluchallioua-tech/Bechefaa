@@ -320,9 +320,38 @@ def register_deliveroo_sandbox_phase6(app, db):
         # contains the same products, prices and modifiers. Store a fingerprint
         # transactionally with the POS order, not merely with the webhook GUID.
         import hashlib
+        # Deliveroo is the sales channel, not the POS fulfillment mode.
+        # Preserve customer details when Deliveroo supplies them; never
+        # invent a name, address or telephone number.
+        customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
+        delivery = order.get("delivery") if isinstance(order.get("delivery"), dict) else {}
+        address_data = delivery.get("address")
+        if not isinstance(address_data, dict):
+            address_data = {}
+        first = str(customer.get("first_name") or customer.get("firstName") or "").strip()
+        last = str(customer.get("last_name") or customer.get("lastName") or "").strip()
+        # Deliveroo's observed delivery fields are not necessarily
+        # nested under customer or delivery.address. Keep legacy
+        # fallbacks for older webhook fixtures and omit absent values.
+        customer_name = (str(delivery.get("customer_name") or "").strip()
+                         or str(customer.get("name") or "").strip()
+                         or " ".join(x for x in (first, last) if x)
+                         or "Client Deliveroo")
+        phone = str(delivery.get("contact_number") or customer.get("phone")
+                    or delivery.get("phone") or "").strip()
+        # delivery.location may be coordinates, not a postal address.
+        # Do not turn its JSON into a fictitious street address.
+        address = str(address_data.get("address_line_1") or address_data.get("line_1")
+                      or address_data.get("street_address") or "").strip()
+        postal_code = str(delivery.get("postcode") or address_data.get("postcode")
+                          or address_data.get("postal_code") or "").strip()
+        city = str(delivery.get("city") or address_data.get("city") or "").strip()
+        # A replay with altered delivery contact must not silently reuse an
+        # already-created POS ticket with stale customer details.
         fingerprint_body = {
             "total": str(total),
             "reported_order_cents": reported_order_cents,
+            "delivery_contact": [customer_name, phone, address, postal_code, city],
             "lines": [
                 {"plu": plu, "name": name, "qty": qty, "unit": str(unit),
                  "reported_unit_cents": reported_unit_cents,
@@ -357,32 +386,6 @@ def register_deliveroo_sandbox_phase6(app, db):
                         raise ValueError("Deliveroo order ID replay content conflict")
                     return "duplicate"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
-                # Deliveroo is the sales channel, not the POS fulfillment mode.
-                # Preserve customer details when Deliveroo supplies them; never
-                # invent a name, address or telephone number.
-                customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
-                delivery = order.get("delivery") if isinstance(order.get("delivery"), dict) else {}
-                address_data = delivery.get("address")
-                if not isinstance(address_data, dict):
-                    address_data = {}
-                first = str(customer.get("first_name") or customer.get("firstName") or "").strip()
-                last = str(customer.get("last_name") or customer.get("lastName") or "").strip()
-                # Deliveroo's observed delivery fields are not necessarily
-                # nested under customer or delivery.address. Keep legacy
-                # fallbacks for older webhook fixtures and omit absent values.
-                customer_name = (str(delivery.get("customer_name") or "").strip()
-                                 or str(customer.get("name") or "").strip()
-                                 or " ".join(x for x in (first, last) if x)
-                                 or "Client Deliveroo")
-                phone = str(delivery.get("contact_number") or customer.get("phone")
-                            or delivery.get("phone") or "").strip()
-                # delivery.location may be coordinates, not a postal address.
-                # Do not turn its JSON into a fictitious street address.
-                address = str(address_data.get("address_line_1") or address_data.get("line_1")
-                              or address_data.get("street_address") or "").strip()
-                postal_code = str(delivery.get("postcode") or address_data.get("postcode")
-                                  or address_data.get("postal_code") or "").strip()
-                city = str(delivery.get("city") or address_data.get("city") or "").strip()
                 conn.execute("""INSERT INTO caisse_orders
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at,deliveroo_import_fingerprint)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s,%s)""",
