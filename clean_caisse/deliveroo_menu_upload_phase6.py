@@ -1745,10 +1745,14 @@ def register_deliveroo_menu_upload_phase6(app, db):
             # Deliveroo exige un objet params, mais aucun champ interne n'est
             # documenté pour publish_menu_to_live. Le support a confirmé que
             # params.menu_id provoquait "invalid params".
-            job_payload={
-                "action":"publish_menu_to_live",
-                "params":{},
-            }
+            # Exemple officiel Deliveroo V3 : action seule, sans params vide.
+            # Interdire toute execution si l'URL configuree n'est pas le Sandbox.
+            if urllib.parse.urlparse(api_url).hostname != "api-sandbox.developers.deliveroo.com":
+                return jsonify({
+                    "ok":False,"stage":"sandbox_guard",
+                    "error":"Creation du job S15 interdite hors Sandbox Deliveroo"
+                }),403
+            job_payload={"action":"publish_menu_to_live"}
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
             fallback_used=False
             primary_job_status=job_status
@@ -1757,7 +1761,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
             ok=200 <= job_status < 300
             job_id=None
             if isinstance(job_response,dict):
-                job_id=job_response.get("job_id") or job_response.get("id")
+                job_id=_find_job_id(job_response)
+                # Certains retours fournissent un identifiant simple sans statut.
+                if not job_id:
+                    job_id=job_response.get("job_id") or job_response.get("jobId") or job_response.get("id")
 
             if 200 <= job_status < 300 and job_id:
                 _scenario15_state_table()
