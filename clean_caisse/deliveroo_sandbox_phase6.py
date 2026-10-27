@@ -233,8 +233,8 @@ def register_deliveroo_sandbox_phase6(app, db):
                                  or str(customer.get("name") or "").strip()
                                  or " ".join(x for x in (first, last) if x)
                                  or "Client Deliveroo")
-                phone = str(delivery.get("contact_number") or customer.get("phone")
-                            or delivery.get("phone") or "").strip()
+                phone = str(delivery.get("contact_number") or customer.get("contact_number")
+                            or customer.get("phone") or delivery.get("phone") or "").strip()
                 # A geolocation object is not a postal address: never stringify it.
                 address = str(address_data.get("address_line_1") or address_data.get("line_1")
                               or address_data.get("street_address") or "").strip()
@@ -612,7 +612,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                     "order_status": str(order.get("status") or "")[:40],
                     "order_type": str(order.get("type") or order.get("fulfilment_type") or "")[:40],
                     "order_created_at": str(order.get("created_at") or order.get("placed_at") or "")[:50],
-                    "contact_number_filled": "OUI" if isinstance(order.get("delivery"), dict) and bool(str(order["delivery"].get("contact_number") or "").strip()) else "NON",
+                    "contact_number_filled": "OUI" if bool(str((order.get("delivery") if isinstance(order.get("delivery"), dict) else {}).get("contact_number") or (order.get("customer") if isinstance(order.get("customer"), dict) else {}).get("contact_number") or "").strip()) else "NON",
                     "customer_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("customer", "consumer", "recipient", "contact", "name", "phone", "first_name", "last_name", "telephone", "mobile", "email")))),
                     "delivery_field_paths": ", ".join(sorted(_diagnostic_field_paths(order, ("delivery", "address", "postcode", "postal_code", "city", "instructions", "notes", "fulfilment", "location", "street", "building", "apartment")))),
                     "item_count": len(items),
