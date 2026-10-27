@@ -47,15 +47,21 @@ def audit_instruction_fields(payload):
     scan_complete = True
     if isinstance(order, dict):
         pending = [("body.order", order, 0)]
-        visited = 0
+        # Count every inspected field/list entry, not only container nodes:
+        # a single huge flat object/list must not bypass the traversal budget.
+        inspected = 0
         while pending:
             path, node, depth = pending.pop()
-            visited += 1
-            if visited > 5000 or depth > 16:
+            inspected += 1
+            if inspected > 5000 or depth > 16:
                 scan_complete = False
                 break
             if isinstance(node, dict):
                 for key, value in node.items():
+                    inspected += 1
+                    if inspected > 5000:
+                        scan_complete = False
+                        break
                     if not isinstance(key, str):
                         scan_complete = False
                         continue
@@ -67,8 +73,14 @@ def audit_instruction_fields(payload):
                         pending.append((child_path, value, depth + 1))
             elif isinstance(node, list):
                 for index, value in enumerate(node):
+                    inspected += 1
+                    if inspected > 5000:
+                        scan_complete = False
+                        break
                     if isinstance(value, (dict, list)):
                         pending.append((f"{path}[{index}]", value, depth + 1))
+            if not scan_complete:
+                break
     return {
         "candidate_paths": sorted(paths),
         "documented_order_note_paths": sorted(
