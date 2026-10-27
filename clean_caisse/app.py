@@ -685,8 +685,9 @@ def _deliveroo_remake_view(conn, orders):
         if str(item["id"]) in hidden:
             continue
         if str(item.get("sales_channel") or item.get("source") or "").upper() == "DELIVEROO":
-            item["ticket_type"] = "Livraison"
-            item["service_mode"] = "Livraison"
+            is_collect = str(item.get("source") or "").upper() in {"EMPORTER", "TAKEAWAY"}
+            item["ticket_type"] = "Emporter" if is_collect else "Livraison"
+            item["service_mode"] = "Emporter" if is_collect else "Livraison"
             item["payment"] = "PAYÉ EN LIGNE"
             item["payment_label"] = "PAYÉ EN LIGNE"
             item["platform"] = "Deliveroo"
