@@ -230,6 +230,18 @@ class DeliverooReconcileTests(unittest.TestCase):
                 with self.assertRaises(DeliverooMappingError):
                     reconcile(payload, self.catalog)
 
+    def test_oversized_option_indices_rejected_without_integer_conversion(self):
+        for plu in (
+            "opt:MU11002:1234567890:0",
+            "opt:MU11002:0:1234567890",
+            "opt:MU11002:" + "9" * 5000 + ":0",
+        ):
+            with self.subTest(length=len(plu)):
+                payload = sample()
+                payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = plu
+                with self.assertRaisesRegex(DeliverooMappingError, "Invalid modifier PLU"):
+                    reconcile(payload, self.catalog)
+
     def test_unrecognized_modifier_rejected(self):
         payload = sample()
         payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
