@@ -37,7 +37,8 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
         parts = target.split(":")
         if (len(parts) != 4 or any(
                 not part.isascii() or not part.isdecimal()
-                or str(int(part)) != part for part in parts[2:]
+                or len(part) > 9 or (len(part) > 1 and part.startswith("0"))
+                for part in parts[2:]
         )):
             raise DeliverooMappingError("Non-canonical approved modifier PLU target")
     for line_index, item in enumerate(parsed["items"]):

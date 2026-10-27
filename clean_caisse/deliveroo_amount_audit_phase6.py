@@ -224,7 +224,8 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                 parts = modifier_id.split(":")
                 if (len(parts) != 4 or parts[:2] != ["opt", product_id]
                         or any(not p.isascii() or not p.isdecimal()
-                               or str(int(p)) != p for p in parts[2:])):
+                               or len(p) > 9 or (len(p) > 1 and p.startswith("0"))
+                               for p in parts[2:])):
                     status = "unmapped_modifier_plu"
                 else:
                     groups = product.get("options")

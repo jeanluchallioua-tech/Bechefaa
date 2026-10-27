@@ -351,5 +351,42 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
                     )
 
 
+
+class DeliverooOversizedPluIndexTests(unittest.TestCase):
+    """Malformed PLU indices must fail closed, never escape as int() errors."""
+
+    def test_modifier_price_audit_reports_oversized_index(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = (
+            "opt:MU11002:0:" + "9" * 5000
+        )
+        catalog = {"products": [{"id": "MU11002", "options": [
+            {"options": [{"name": "Guacamole", "price": "0.95"}]}
+        ]}]}
+        before = deepcopy(payload)
+        audit = audit_catalog_modifier_markup(payload, catalog, markup_percentage="20")
+        self.assertEqual(audit["review_reasons"], ["unmapped_modifier_plu"])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        self.assertEqual(payload, before)
+
+    def test_legacy_map_rejects_oversized_target_as_mapping_error(self):
+        from clean_caisse.deliveroo_explicit_plu_map_phase6 import reconcile_with_explicit_plu_map
+        from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
+        payload = sample()
+        payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
+        catalog = {"products": [{"id": "MU11002", "options": [
+            {"options": [{"name": "Guacamole", "price": "0.95"}]}
+        ]}]}
+        before = deepcopy(payload)
+        with self.assertRaises(DeliverooMappingError):
+            reconcile_with_explicit_plu_map(
+                payload, catalog,
+                {("MU11002", "OM21001"): "opt:MU11002:0:" + "9" * 5000},
+            )
+        self.assertEqual(payload, before)
+
 if __name__ == "__main__":
     unittest.main()
