@@ -70,6 +70,43 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
                 self.assertFalse(result["schema_verified"])
                 self.assertFalse(result["writes"])
 
+    def test_nested_delivery_allergy_and_camelcase_notes_are_discovered(self):
+        payload = event()
+        order = payload["body"]["order"]
+        order["delivery"] = {"instructions": "Sonner deux fois"}
+        order["customer"] = {"allergy_information": "Allergie sesame"}
+        order["items"][0]["modifiers"][0]["specialInstructions"] = "Sans sel"
+        original = copy.deepcopy(payload)
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["candidate_paths"], [
+            "body.order.customer.allergy_information",
+            "body.order.delivery.instructions",
+            "body.order.items[0].modifiers[0].specialInstructions",
+        ])
+        self.assertTrue(result["scan_complete"])
+        self.assertFalse(result["writes"])
+        self.assertEqual(payload, original)
+
+    def test_nested_structured_note_is_not_treated_as_printable_text(self):
+        payload = event()
+        payload["body"]["order"]["delivery"] = {
+            "delivery_instructions": {"text": "Code porte 1234"}}
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["non_text_candidate_paths"],
+                         ["body.order.delivery.delivery_instructions"])
+        self.assertFalse(result["schema_verified"])
+
+    def test_deep_payload_is_explicitly_marked_incomplete(self):
+        payload = event()
+        current = payload["body"]["order"]
+        for _ in range(18):
+            current["context"] = {}
+            current = current["context"]
+        current["instructions"] = "Ne pas perdre cette note"
+        result = audit_instruction_fields(payload)
+        self.assertFalse(result["scan_complete"])
+        self.assertFalse(result["writes"])
+
     def test_unrelated_fields_are_not_mistaken_for_customer_notes(self):
         payload = event()
         payload["body"]["order"]["customer_name"] = "Camille"
