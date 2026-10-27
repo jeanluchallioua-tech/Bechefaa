@@ -77,6 +77,51 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         self.assertEqual(result["instruction_candidate_paths"], ["body.order.order_notes"])
         self.assertNotIn("Sans oignons", str(result))
 
+    def test_reordered_canonical_modifier_plu_requires_review(self):
+        # The PLU still resolves, but a catalogue reorder can change the
+        # kitchen choice without changing its canonical index.
+        self.catalog["products"][0]["options"][0]["options"][0]["name"] = "Bacon"
+        result = self.audit()
+        self.assertTrue(result["catalogue_label_check_complete"])
+        self.assertIn("catalogue_labels_differ_from_webhook", result["blockers"])
+        self.assertEqual(result["catalogue_label_drift"], [{
+            "kind": "modifier", "line_index": 0, "modifier_index": 0,
+            "pos_item_id": "opt:MU11002:0:0",
+        }])
+        self.assertNotIn("Guacamole", str(result["catalogue_label_drift"]))
+        self.assertFalse(result["ready_for_dispatch"])
+
+    def test_product_label_drift_requires_review_without_remapping(self):
+        self.catalog["products"][0]["name"] = "Another Burger"
+        result = self.audit()
+        self.assertIn("catalogue_labels_differ_from_webhook", result["blockers"])
+        self.assertEqual(result["catalogue_label_drift"], [{
+            "kind": "product", "line_index": 0, "pos_item_id": "MU11002",
+        }])
+
+    def test_missing_webhook_label_is_not_treated_as_a_match(self):
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = ""
+        result = self.audit()
+        self.assertIn("catalogue_labels_unverifiable", result["blockers"])
+        self.assertEqual(result["catalogue_label_unverifiable"], [{
+            "kind": "modifier", "line_index": 0, "modifier_index": 0,
+            "pos_item_id": "opt:MU11002:0:0",
+        }])
+
+    def test_label_comparison_ignores_case_and_extra_spaces(self):
+        self.payload["body"]["order"]["items"][0]["name"] = "  VEGGIE   burger "
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = " GUACAMOLE "
+        result = self.audit()
+        self.assertEqual(result["blockers"], [])
+        self.assertEqual(result["catalogue_label_drift"], [])
+        self.assertEqual(result["catalogue_label_unverifiable"], [])
+
+    def test_failed_reconciliation_does_not_claim_label_check_complete(self):
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
+        result = self.audit()
+        self.assertFalse(result["catalogue_label_check_complete"])
+        self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+
     def test_order_amount_discrepancy_is_reviewed(self):
         self.payload["body"]["order"]["total_price"]["fractional"] = 1500
         result = self.audit()
