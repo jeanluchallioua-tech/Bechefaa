@@ -148,6 +148,36 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         self.assertTrue(result["scan_complete"])
         self.assertEqual(result["candidate_paths"], [])
 
+    def test_allergy_dietary_and_kitchen_note_aliases_are_detected(self):
+        payload = event()
+        order = payload["body"]["order"]
+        order["customer"] = {"Food Allergies": "Arachides",
+                             "dietaryRequirements": "Sans gluten"}
+        order["items"][0]["item_notes"] = "Cuisson longue"
+        order["items"][0]["modifiers"][0]["modifier_notes"] = "Sans sauce"
+        order["kitchen_notes"] = "Separer les sacs"
+        original = copy.deepcopy(payload)
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["candidate_paths"], [
+            "body.order.customer.Food Allergies",
+            "body.order.customer.dietaryRequirements",
+            "body.order.items[0].item_notes",
+            "body.order.items[0].modifiers[0].modifier_notes",
+            "body.order.kitchen_notes",
+        ])
+        self.assertTrue(result["scan_complete"])
+        self.assertFalse(result["writes"])
+        self.assertEqual(payload, original)
+
+    def test_structured_allergies_are_not_assumed_printable(self):
+        payload = event()
+        payload["body"]["order"]["allergies"] = ["peanuts"]
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["non_text_candidate_paths"], [
+            "body.order.allergies",
+        ])
+        self.assertFalse(result["schema_verified"])
+
     def test_unrelated_fields_are_not_mistaken_for_customer_notes(self):
         payload = event()
         payload["body"]["order"]["customer_name"] = "Camille"
