@@ -87,6 +87,30 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertEqual(payload, original)
 
+    def test_sibling_body_instructions_are_not_silently_ignored(self):
+        # Webhook schema is not approved: notes beside order must also block
+        # the opt-in bridge rather than disappear from kitchen preparation.
+        payload = event()
+        payload["body"]["delivery"] = {"instructions": "Sonner deux fois"}
+        payload["body"]["customer_notes"] = "Sans cacahuetes"
+        original = copy.deepcopy(payload)
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["candidate_paths"], [
+            "body.customer_notes",
+            "body.delivery.instructions",
+        ])
+        self.assertTrue(result["scan_complete"])
+        self.assertFalse(result["schema_verified"])
+        self.assertFalse(result["writes"])
+        self.assertEqual(payload, original)
+
+    def test_sibling_body_scan_budget_is_fail_closed(self):
+        payload = event()
+        payload["body"]["metadata"] = ["x"] * 6000
+        result = audit_instruction_fields(payload)
+        self.assertFalse(result["scan_complete"])
+        self.assertFalse(result["writes"])
+
     def test_nested_structured_note_is_not_treated_as_printable_text(self):
         payload = event()
         payload["body"]["order"]["delivery"] = {
