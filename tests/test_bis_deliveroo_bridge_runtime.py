@@ -159,6 +159,34 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                 self.assertEqual(db.orders, {})
                 self.assertEqual(db.items, [])
 
+    def test_allergen_and_preparation_aliases_block_before_sql(self):
+        # Unmapped dietary/preparation notes must never be silently omitted
+        # from a POS order; the bridge remains opt-in and fail-closed.
+        for scope, field in (
+            ("customer", "Allergen Information"),
+            ("customer", "allergen_notes"),
+            ("order", "customer_comments"),
+            ("order", "special_request"),
+            ("item", "preparationInstructions"),
+            ("item", "cooking_notes"),
+            ("modifier", "modifier_instructions"),
+            ("modifier", "dietary_notes"),
+        ):
+            with self.subTest(scope=scope, field=field):
+                conn = FakeDB()
+                event = payload()
+                order = event["body"]["order"]
+                target = (order.setdefault("customer", {}) if scope == "customer"
+                          else order if scope == "order"
+                          else order["items"][0] if scope == "item"
+                          else order["items"][0]["modifiers"][0])
+                target[field] = "Preparation particuliere"
+                with self.assertRaisesRegex(ValueError, "customer instructions require"):
+                    self.bridge(conn, event)
+                self.assertEqual(conn.statements, [])
+                self.assertEqual(conn.orders, {})
+                self.assertEqual(conn.items, [])
+
     def test_nested_customer_instructions_block_import_before_sql(self):
         for field in ("delivery", "customer"):
             with self.subTest(field=field):
