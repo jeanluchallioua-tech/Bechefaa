@@ -138,3 +138,12 @@ L'audit des GUID couvre aussi deux événements distincts pour **un même ID com
 - Divergence Git consultée avant ce complément documentaire : **327 commits BIS en avance et 13 en retard** sur `phase4-encaissement`. Il s'agit d'un indicateur de divergence, **pas** d'une preuve de parité fonctionnelle.
 - **Recette bloquante avant sandbox** : PC et tablette pour remise manuelle en % à emporter, bouton Modifier du panier, paramètres Marketplace (Deliveroo stocké à 20 %, Uber Eats conservé), tables, livraison, tickets et aperçu, historique, clic d'impression Epson, bip au volume normal et hors connexion/reconnexion. Le code ne permet pas de conclure à leur fonctionnement matériel.
 - **Non validés** : test Deliveroo 2 de bout en bout, circuit cuisine et impression réels, rapprochement exhaustif PLU/prix et instructions clients, scénarios Deliveroo 12 et 16. Retour Mollie du site toujours à traiter séparément. Aucun déploiement ni action externe autorisé.
+
+
+## Contrôle isolé supplémentaire — audit des prix des options (27/10/2026)
+
+- L'audit **en lecture seule** des prix des suppléments Deliveroo ne classe plus une entrée de catalogue `null`, `true` ou `false` comme une option gratuite à 0 €. Elle est signalée `invalid_catalog_modifier_choice` et impose une revue financière. Ce contrôle s'aligne sur le refus déjà appliqué au rapprochement PLU.
+- Le test ajouté couvre ces trois valeurs avec la majoration **hypothétique de 20 %**, vérifie l'absence de mutation des données et confirme `ready_for_dispatch = False`. La majoration Uber Eats n'est pas touchée.
+- Commits BIS : `32668224` (audit), `ad8603ac` (test). [CI GitHub Actions 40462637766](https://github.com/jeanluchallioua-tech/Bechefaa/actions/runs/40462637766) : **SUCCESS**, incluant tests Deliveroo, PostgreSQL isolé et contrôles caisse.
+- Comparaison Git à cet instant : BIS **332 commits en avance, 13 en retard** sur `phase4-encaissement`. Cette divergence ne démontre aucune parité fonctionnelle.
+- **Recette avant sandbox non levée** : remise manuelle % emporter, bouton Modifier du panier, paramètres Marketplace réellement stockés (Deliveroo 20 %, Uber Eats inchangé), tables, livraison, tickets, historique, bip, clic d'impression Epson et hors connexion/reconnexion sur PC/tablette. Les scénarios Deliveroo **2 de bout en bout, 12 et 16** restent non validés/bloqués. Aucun déploiement ni échange avec les plateformes n'est autorisé.
