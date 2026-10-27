@@ -33,6 +33,13 @@
 - **Coordonnées :** le webhook observé contient des chemins `delivery.customer_name`, `delivery.contact_number`, `delivery.city`, `delivery.postcode`, `delivery.location`. La **présence d'un champ ne prouve pas que sa valeur est remplie** ; `delivery.location` n'est pas automatiquement une adresse postale.
 - **Scénarios 12 et 16 :** **toujours bloqués, non validés**.
 
+## Contrôle de circuit Deliveroo et référence d'historique
+
+- La caisse de production utilise **`/historique-modification`** comme historique de référence. La BIS possède également un écran **`/historique`** : la présence d'un historique BIS ne prouve **pas** la parité avec l'écran de production. Comparer explicitement filtres, coordonnées, statuts, affichage et réimpression avant toute mise en sandbox.
+- Le pont opt-in BIS stocke le canal dans `sales_channel=DELIVEROO` et le mode opérationnel dans `source`. Les écrans cuisine/historique doivent donc reconnaître **`sales_channel`**, pas uniquement `source=DELIVEROO`. Tests isolés ajoutés pour la suppression de l'original après remake et le maintien du mode « Emporter » pour `fulfillment_type=customer`.
+- Le mode Customer Collect `customer` est enregistré en `source=EMPORTER`, tandis que `deliveroo` et `restaurant` restent `LIVRAISON` dans le pont BIS isolé. Un changement de mode sous le même identifiant externe doit provoquer un conflit d'idempotence. Les modes inconnus nécessitent une revue, sans import automatique.
+- Les contrôles automatiques portent sur le code et les doubles de test ; ils ne prouvent **ni l'absence réelle de double impression**, ni la parité de l'écran `/historique-modification`, ni le scénario 2 en sandbox. **Aucun déploiement autorisé.**
+
 ## Écart technique identifié — rapprochement catalogue avant import
 
 L'analyse statique de `_bridge_order_new` dans `clean_caisse/deliveroo_sandbox_phase6.py` montre que le pont opt-in vérifie les identifiants et les montants déclarés, mais **ne consulte pas le catalogue approuvé** avant ses écritures POS. Les PLU de modificateurs `opt:` sont contrôlés sur leur forme et leur parent, **pas sur l'existence réelle du choix** ; les anciens PLU sans préfixe nécessitent aussi un rapprochement. Les fonctions de réconciliation et d'audit des prix sont actuellement distinctes de ce chemin d'import. Il faut donc obtenir une validation explicite des PLU produits/options et des prix (+20 % Deliveroo) **sur le chemin effectif d'import** avant tout GO. Un test CI isolé réussi ne suffit pas.
