@@ -671,11 +671,10 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
 
     def test_concurrent_identical_order_id_creates_one_complete_kitchen_order(self):
         event = payload()
-        event["body"]["order"]["customer"] = {
-            "first_name": "Alice", "last_name": "Martin", "phone": "0600000000"}
         event["body"]["order"]["delivery"] = {
-            "address": {"address_line_1": "12 rue Exemple",
-                        "postcode": "75001", "city": "Paris"}}
+            "customer_name": "John D.", "contact_number": "0200000000",
+            "postcode": "SW1A 1AA", "city": "London",
+            "location": {"latitude": 51.5, "longitude": -0.1}}
         outcomes = self.import_in_parallel(event, event)
         self.assertCountEqual(outcomes, [("ok", "created"), ("ok", "duplicate")])
         with self.connect() as conn:
@@ -691,7 +690,7 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
             self.assertEqual(
                 (row["customer_name"], row["phone"], row["address"],
                  row["postal_code"], row["city"]),
-                ("Alice Martin", "0600000000", "12 rue Exemple", "75001", "Paris"))
+                ("John D.", "0200000000", "", "SW1A 1AA", "London"))
 
     def test_concurrent_conflicting_replay_never_overwrites_first_order(self):
         event = payload()
