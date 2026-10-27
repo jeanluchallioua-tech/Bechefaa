@@ -229,14 +229,18 @@ def register_deliveroo_sandbox_phase6(app, db):
                     address_data = {}
                 first = str(customer.get("first_name") or customer.get("firstName") or "").strip()
                 last = str(customer.get("last_name") or customer.get("lastName") or "").strip()
-                customer_name = (str(customer.get("name") or "").strip()
+                customer_name = (str(delivery.get("customer_name") or "").strip()
+                                 or str(customer.get("name") or "").strip()
                                  or " ".join(x for x in (first, last) if x)
                                  or "Client Deliveroo")
-                phone = str(customer.get("phone") or delivery.get("phone") or "").strip()
+                phone = str(delivery.get("contact_number") or customer.get("phone")
+                            or delivery.get("phone") or "").strip()
+                # A geolocation object is not a postal address: never stringify it.
                 address = str(address_data.get("address_line_1") or address_data.get("line_1")
                               or address_data.get("street_address") or "").strip()
-                postal_code = str(address_data.get("postcode") or address_data.get("postal_code") or "").strip()
-                city = str(address_data.get("city") or "").strip()
+                postal_code = str(delivery.get("postcode") or address_data.get("postcode")
+                                  or address_data.get("postal_code") or "").strip()
+                city = str(delivery.get("city") or address_data.get("city") or "").strip()
                 conn.execute("""INSERT INTO caisse_orders
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
