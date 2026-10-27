@@ -14,14 +14,14 @@ def register_history_modifier(app, db, ensure_order_schema, order_payload):
                 ensure_order_schema(conn)
                 conn.commit()
                 row = conn.execute(
-                    """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at, address, postal_code, city
+                    """SELECT id, num, customer_name, phone, source, sales_channel, payment, status, total, created_at, updated_at, address, postal_code, city
                        FROM caisse_orders WHERE id=%s""",
                     (order_id,),
                 ).fetchone()
                 if not row:
                     return jsonify({"ok": False, "error": "Commande introuvable"}), 404
                 order = order_payload(conn, row)
-                for key in ("address", "postal_code", "city"):
+                for key in ("phone", "address", "postal_code", "city", "sales_channel"):
                     order[key] = row.get(key) or ""
                 return jsonify({"ok": True, "order": order})
         except Exception as exc:
