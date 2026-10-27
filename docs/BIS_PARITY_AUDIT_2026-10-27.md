@@ -31,6 +31,7 @@
 - **Prix :** comparaison en centimes des montants articles, options, total et éventuels frais/remises ; majoration Deliveroo 20 %, sans toucher au taux Uber Eats existant ; ne pas approuver un écart inexpliqué.
 - **Instructions clients :** conserver notes et instructions en cuisine ou bloquer explicitement l'import en cas de schéma non validé ; aucune instruction ne doit être supprimée silencieusement.
   - Le balayage consultatif inclut aussi `allergies`, `food_allergies`, `dietary_requirements`, `dietary_restrictions`, `item_notes`, `modifier_notes` et `kitchen_notes` (variantes de casse/séparateurs). Toute valeur non vide ou structurée est bloquée **avant SQL** par le pont opt-in tant que le mapping cuisine n'est pas approuvé. Ces noms sont des précautions, **pas** une validation du contrat webhook Deliveroo.
+- **Instructions au niveau `body` :** l'inventaire consultatif balaie désormais aussi les champs frères de `body.order` (par exemple `body.delivery.instructions` ou `body.customer_notes`). Le pont opt-in doit refuser leurs valeurs non vides avant SQL ; ce contrôle défensif ne valide pas le schéma Deliveroo et n'autorise aucune impression.
 - **Coordonnées :** le webhook observé contient des chemins `delivery.customer_name`, `delivery.contact_number`, `delivery.city`, `delivery.postcode`, `delivery.location`. La **présence d'un champ ne prouve pas que sa valeur est remplie** ; `delivery.location` n'est pas automatiquement une adresse postale.
 - **Scénarios 12 et 16 :** **toujours bloqués, non validés**.
 
