@@ -61,6 +61,10 @@ def assess_kitchen_readiness(preview, *, plu_approved=False,
         if not isinstance(audit, dict) or audit.get("writes") is not False:
             blockers.append("instruction_audit_missing")
         if isinstance(audit, dict):
+            # An incomplete traversal can hide customer instructions. Never
+            # treat missing or false scan evidence as a clean kitchen preview.
+            if audit.get("scan_complete") is not True:
+                blockers.append("instruction_scan_incomplete")
             for key, blocker in (
                 ("non_text_candidate_paths", "non_text_instruction_candidates"),
                 ("blank_candidate_paths", "blank_instruction_candidates"),
