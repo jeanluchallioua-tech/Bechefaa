@@ -599,6 +599,24 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                     self.bridge(db, event)
                 self.assertEqual(db.statements, [])
 
+    def test_oversized_canonical_modifier_indices_rejected_before_sql(self):
+        # A digit-only PLU is not automatically a safe catalogue index.
+        # Reject oversized indices without int() conversion or SQL access.
+        for value in (
+            "opt:MU11002:1234567890:0",
+            "opt:MU11002:0:1234567890",
+            "opt:MU11002:" + "9" * 5000 + ":0",
+        ):
+            with self.subTest(length=len(value)):
+                db = FakeDB()
+                event = payload()
+                event["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = value
+                with self.assertRaisesRegex(ValueError, "catalog reconciliation"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+                self.assertEqual(db.orders, {})
+                self.assertEqual(db.items, [])
+
     def test_canonical_parent_scoped_modifier_plu_preserves_kitchen_option(self):
         db = FakeDB()
         event = payload()
