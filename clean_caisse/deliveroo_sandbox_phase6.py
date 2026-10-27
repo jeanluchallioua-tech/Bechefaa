@@ -108,32 +108,45 @@ def register_deliveroo_sandbox_phase6(app, db):
         return ""
 
     def _accepted_in_status_log(payload):
-        # Never infer order acceptance from arbitrary text (e.g. a customer's
-        # note saying "accepted"). Only explicit status/state fields count.
-        # Bound nesting to avoid recursion exhaustion on malformed payloads.
+        # Only order-level status fields and explicit status-log entries are
+        # evidence of acceptance. Nested customer/item metadata may also have
+        # a "status" field and must never trigger order-level sync.
         if (not isinstance(payload, dict)
                 or str(payload.get("event") or "").strip().lower() != "order.status_update"):
             return False
+        body = payload.get("body")
+        if not isinstance(body, dict):
+            return False
 
-        def _walk(value, depth=0):
+        def _accepted(value):
+            return isinstance(value, str) and value.strip().lower() == "accepted"
+
+        def _accepted_log(value, depth=0):
             if depth > 16:
                 return False
             if isinstance(value, dict):
                 for key, item in value.items():
-                    k = str(key or "").strip().lower()
-                    if (k in {"status", "order_status", "state"}
-                            and isinstance(item, str)
-                            and item.strip().lower() == "accepted"):
+                    if (str(key).strip().lower() in {"status", "order_status", "state"}
+                            and _accepted(item)):
                         return True
-                    if isinstance(item, (dict, list)) and _walk(item, depth + 1):
+                    if isinstance(item, (dict, list)) and _accepted_log(item, depth + 1):
                         return True
             elif isinstance(value, list):
                 for item in value:
-                    if isinstance(item, (dict, list)) and _walk(item, depth + 1):
+                    if isinstance(item, (dict, list)) and _accepted_log(item, depth + 1):
                         return True
             return False
 
-        return _walk(payload)
+        for record in (body, body.get("order")):
+            if not isinstance(record, dict):
+                continue
+            if any(_accepted(record.get(key))
+                   for key in ("status", "order_status", "state")):
+                return True
+            if any(_accepted_log(record.get(key))
+                   for key in ("status_log", "status_history")):
+                return True
+        return False
 
     def _persist_order_event(payload):
         with db() as conn:
