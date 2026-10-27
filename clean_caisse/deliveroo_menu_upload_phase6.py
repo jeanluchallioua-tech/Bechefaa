@@ -661,6 +661,52 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "detail":str(exc)
             }),500
 
+    @app.get("/api/deliveroo/scenario12-preflight-phase6")
+    def deliveroo_scenario12_preflight_phase6():
+        """Sandbox-only read-only verification of scenario 12 identifiers."""
+        expected_app="app_fad0809f-954d-47e7-983d-afb7c3867cd0"
+        if os.environ.get("CC_APP_ID") != expected_app:
+            return jsonify({"ok":False,"error":"Preproduction only"}),403
+        site_id="101"
+        menu_id="bechefaa-menu-01"
+        configured_brand_id="bceaa87a-74db-434e-b548-6da7e7de67a6"
+        api_url="https://api-sandbox.developers.deliveroo.com"
+        try:
+            token=_oauth_token()
+            site_status,site_data=_api_json(
+                api_url+"/site/v1/restaurant_locations/"+urllib.parse.quote(site_id,safe=""),token)
+            raw_brand_id=(site_data.get("brand_id") or site_data.get("brand_ids") or
+                          ((site_data.get("brand") or {}).get("id") if isinstance(site_data.get("brand"),dict) else "")
+                          or "") if isinstance(site_data,dict) else ""
+            if isinstance(raw_brand_id,(list,tuple)):
+                raw_brand_id=raw_brand_id[0] if raw_brand_id else ""
+            resolved_brand_id=str(raw_brand_id or "").strip()
+            brand_id=resolved_brand_id or configured_brand_id
+            base=(api_url+"/menu/v1/brands/"+urllib.parse.quote(brand_id,safe="")+
+                  "/menus/"+urllib.parse.quote(menu_id,safe=""))
+            menu_status,menu_data=_api_json(base,token)
+            stock_status,stock_data=_api_json(base+"/item_unavailabilities/"+urllib.parse.quote(site_id,safe=""),token)
+            items=[]
+            if isinstance(menu_data,dict):
+                menu=menu_data.get("menu") or menu_data
+                if isinstance(menu,dict):
+                    items=menu.get("items") or []
+            ids=[str(item.get("id")) for item in items if isinstance(item,dict) and item.get("id") is not None]
+            return jsonify({
+                "ok":True,"read_only":True,"sandbox":True,"post_triggered":False,
+                "site_id":site_id,"site_http_status":site_status,
+                "configured_brand_id":configured_brand_id,"resolved_brand_id":resolved_brand_id,
+                "brand_matches":bool(resolved_brand_id and resolved_brand_id==configured_brand_id),
+                "menu_id":menu_id,"menu_http_status":menu_status,
+                "stock_http_status":stock_status,
+                "test_item_ids_present":{item:item in ids for item in ("orange_juice","granola","whole_milk")},
+                "item_ids_extracted":len(ids),
+                "stock_response":stock_data,
+                "warning":"Read-only GET; a menu may only be available after the scenario starts."
+            })
+        except Exception as exc:
+            return jsonify({"ok":False,"read_only":True,"sandbox":True,"error":str(exc)}),502
+
     @app.post("/api/deliveroo/scenario12-ignore-morning-reset-phase6")
     def deliveroo_scenario12_ignore_morning_reset_phase6():
         # Scenario 12 Sandbox — flux volontairement minimal et déterministe.
