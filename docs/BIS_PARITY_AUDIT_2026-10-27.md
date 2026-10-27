@@ -32,6 +32,12 @@
 - **Coordonnées :** le webhook observé contient des chemins `delivery.customer_name`, `delivery.contact_number`, `delivery.city`, `delivery.postcode`, `delivery.location`. La **présence d'un champ ne prouve pas que sa valeur est remplie** ; `delivery.location` n'est pas automatiquement une adresse postale.
 - **Scénarios 12 et 16 :** **toujours bloqués, non validés**.
 
+## Écart technique identifié — rapprochement catalogue avant import
+
+L'analyse statique de `_bridge_order_new` dans `clean_caisse/deliveroo_sandbox_phase6.py` montre que le pont opt-in vérifie les identifiants et les montants déclarés, mais **ne consulte pas le catalogue approuvé** avant ses écritures POS. Les PLU de modificateurs `opt:` sont contrôlés sur leur forme et leur parent, **pas sur l'existence réelle du choix** ; les anciens PLU sans préfixe nécessitent aussi un rapprochement. Les fonctions de réconciliation et d'audit des prix sont actuellement distinctes de ce chemin d'import. Il faut donc obtenir une validation explicite des PLU produits/options et des prix (+20 % Deliveroo) **sur le chemin effectif d'import** avant tout GO. Un test CI isolé réussi ne suffit pas.
+
+Le balayage des instructions clients dispose désormais d'une limite couvrant également les champs et entrées de listes scalaires : si la limite est atteinte, l'import opt-in est bloqué **avant SQL**. Les tests correspondants ne déclenchent aucune commande réelle.
+
 ## Décision de sortie
 
 **NO-GO par défaut** tant que la parité fonctionnelle n'est pas constatée, que les résultats CI du SHA candidat ne sont pas vérifiés, et que les scénarios Deliveroo bloquants ne sont pas explicitement traités. Le document ne modifie aucun état applicatif.
