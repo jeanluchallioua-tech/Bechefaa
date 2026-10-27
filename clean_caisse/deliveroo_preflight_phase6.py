@@ -75,17 +75,47 @@ def audit_deliveroo_20pct_preflight(payload, catalog):
     if amounts["requires_financial_review"]:
         reasons.append("order_amounts_require_review")
 
-    base = audit_catalog_base_markup(
-        payload, catalog, markup_percentage=DELIVEROO_AUDIT_MARKUP
-    )
-    if base["requires_financial_review"]:
-        reasons.append("base_prices_differ_from_20pct_policy")
+    # A malformed catalogue can make the price auditors reject their input.
+    # Keep the preflight report available and explicitly blocked rather than
+    # allowing an audit exception to be mistaken for a missing check.
+    try:
+        base = audit_catalog_base_markup(
+            payload, catalog, markup_percentage=DELIVEROO_AUDIT_MARKUP
+        )
+    except DeliverooMappingError:
+        base = {
+            "assumed_markup_percentage": DELIVEROO_AUDIT_MARKUP,
+            "line_diagnostics": [],
+            "review_reasons": ["catalogue_price_audit_unavailable"],
+            "requires_financial_review": True,
+            "price_policy_verified": False,
+            "ready_for_dispatch": False,
+            "writes": False,
+        }
+        reasons.append("base_price_audit_incomplete")
+    else:
+        if base["requires_financial_review"]:
+            reasons.append("base_prices_differ_from_20pct_policy")
 
-    modifiers = audit_catalog_modifier_markup(
-        payload, catalog, markup_percentage=DELIVEROO_AUDIT_MARKUP
-    )
-    if modifiers["requires_financial_review"]:
-        reasons.append("modifier_prices_differ_from_20pct_policy")
+    try:
+        modifiers = audit_catalog_modifier_markup(
+            payload, catalog, markup_percentage=DELIVEROO_AUDIT_MARKUP
+        )
+    except DeliverooMappingError:
+        modifiers = {
+            "assumed_markup_percentage": DELIVEROO_AUDIT_MARKUP,
+            "modifier_diagnostics": [],
+            "review_reasons": ["catalogue_modifier_audit_unavailable"],
+            "requires_financial_review": True,
+            "modifier_pricing_schema_verified": False,
+            "price_policy_verified": False,
+            "ready_for_dispatch": False,
+            "writes": False,
+        }
+        reasons.append("modifier_price_audit_incomplete")
+    else:
+        if modifiers["requires_financial_review"]:
+            reasons.append("modifier_prices_differ_from_20pct_policy")
 
     notes = audit_instruction_fields(payload)
     if notes["scan_complete"] is not True:
