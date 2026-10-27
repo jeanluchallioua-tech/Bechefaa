@@ -98,6 +98,7 @@ def audit_modifier_plu_sources(payload):
                     len(parts) == 4 and parts[1] == parent_id
                     and all(
                         part.isascii() and part.isdecimal()
+                        and len(part) <= 9
                         and (part == "0" or not part.startswith("0"))
                         for part in parts[2:]
                     )
