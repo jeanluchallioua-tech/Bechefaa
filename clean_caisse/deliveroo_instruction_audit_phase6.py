@@ -23,6 +23,12 @@ CANDIDATE_KEYS = frozenset({
     # disappear from kitchen tickets even when the webhook uses these names.
     "allergies", "food_allergies", "dietary_requirements",
     "dietary_restrictions", "item_notes", "modifier_notes", "kitchen_notes",
+    # Conservative aliases: these values must not be silently dropped from
+    # a kitchen order while the actual webhook note schema is unapproved.
+    "allergens", "allergen_information", "allergen_notes",
+    "preparation_instructions", "item_instructions",
+    "modifier_instructions", "cooking_notes", "dietary_notes",
+    "customer_comment", "customer_comments", "special_request",
     "specialInstructions", "deliveryInstructions", "customerInstructions",
     "orderNotes", "cutleryNotes", "allergyNotes",
 }) | DOCUMENTED_ORDER_NOTE_KEYS
