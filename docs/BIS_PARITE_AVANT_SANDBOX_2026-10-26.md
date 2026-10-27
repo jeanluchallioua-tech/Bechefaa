@@ -120,3 +120,12 @@ Le diagnostic en lecture seule parcourt désormais les objets et listes de `body
 **Ce n'est pas une validation des consignes clients** : le schéma réel des webhooks et la transcription exacte sur tickets cuisine doivent être confirmés avant d'autoriser leur import. Aucun scénario Deliveroo 2, 12 ou 16 n'est déclaré validé par ce changement. Le rapprochement complet des PLU/prix et la recette PC/tablette/Epson restent obligatoires.
 
 Comparaison Git consultée le 27/10 : BIS **320 commits en avance et 13 en retard** sur `phase4-encaissement` (constat ponctuel, sans preuve de parité). Les paramètres Marketplace doivent être vérifiés en base BIS : **Deliveroo 20 %**, **Uber Eats au taux déjà existant**, sans écrasement automatique d'anciennes valeurs.
+
+
+## Garde-fou supplémentaire — statut accepté Deliveroo (27/10/2026)
+
+Le détecteur utilisé avant l'éventuel `sync_status` n'assimile plus une chaîne libre « accepted » (note client, description, texte de journal) à une acceptation de commande. Seuls les champs explicites `status`, `order_status` et `state` d'un événement `order.status_update` peuvent déclencher la détection ; le parcours est limité en profondeur et refuse prudemment les événements trop imbriqués. Les tests isolés couvrent le statut imbriqué conforme, les notes trompeuses, les événements `order.new` et la profondeur excessive.
+
+L'audit des GUID couvre aussi deux événements distincts pour **un même ID commande** : deux preuves d'événements doivent être conservées ; la création d'une seule commande POS est contrôlée séparément par les tests de rejeu et de concurrence PostgreSQL. **Ces tests n'envoient aucun `sync_status` et ne valident ni le test Deliveroo 2 de bout en bout, ni les scénarios 12/16.** Vérifier les résultats de la CI de la dernière révision avant toute conclusion.
+
+**Parité caisse avant sandbox : toujours NON VALIDÉE.** Refaire les essais PC et tablette : remise manuelle en % pour emporter, Modifier du panier, majoration Deliveroo effectivement stockée à 20 % et Uber Eats inchangé, tables, livraison, tickets, historique, Epson et hors connexion. Aucune impression, commande ou synchronisation externe n'est autorisée sans accord.
