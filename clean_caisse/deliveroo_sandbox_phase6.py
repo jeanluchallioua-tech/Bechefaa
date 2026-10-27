@@ -200,6 +200,8 @@ def register_deliveroo_sandbox_phase6(app, db):
         # ticket. Never acknowledge an opt-in bridge import that drops them.
         from clean_caisse.deliveroo_instruction_audit_phase6 import audit_instruction_fields
         instruction_audit = audit_instruction_fields(payload)
+        if not instruction_audit["scan_complete"]:
+            raise ValueError("Deliveroo instruction audit incomplete; manual review required")
         if any(not isinstance(entry["value"], str) or entry["value"].strip()
                for entry in instruction_audit["candidate_values"]):
             raise ValueError("Deliveroo customer instructions require approved kitchen mapping")
