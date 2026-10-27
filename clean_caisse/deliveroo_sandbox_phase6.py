@@ -220,10 +220,27 @@ def register_deliveroo_sandbox_phase6(app, db):
                 if existing:
                     return "duplicate"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
+                # Preserve delivery and customer contact data for POS history/preview.
+                # Deliveroo is the sales channel; LIVRAISON is the POS order type.
+                customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
+                delivery = order.get("delivery") if isinstance(order.get("delivery"), dict) else {}
+                address_data = delivery.get("address")
+                if not isinstance(address_data, dict):
+                    address_data = {}
+                first = str(customer.get("first_name") or customer.get("firstName") or "").strip()
+                last = str(customer.get("last_name") or customer.get("lastName") or "").strip()
+                customer_name = (str(customer.get("name") or "").strip()
+                                 or " ".join(x for x in (first, last) if x)
+                                 or "Client Deliveroo")
+                phone = str(customer.get("phone") or delivery.get("phone") or "").strip()
+                address = str(address_data.get("address_line_1") or address_data.get("line_1")
+                              or address_data.get("street_address") or "").strip()
+                postal_code = str(address_data.get("postcode") or address_data.get("postal_code") or "").strip()
+                city = str(address_data.get("city") or "").strip()
                 conn.execute("""INSERT INTO caisse_orders
-                    (id,num,customer_name,source,sales_channel,payment,status,total,created_at,updated_at)
-                    VALUES (%s,%s,%s,'DELIVEROO','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
-                    (pos_id,num,"Client Deliveroo",total,now,now))
+                    (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
+                    (pos_id,num,customer_name,phone,address,postal_code,city,total,now,now))
                 for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
