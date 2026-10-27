@@ -131,6 +131,34 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         with patch.dict(os.environ, env), patch.dict(sys.modules, {"clean_caisse.app": stub_app}):
             return namespace["_bridge_order_new"](order_payload)
 
+    def test_allergy_and_kitchen_notes_block_bridge_before_sql(self):
+        for scope, field, value in (
+            ("customer", "Food Allergies", "Arachides"),
+            ("customer", "dietaryRequirements", "Sans gluten"),
+            ("order", "kitchen_notes", "Sac separe"),
+            ("item", "item_notes", "Bien cuit"),
+            ("modifier", "modifier_notes", "Sans sauce"),
+            ("order", "allergies", ["peanuts"]),
+        ):
+            with self.subTest(scope=scope, field=field):
+                db = FakeDB()
+                event = payload()
+                order = event["body"]["order"]
+                if scope == "order":
+                    target = order
+                elif scope == "customer":
+                    target = order.setdefault("customer", {})
+                elif scope == "item":
+                    target = order["items"][0]
+                else:
+                    target = order["items"][0]["modifiers"][0]
+                target[field] = value
+                with self.assertRaisesRegex(ValueError, "customer instructions require"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+                self.assertEqual(db.orders, {})
+                self.assertEqual(db.items, [])
+
     def test_nested_customer_instructions_block_import_before_sql(self):
         for field in ("delivery", "customer"):
             with self.subTest(field=field):
