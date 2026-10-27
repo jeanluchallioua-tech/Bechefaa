@@ -680,12 +680,23 @@ def _deliveroo_remake_view(conn, orders):
                 refs["deliveroo-" + _uuid.uuid5(_uuid.NAMESPACE_URL, external).hex] = str(event["display_id"] or "").strip()
     except Exception:
         app.logger.exception("Deliveroo display references unavailable")
+    collect_ids = set()
+    try:
+        collect_events = conn.execute(
+            "SELECT order_id FROM deliveroo_sandbox_events WHERE event='order.new' "
+            "AND LOWER(COALESCE(payload #>> '{body,order,fulfillment_type}', '')) = 'customer'"
+        ).fetchall()
+        collect_ids = {'deliveroo-' + _uuid.uuid5(_uuid.NAMESPACE_URL, str(e['order_id']).strip()).hex
+                       for e in collect_events if str(e['order_id'] or '').strip()}
+    except Exception:
+        app.logger.exception('Deliveroo collect lookup failed; using POS source')
+
     visible = []
     for item in orders:
         if str(item["id"]) in hidden:
             continue
         if str(item.get("sales_channel") or item.get("source") or "").upper() == "DELIVEROO":
-            is_collect = str(item.get("source") or "").upper() in {"EMPORTER", "TAKEAWAY"}
+            is_collect = (str(item["id"]) in collect_ids or str(item.get("source") or "").upper() in {"EMPORTER", "TAKEAWAY"})
             item["ticket_type"] = "Emporter" if is_collect else "Livraison"
             item["service_mode"] = "Emporter" if is_collect else "Livraison"
             item["payment"] = "PAYÉ EN LIGNE"
