@@ -144,6 +144,21 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                 self.assertEqual(conn.statements, [])
                 self.assertEqual(conn.orders, {})
 
+    def test_flat_oversized_instruction_scan_blocks_import_before_sql(self):
+        for oversized in (
+            {f"metadata_{i}": "value" for i in range(6000)},
+            ["value"] * 6000,
+        ):
+            with self.subTest(container=type(oversized).__name__):
+                conn = FakeDB()
+                event = payload()
+                event["body"]["order"]["metadata"] = oversized
+                with self.assertRaisesRegex(ValueError, "audit incomplete"):
+                    self.bridge(conn, event)
+                self.assertEqual(conn.statements, [])
+                self.assertEqual(conn.orders, {})
+                self.assertEqual(conn.items, [])
+
     def test_incomplete_instruction_scan_blocks_import_before_sql(self):
         conn = FakeDB()
         event = payload()
