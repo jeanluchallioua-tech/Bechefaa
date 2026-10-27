@@ -210,11 +210,30 @@ def register_deliveroo_sandbox_phase6(app, db):
             unit = amount / qty
             normalized.append((str(item.get("pos_item_id") or ""), name, qty, unit, options, position))
             total += amount
+        # Deliveroo schedules are UTC timestamps. Invalid scheduled data must not
+        # silently turn a scheduled order into an immediate kitchen ticket.
+        asap = order.get("asap")
+        scheduled_start_ms = None
+        if asap is False:
+            raw_start = order.get("start_preparing_at")
+            if not isinstance(raw_start, str):
+                raise ValueError("scheduled order missing start_preparing_at")
+            try:
+                start_dt = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+                if start_dt.tzinfo is None:
+                    raise ValueError("scheduled start has no timezone")
+                scheduled_start_ms = int(start_dt.timestamp() * 1000)
+            except (ValueError, OverflowError) as exc:
+                raise ValueError("invalid scheduled start_preparing_at") from exc
         now = int(time.time() * 1000)
         pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
         with db() as conn:
             with conn.transaction():
                 ensure_order_schema(conn)
+                conn.execute("""CREATE TABLE IF NOT EXISTS deliveroo_kitchen_schedule (
+                    order_id TEXT PRIMARY KEY,
+                    start_preparing_at_ms BIGINT NOT NULL
+                )""")
                 conn.execute("LOCK TABLE caisse_orders IN EXCLUSIVE MODE")
                 existing = conn.execute("SELECT id FROM caisse_orders WHERE id=%s", (pos_id,)).fetchone()
                 if existing:
@@ -245,6 +264,10 @@ def register_deliveroo_sandbox_phase6(app, db):
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,'LIVRAISON','DELIVEROO','PAYÉ EN LIGNE','À préparer',%s,%s,%s)""",
                     (pos_id,num,customer_name,phone,address,postal_code,city,total,now,now))
+                if scheduled_start_ms is not None:
+                    conn.execute(
+                        "INSERT INTO deliveroo_kitchen_schedule (order_id, start_preparing_at_ms) VALUES (%s, %s)",
+                        (pos_id, scheduled_start_ms))
                 for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
