@@ -276,6 +276,29 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
         )
         self.assertEqual(audit["review_reasons"], ["invalid_catalog_modifier_price"])
 
+    def test_null_or_boolean_catalogue_choice_is_not_a_free_modifier(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+
+        for invalid_choice in (None, True, False):
+            with self.subTest(choice=invalid_choice):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["options"][0] = invalid_choice
+                before_payload = deepcopy(self.payload)
+                before_catalog = deepcopy(catalog)
+                audit = audit_catalog_modifier_markup(
+                    self.payload, catalog, markup_percentage="20"
+                )
+                line = audit["modifier_diagnostics"][0]
+                self.assertEqual(line["status"], "invalid_catalog_modifier_choice")
+                self.assertIsNone(line["expected_unit_eur"])
+                self.assertEqual(audit["review_reasons"], ["invalid_catalog_modifier_choice"])
+                self.assertTrue(audit["requires_financial_review"])
+                self.assertFalse(audit["price_policy_verified"])
+                self.assertFalse(audit["ready_for_dispatch"])
+                self.assertFalse(audit["writes"])
+                self.assertEqual(self.payload, before_payload)
+                self.assertEqual(catalog, before_catalog)
+
     def test_zero_price_modifier_and_empty_modifier_list_never_approve(self):
         from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
         self.catalog["products"][0]["options"][0]["options"][0]["price"] = 0
