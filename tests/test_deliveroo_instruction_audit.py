@@ -87,6 +87,26 @@ class DeliverooInstructionAuditTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertEqual(payload, original)
 
+    def test_top_level_instructions_are_discovered_without_mutation(self):
+        payload = event()
+        payload["delivery_instructions"] = "Sonner deux fois"
+        payload["customer"] = {"food_allergies": "Arachides"}
+        original = copy.deepcopy(payload)
+        result = audit_instruction_fields(payload)
+        self.assertEqual(result["candidate_paths"], [
+            "customer.food_allergies", "delivery_instructions",
+        ])
+        self.assertTrue(result["scan_complete"])
+        self.assertFalse(result["writes"])
+        self.assertEqual(payload, original)
+
+    def test_top_level_oversized_metadata_fails_closed(self):
+        payload = event()
+        payload["metadata"] = ["x"] * 6000
+        result = audit_instruction_fields(payload)
+        self.assertFalse(result["scan_complete"])
+        self.assertFalse(result["writes"])
+
     def test_sibling_body_instructions_are_not_silently_ignored(self):
         # Webhook schema is not approved: notes beside order must also block
         # the opt-in bridge rather than disappear from kitchen preparation.

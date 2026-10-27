@@ -202,6 +202,21 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
                 self.assertEqual(db.orders, {})
                 self.assertEqual(db.items, [])
 
+    def test_top_level_instructions_block_import_before_sql(self):
+        for top_level in (
+            {"delivery_instructions": "Code porte"},
+            {"customer": {"food_allergies": "Arachides"}},
+        ):
+            with self.subTest(top_level=top_level):
+                db = FakeDB()
+                event = payload()
+                event.update(top_level)
+                with self.assertRaisesRegex(ValueError, "customer instructions require"):
+                    self.bridge(db, event)
+                self.assertEqual(db.statements, [])
+                self.assertEqual(db.orders, {})
+                self.assertEqual(db.items, [])
+
     def test_nested_customer_instructions_block_import_before_sql(self):
         for field in ("delivery", "customer"):
             with self.subTest(field=field):

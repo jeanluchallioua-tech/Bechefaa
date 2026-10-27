@@ -44,7 +44,7 @@ NORMALIZED_CANDIDATE_KEYS = frozenset(_instruction_key(key) for key in CANDIDATE
 
 
 def audit_instruction_fields(payload):
-    """Inventory candidate notes anywhere inside webhook body, without writes.
+    """Inventory candidate notes anywhere in the webhook payload, without writes.
 
     A bounded traversal prevents pathological payloads from exhausting the
     webhook worker. An incomplete scan is a hard stop for the opt-in bridge,
@@ -55,11 +55,11 @@ def audit_instruction_fields(payload):
     paths = []
     values = []
     scan_complete = True
-    # A producer may place delivery/customer instructions beside `order` in
-    # `body`, not only inside `body.order`. Inspect the complete body so the
-    # opt-in bridge cannot silently discard those sibling notes.
-    if isinstance(body, dict):
-        pending = [("body", body, 0)]
+    # Unapproved producers can place notes beside body as well as beside
+    # body.order. Inspect the entire event, preserving the existing body.* paths.
+    # Starting at depth -1 preserves the previous depth budget for body.
+    if isinstance(payload, dict):
+        pending = [("", payload, -1)]
         # Count every inspected field/list entry, not only container nodes:
         # a single huge flat object/list must not bypass the traversal budget.
         inspected = 0
@@ -78,7 +78,7 @@ def audit_instruction_fields(payload):
                     if not isinstance(key, str):
                         scan_complete = False
                         continue
-                    child_path = path + "." + key
+                    child_path = (path + "." if path else "") + key
                     if _instruction_key(key) in NORMALIZED_CANDIDATE_KEYS and value is not None:
                         paths.append(child_path)
                         values.append({"path": child_path, "value": value})

@@ -70,6 +70,13 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         self.assertIn("catalogue_reconciliation_failed", result["blockers"])
         self.assertIn("base_prices_differ_from_20pct_policy", result["blockers"])
 
+    def test_top_level_customer_instructions_block_preflight(self):
+        self.payload["delivery_instructions"] = "Sonner deux fois"
+        result = self.audit()
+        self.assertIn("customer_instructions_need_mapping", result["blockers"])
+        self.assertEqual(result["instruction_candidate_paths"], ["delivery_instructions"])
+        self.assertNotIn("Sonner deux fois", str(result))
+
     def test_customer_instructions_are_not_lost_or_printed(self):
         self.payload["body"]["order"]["order_notes"] = "Sans oignons"
         result = self.audit()
