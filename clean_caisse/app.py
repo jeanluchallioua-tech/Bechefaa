@@ -270,6 +270,11 @@ def order_payload(conn, order_row):
         "id": order_row["id"],
         "num": order_row["num"],
         "customer_name": order_row["customer_name"],
+        "phone": order_row.get("phone") if hasattr(order_row, "get") else None,
+        "address": order_row.get("address") if hasattr(order_row, "get") else None,
+        "postal_code": order_row.get("postal_code") if hasattr(order_row, "get") else None,
+        "city": order_row.get("city") if hasattr(order_row, "get") else None,
+        "sales_channel": order_row.get("sales_channel") if hasattr(order_row, "get") else None,
         "source": order_row["source"],
         "ticket_type": ticket_type(order_row["source"]),
         "payment": order_row["payment"],
@@ -679,7 +684,7 @@ def _deliveroo_remake_view(conn, orders):
     for item in orders:
         if str(item["id"]) in hidden:
             continue
-        if str(item.get("source") or "").upper() == "DELIVEROO":
+        if str(item.get("sales_channel") or item.get("source") or "").upper() == "DELIVEROO":
             item["ticket_type"] = "Livraison"
             item["service_mode"] = "Livraison"
             item["payment"] = "PAYÉ EN LIGNE"
@@ -700,7 +705,7 @@ def orders_history():
             ensure_order_schema(conn)
             conn.commit()
             rows = conn.execute(
-                """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
+                """SELECT id, num, customer_name, phone, address, postal_code, city, source, sales_channel, payment, status, total, created_at, updated_at
                    FROM caisse_orders
                    WHERE (UPPER(COALESCE(sales_channel,'')) <> 'SITE' OR status <> 'Enregistrée' OR COALESCE(paid_amount,0) > 0)
                      AND created_at >= EXTRACT(EPOCH FROM (date_trunc('day', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')) * 1000
@@ -743,6 +748,11 @@ def orders_history():
                 "id": row["id"],
                 "num": row["num"],
                 "customer_name": row["customer_name"],
+                "phone": row["phone"],
+                "address": row["address"],
+                "postal_code": row["postal_code"],
+                "city": row["city"],
+                "sales_channel": row["sales_channel"],
                 "source": row["source"],
                 "ticket_type": ticket_type(row["source"]),
                 "payment": row["payment"],
@@ -765,7 +775,7 @@ def kitchen_orders():
             ensure_order_schema(conn)
             conn.commit()
             rows = conn.execute(
-                """SELECT id, num, customer_name, source, payment, status, total, created_at, updated_at
+                """SELECT id, num, customer_name, phone, address, postal_code, city, source, sales_channel, payment, status, total, created_at, updated_at
                    FROM caisse_orders
                    WHERE status IN ('À préparer', 'En préparation')
                    ORDER BY updated_at ASC, num ASC
@@ -848,7 +858,7 @@ async function checkDeliveroo(){
  try{
  const r=await fetch('/api/orders/history',{cache:'no-store'}),d=await r.json();
  if(!r.ok||!d.ok)return;
- const orders=(d.orders||[]).filter(o=>String(o.source||'').toUpperCase()==='DELIVEROO');
+ const orders=(d.orders||[]).filter(o=>String(o.sales_channel||o.source||'').toUpperCase()==='DELIVEROO');
  const ids=new Set(orders.map(o=>String(o.id)));
  const fresh=deliverooSeen===null
    ? orders.filter(o=>Date.now()-Number(o.created_at||0)<90000)
@@ -997,7 +1007,7 @@ const t=audioCtx.currentTime;
 [880,1175,880].forEach((hz,i)=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain(),at=t+i*.19;o.type='sine';o.frequency.value=hz;g.gain.setValueAtTime(.0001,at);g.gain.exponentialRampToValueAtTime(.15,at+.02);g.gain.exponentialRampToValueAtTime(.0001,at+.16);o.connect(g);g.connect(audioCtx.destination);o.start(at);o.stop(at+.17)});
 }catch(e){console.warn('Deliveroo audio',e)}}
 document.addEventListener('pointerdown',()=>{try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();audioCtx.resume()}catch(e){}},{once:true});
-async function load(){try{let r=await fetch('/api/kitchen/orders',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');const ids=new Set(d.orders.filter(o=>String(o.source||'').toUpperCase()==='DELIVEROO').map(o=>String(o.id)));
+async function load(){try{let r=await fetch('/api/kitchen/orders',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Erreur');const ids=new Set(d.orders.filter(o=>String(o.sales_channel||o.source||'').toUpperCase()==='DELIVEROO').map(o=>String(o.id)));
 if(seenDeliveroo!==null && [...ids].some(id=>!seenDeliveroo.has(id)))deliverooTone();
 seenDeliveroo=ids;
 document.getElementById('count').textContent=d.count+' commande(s)';document.getElementById('error').innerHTML='';document.getElementById('grid').innerHTML=d.orders.length?d.orders.map(o=>`<article class="ticket ${String(o.source||'').toUpperCase()==='DELIVEROO'?'deliveroo':''}"><div class="head"><div><div class="num">${o.platform_reference?'Réf. '+esc(o.platform_reference):''}</div><div class="meta">${esc(clock(o.updated_at))} • ${esc(o.status)}</div></div><span class="kind">${String(o.source||'').toUpperCase()==='DELIVEROO'?'DELIVEROO':esc(o.ticket_type)}</span></div><div class="items">${o.items.map(i=>`<div class="item"><b>${esc(i.qty)} × ${esc(i.name)}</b>${i.options_text?`<div class="opts">${esc(i.options_text)}</div>`:''}</div>`).join('')}</div></article>`).join(''):'<div class="empty">Aucune commande à préparer.</div>'}catch(e){document.getElementById('error').innerHTML=`<div class="error">Cuisine indisponible : ${esc(e.message)}</div>`}}load();setInterval(load,5000);
