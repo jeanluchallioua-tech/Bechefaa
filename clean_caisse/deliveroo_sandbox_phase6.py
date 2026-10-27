@@ -541,7 +541,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -598,9 +598,17 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         ORDER BY received_at DESC LIMIT 40""")
                     events = cur.fetchall()
                     cur.execute("""SELECT id, num, created_at
-                        FROM caisse_orders WHERE source = 'DELIVEROO'
+                        FROM caisse_orders WHERE sales_channel = 'DELIVEROO'
                         ORDER BY created_at DESC LIMIT 40""")
                     orders = cur.fetchall()
+                    cur.execute("SELECT to_regclass('deliveroo_kitchen_schedule') AS table_name")
+                    schedule_exists = bool(cur.fetchone()["table_name"])
+                    if schedule_exists:
+                        cur.execute("""SELECT order_id, start_preparing_at_ms
+                            FROM deliveroo_kitchen_schedule ORDER BY start_preparing_at_ms DESC LIMIT 100""")
+                        schedules = {str(r["order_id"]): int(r["start_preparing_at_ms"]) for r in cur.fetchall()}
+                    else:
+                        schedules = {}
             index = {str(o["id"]): o for o in orders}
             rows = []
             for e in events:
@@ -634,6 +642,10 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         "status", "type", "fulfilment_type", "restaurant_id",
                         "site_id", "brand_id", "reference", "display_id",
                     })),
+                    "stored_schedule": (
+                        datetime.fromtimestamp(schedules[pos_id] / 1000, tz=timezone.utc).isoformat(timespec="seconds")
+                        if pos_id in schedules else "ABSENTE"
+                    ),
                     "asap_value": str(order.get("asap")) if isinstance(order.get("asap"), bool) else "non renseigné",
                     "start_preparing_at_value": _safe_schedule_time(order.get("start_preparing_at")),
                     "prepare_for_value": _safe_schedule_time(order.get("prepare_for")),
