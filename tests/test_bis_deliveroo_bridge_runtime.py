@@ -199,7 +199,42 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(saved[2:7], ("Alice Martin", "0600000000",
                                       "12 rue Exemple", "75001", "Paris"))
         insert_sql = next(sql for sql in db.statements if "INSERT INTO caisse_orders" in sql)
-        self.assertIn("'LIVRAISON','DELIVEROO'", insert_sql)
+        self.assertIn("'DELIVEROO'", insert_sql)
+        self.assertEqual(saved[7], "LIVRAISON")
+
+    def test_customer_collect_is_emporter_with_deliveroo_channel(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["fulfillment_type"] = "customer"
+        self.assertEqual(self.bridge(db, event), "created")
+        self.assertEqual(self.bridge(db, copy.deepcopy(event)), "duplicate")
+        saved = next(iter(db.orders.values()))
+        self.assertEqual(saved[7], "EMPORTER")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+        insert_sql = next(sql for sql in db.statements if "INSERT INTO caisse_orders" in sql)
+        self.assertIn("'DELIVEROO'", insert_sql)
+
+    def test_changed_fulfillment_under_same_order_id_is_conflict(self):
+        db = FakeDB()
+        delivery = payload()
+        delivery["body"]["order"]["fulfillment_type"] = "deliveroo"
+        collect = copy.deepcopy(delivery)
+        collect["body"]["order"]["fulfillment_type"] = "customer"
+        self.assertEqual(self.bridge(db, delivery), "created")
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, collect)
+        self.assertEqual(next(iter(db.orders.values()))[7], "LIVRAISON")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
+    def test_unknown_fulfillment_fails_before_sql(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["fulfillment_type"] = "unverified_mode"
+        with self.assertRaisesRegex(ValueError, "fulfillment type"):
+            self.bridge(db, event)
+        self.assertEqual(db.statements, [])
 
     def test_observed_deliveroo_delivery_fields_survive_to_pos_once(self):
         db = FakeDB()
