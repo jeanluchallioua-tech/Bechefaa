@@ -582,7 +582,9 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
         with cls.connect() as conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS caisse_orders (
                 id TEXT PRIMARY KEY, num INTEGER NOT NULL UNIQUE,
-                customer_name TEXT, source TEXT, sales_channel TEXT,
+                customer_name TEXT, phone TEXT NOT NULL DEFAULT '',
+                address TEXT NOT NULL DEFAULT '', postal_code TEXT NOT NULL DEFAULT '',
+                city TEXT NOT NULL DEFAULT '', source TEXT, sales_channel TEXT,
                 payment TEXT, status TEXT, total NUMERIC(12,2),
                 created_at BIGINT, updated_at BIGINT
             )""")
@@ -634,15 +636,27 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
 
     def test_concurrent_identical_order_id_creates_one_complete_kitchen_order(self):
         event = payload()
+        event["body"]["order"]["customer"] = {
+            "first_name": "Alice", "last_name": "Martin", "phone": "0600000000"}
+        event["body"]["order"]["delivery"] = {
+            "address": {"address_line_1": "12 rue Exemple",
+                        "postcode": "75001", "city": "Paris"}}
         outcomes = self.import_in_parallel(event, event)
         self.assertCountEqual(outcomes, [("ok", "created"), ("ok", "duplicate")])
         with self.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 1)
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 1)
-            row = conn.execute("SELECT status, sales_channel, total FROM caisse_orders").fetchone()
+            row = conn.execute("""SELECT status, source, sales_channel, total,
+                customer_name, phone, address, postal_code, city
+                FROM caisse_orders""").fetchone()
             self.assertEqual(row["status"], "À préparer")
+            self.assertEqual(row["source"], "LIVRAISON")
             self.assertEqual(row["sales_channel"], "DELIVEROO")
             self.assertEqual(str(row["total"]), "17.90")
+            self.assertEqual(
+                (row["customer_name"], row["phone"], row["address"],
+                 row["postal_code"], row["city"]),
+                ("Alice Martin", "0600000000", "12 rue Exemple", "75001", "Paris"))
 
     def test_concurrent_conflicting_replay_never_overwrites_first_order(self):
         event = payload()
