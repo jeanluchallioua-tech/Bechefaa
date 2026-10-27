@@ -127,6 +127,34 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         result = self.audit()
         self.assertIn("order_amounts_require_review", result["blockers"])
 
+    def test_malformed_catalogue_returns_blockers_not_an_audit_exception(self):
+        # Invalid catalogue data must not turn a mandatory financial check
+        # into an unstructured error or an accidental dispatch approval.
+        malformed = (
+            None,
+            {"products": "invalid"},
+            {"products": [
+                {"id": "MU11002", "name": "Veggie Burger", "price": "10.00"},
+                {"id": "MU11002", "name": "Duplicate", "price": "10.00"},
+            ]},
+            {"products": [{
+                "id": "MU11002", "name": "Veggie Burger",
+                "price": "10.00", "active": "false",
+            }]},
+        )
+        for catalogue in malformed:
+            with self.subTest(catalogue=catalogue):
+                self.catalog = catalogue
+                result = self.audit()
+                self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+                self.assertIn("base_price_audit_incomplete", result["blockers"])
+                self.assertIn("modifier_price_audit_incomplete", result["blockers"])
+                self.assertTrue(result["base_price_audit"]["requires_financial_review"])
+                self.assertTrue(result["modifier_price_audit"]["requires_financial_review"])
+                self.assertFalse(result["base_price_audit"]["price_policy_verified"])
+                self.assertFalse(result["modifier_price_audit"]["price_policy_verified"])
+                self.assertFalse(result["ready_for_dispatch"])
+
     def test_oversized_instruction_tree_fails_closed(self):
         self.payload["body"]["order"]["metadata"] = ["x"] * 6000
         result = self.audit()
