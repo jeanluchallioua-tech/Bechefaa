@@ -541,7 +541,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Cuisine SQL: ticket visible','kitchen_sql_visible'],['Statut ticket','ticket_status'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -601,6 +601,10 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         FROM caisse_orders WHERE sales_channel = 'DELIVEROO'
                         ORDER BY created_at DESC LIMIT 40""")
                     orders = cur.fetchall()
+                    cur.execute("""SELECT id, num, status FROM caisse_orders
+                        WHERE source = 'DELIVEROO'
+                        ORDER BY created_at DESC LIMIT 100""")
+                    order_states = {str(r["id"]): r for r in cur.fetchall()}
                     cur.execute("SELECT to_regclass('deliveroo_kitchen_schedule') AS table_name")
                     schedule_exists = bool(cur.fetchone()["table_name"])
                     if schedule_exists:
@@ -642,6 +646,13 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         "status", "type", "fulfilment_type", "restaurant_id",
                         "site_id", "brand_id", "reference", "display_id",
                     })),
+                    "ticket_status": str(order_states[pos_id]["status"]) if pos_id in order_states else "ABSENT",
+                    "kitchen_sql_visible": (
+                        "OUI" if pos_id in order_states
+                        and order_states[pos_id]["status"] in ("À préparer", "En préparation")
+                        and (pos_id not in schedules or schedules[pos_id] <= int(datetime.now(timezone.utc).timestamp() * 1000))
+                        else "NON"
+                    ),
                     "preprod_filter_active": "OUI" if os.environ.get("CC_APP_ID", "").strip() == "app_fad0809f-954d-47e7-983d-afb7c3867cd0" else "NON",
                     "kitchen_should_show": (
                         "NON" if pos_id in schedules and schedules[pos_id] > int(datetime.now(timezone.utc).timestamp() * 1000)
