@@ -126,6 +126,19 @@ class DeliverooGuidReplayTests(unittest.TestCase):
         self.assertEqual(len(conn.events), 2)
         self.assertEqual(conn.commits, 2)
 
+    def test_two_guids_for_same_order_remain_distinct_audit_events(self):
+        # A retried Deliveroo order can arrive with a fresh event GUID.
+        # The event ledger must retain both; the POS bridge separately
+        # enforces uniqueness by external order ID.
+        conn = Connection()
+        event = self.sample()
+        self.persist(conn, "guid-a", event)
+        self.persist(conn, "guid-b", copy.deepcopy(event))
+        self.assertEqual(set(conn.events), {"guid-a", "guid-b"})
+        self.assertEqual(
+            {record["order_id"] for record in conn.events.values()}, {"fr:one"})
+        self.assertEqual(conn.commits, 2)
+
     def test_json_object_key_order_does_not_change_replay_identity(self):
         conn = Connection()
         first = self.sample()
