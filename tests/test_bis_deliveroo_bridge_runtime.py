@@ -205,6 +205,35 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(db.orders), 1)
         self.assertEqual(len(db.items), 1)
 
+    def test_changed_delivery_contact_under_same_order_id_is_conflict(self):
+        db = FakeDB()
+        first = payload()
+        first["body"]["order"]["delivery"] = {
+            "customer_name": "John", "contact_number": "0200000000",
+            "city": "London", "postcode": "SW1A 1AA"}
+        changed = copy.deepcopy(first)
+        changed["body"]["order"]["delivery"]["contact_number"] = "0300000000"
+        self.assertEqual(self.bridge(db, first), "created")
+        with self.assertRaisesRegex(ValueError, "order ID replay content conflict"):
+            self.bridge(db, changed)
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+        self.assertEqual(next(iter(db.orders.values()))[3], "0200000000")
+
+    def test_equivalent_delivery_contact_fallback_is_idempotent(self):
+        db = FakeDB()
+        first = payload()
+        first["body"]["order"]["customer"] = {
+            "first_name": "Alice", "last_name": "Martin",
+            "phone": "0600000000"}
+        second = copy.deepcopy(first)
+        second["body"]["order"]["delivery"] = {
+            "customer_name": "Alice Martin", "contact_number": "0600000000"}
+        self.assertEqual(self.bridge(db, first), "created")
+        self.assertEqual(self.bridge(db, second), "duplicate")
+        self.assertEqual(len(db.orders), 1)
+        self.assertEqual(len(db.items), 1)
+
     def test_missing_delivery_contact_keeps_legacy_customer_fallback(self):
         db = FakeDB()
         event = payload()
@@ -705,6 +734,22 @@ class PostgresDeliverooConcurrencyTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 1)
             total = conn.execute("SELECT total FROM caisse_orders").fetchone()["total"]
             self.assertIn(str(total), ("17.90", "19.90"))
+
+    def test_concurrent_contact_conflict_never_overwrites_pos_customer(self):
+        event = payload()
+        event["body"]["order"]["delivery"] = {
+            "customer_name": "John", "contact_number": "0200000000"}
+        changed = copy.deepcopy(event)
+        changed["body"]["order"]["delivery"]["contact_number"] = "0300000000"
+        outcomes = self.import_in_parallel(event, changed)
+        self.assertEqual(sum(x == ("ok", "created") for x in outcomes), 1)
+        self.assertEqual(sum(kind == "conflict" and "replay content conflict" in value
+                             for kind, value in outcomes), 1)
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_orders").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM caisse_order_items").fetchone()["n"], 1)
+            phone = conn.execute("SELECT phone FROM caisse_orders").fetchone()["phone"]
+            self.assertIn(phone, ("0200000000", "0300000000"))
 
     def test_postgres_second_item_constraint_failure_rolls_back_and_retry_is_safe(self):
         """A real PostgreSQL error must not leave a partial kitchen order."""
