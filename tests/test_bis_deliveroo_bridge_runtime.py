@@ -171,6 +171,21 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
             ensure_ascii=False))
         self.assertEqual(sum("LOCK TABLE" in sql for sql in db.statements), 2)
 
+    def test_deliveroo_delivery_customer_details_are_persisted(self):
+        db = FakeDB()
+        event = payload()
+        event["body"]["order"]["customer"] = {
+            "first_name": "Alice", "last_name": "Martin", "phone": "0600000000"}
+        event["body"]["order"]["delivery"] = {
+            "address": {"address_line_1": "12 rue Exemple",
+                        "postcode": "75001", "city": "Paris"}}
+        self.assertEqual(self.bridge(db, event), "created")
+        saved = next(iter(db.orders.values()))
+        self.assertEqual(saved[2:7], ("Alice Martin", "0600000000",
+                                      "12 rue Exemple", "75001", "Paris"))
+        insert_sql = next(sql for sql in db.statements if "INSERT INTO caisse_orders" in sql)
+        self.assertIn("'LIVRAISON','DELIVEROO'", insert_sql)
+
     def test_same_external_id_with_changed_price_is_rejected_not_silently_replayed(self):
         db = FakeDB()
         first = payload()
