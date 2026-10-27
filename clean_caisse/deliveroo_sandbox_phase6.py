@@ -581,6 +581,52 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
         except (ValueError, OverflowError):
             return "format non reconnu"
 
+    @app.post("/api/deliveroo/repair-customer-collect-43")
+    def repair_customer_collect_43():
+        """One-ticket, PIN-protected preproduction correction; no production writes."""
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return Response(status=404)
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
+            return Response(status=404)
+        expected = (os.environ.get("BECHEFAA_CAISSE_PIN") or "").strip()
+        supplied = (request.headers.get("X-Diagnostic-Pin") or "").strip()
+        if not expected or not hmac.compare_digest(expected, supplied):
+            return jsonify({"ok": False, "error": "PIN incorrect"}), 403
+        import uuid
+        external_id = "fr:21ab80b2-ad94-4f82-8fee-6250e34b409d"
+        pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
+        with db() as conn:
+            with conn.transaction():
+                event = conn.execute(
+                    """SELECT payload FROM deliveroo_sandbox_events
+                       WHERE event='order.new' AND order_id=%s
+                       ORDER BY received_at DESC LIMIT 1""",
+                    (external_id,),
+                ).fetchone()
+                if not event:
+                    return jsonify({"ok": False, "error": "Événement Deliveroo introuvable"}), 404
+                payload = event["payload"]
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                order = ((payload or {}).get("body") or {}).get("order") or {}
+                if str(order.get("fulfillment_type") or "").lower() != "customer":
+                    return jsonify({"ok": False, "error": "Commande non confirmée comme customer collect"}), 409
+                row = conn.execute(
+                    """SELECT id,num,source,sales_channel FROM caisse_orders
+                       WHERE id=%s FOR UPDATE""", (pos_id,)
+                ).fetchone()
+                if not row or int(row["num"]) != 43 or row["sales_channel"] != "DELIVEROO":
+                    return jsonify({"ok": False, "error": "Ticket 43 non identifié de façon certaine"}), 409
+                if row["source"] == "EMPORTER":
+                    return jsonify({"ok": True, "result": "already_correct", "ticket": 43})
+                if row["source"] != "LIVRAISON":
+                    return jsonify({"ok": False, "error": "Type de commande inattendu"}), 409
+                conn.execute(
+                    "UPDATE caisse_orders SET source='EMPORTER' WHERE id=%s AND source='LIVRAISON'",
+                    (pos_id,),
+                )
+        return jsonify({"ok": True, "result": "corrected", "ticket": 43, "source": "EMPORTER"})
+
     @app.get("/api/deliveroo/diagnostic-doublons")
     def deliveroo_diagnostic_doublons():
         """Read-only sandbox webhook/order correlation; preproduction only."""
