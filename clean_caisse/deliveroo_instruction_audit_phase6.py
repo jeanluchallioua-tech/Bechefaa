@@ -44,7 +44,7 @@ NORMALIZED_CANDIDATE_KEYS = frozenset(_instruction_key(key) for key in CANDIDATE
 
 
 def audit_instruction_fields(payload):
-    """Inventory candidate notes anywhere inside body.order, without writes.
+    """Inventory candidate notes anywhere inside webhook body, without writes.
 
     A bounded traversal prevents pathological payloads from exhausting the
     webhook worker. An incomplete scan is a hard stop for the opt-in bridge,
@@ -55,8 +55,11 @@ def audit_instruction_fields(payload):
     paths = []
     values = []
     scan_complete = True
-    if isinstance(order, dict):
-        pending = [("body.order", order, 0)]
+    # A producer may place delivery/customer instructions beside `order` in
+    # `body`, not only inside `body.order`. Inspect the complete body so the
+    # opt-in bridge cannot silently discard those sibling notes.
+    if isinstance(body, dict):
+        pending = [("body", body, 0)]
         # Count every inspected field/list entry, not only container nodes:
         # a single huge flat object/list must not bypass the traversal budget.
         inspected = 0
