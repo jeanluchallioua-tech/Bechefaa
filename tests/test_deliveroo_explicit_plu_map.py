@@ -73,7 +73,9 @@ class ExplicitPluMapTests(unittest.TestCase):
                     payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = "Guacamole"
                 else:
                     catalog["products"][0]["options"][0]["name"] = "Extras\n"
-                with self.assertRaisesRegex(DeliverooMappingError, "Unsafe mapped"):
+                # The strict reconciler now rejects unsafe labels before the
+                # explicit translator performs its own final safety check.
+                with self.assertRaisesRegex(DeliverooMappingError, "Unsafe (mapped|catalogue)"):
                     reconcile_with_explicit_plu_map(
                         payload, catalog,
                         {("MU11002", "OM21001"): "opt:MU11002:0:0"}
