@@ -194,6 +194,23 @@ class DeliverooCatalogMarkupAuditTests(unittest.TestCase):
                 self.assertEqual(audit["review_reasons"], ["invalid_catalog_price"])
                 self.assertFalse(audit["price_policy_verified"])
 
+    def test_subcent_base_price_cannot_pass_by_rounding(self):
+        # 10.004 used to round to 10.00 and falsely match a 20% price.
+        self.catalog["products"][0]["price"] = "10.004"
+        self.payload["body"]["order"]["items"][0]["unit_price"]["fractional"] = 1200
+        before = deepcopy(self.catalog)
+        audit = audit_catalog_base_markup(
+            self.payload, self.catalog, markup_percentage="20"
+        )
+        line = audit["line_diagnostics"][0]
+        self.assertEqual(line["status"], "invalid_catalog_price")
+        self.assertIsNone(line["expected_unit_eur"])
+        self.assertEqual(audit["review_reasons"], ["invalid_catalog_price"])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        self.assertEqual(self.catalog, before)
+
     def test_duplicate_catalogue_ids_fail_closed(self):
         from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError
         self.catalog["products"].append(deepcopy(self.catalog["products"][0]))
@@ -381,6 +398,25 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
         self.assertFalse(audit["price_policy_verified"])
         self.assertFalse(audit["ready_for_dispatch"])
         self.assertFalse(audit["writes"])
+
+    def test_subcent_modifier_price_cannot_pass_by_rounding(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+
+        # 0.954 used to round to 0.95 and falsely match a 20% price.
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "0.954"
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 114
+        before = deepcopy(self.catalog)
+        audit = audit_catalog_modifier_markup(
+            self.payload, self.catalog, markup_percentage="20"
+        )
+        line = audit["modifier_diagnostics"][0]
+        self.assertEqual(line["status"], "invalid_catalog_modifier_price")
+        self.assertIsNone(line["expected_unit_eur"])
+        self.assertEqual(audit["review_reasons"], ["invalid_catalog_modifier_price"])
+        self.assertTrue(audit["requires_financial_review"])
+        self.assertFalse(audit["ready_for_dispatch"])
+        self.assertFalse(audit["writes"])
+        self.assertEqual(self.catalog, before)
 
     def test_duplicate_catalogue_products_and_invalid_markup_fail_closed(self):
         from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
