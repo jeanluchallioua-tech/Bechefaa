@@ -115,7 +115,10 @@ def reconcile(payload, catalog):
                 raw_choice_name = (choice.get("name") or choice.get("label")
                                    or choice.get("title") or choice.get("value")
                                    or choice.get("id") or "")
-                if _unsafe_catalogue_label(raw_choice_name):
+                # Keep whitespace-only labels on the existing "Empty choice"
+                # diagnostic path; controls in nonblank labels are checked
+                # after trimming below.
+                if not isinstance(raw_choice_name, str):
                     raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
                 choice_name = raw_choice_name
             elif isinstance(choice, (list, tuple)):
