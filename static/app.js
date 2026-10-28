@@ -2,6 +2,27 @@ document.addEventListener("DOMContentLoaded",()=>{
 const $=x=>document.getElementById(x),euro=n=>n.toLocaleString("fr-FR",{style:"currency",currency:"EUR"});
 let cat=window.CATEGORIES[0],ch="CAISSE",cart=[],sel=null,editingOrderId=null,editingOriginalItems=[],editingLineId=null,clients=JSON.parse(localStorage.getItem("b_clients043")||"[]"),orders=JSON.parse(localStorage.getItem("b_orders043")||"[]"),current=null,selections={};
 
+/* Persist the unfinished POS cart independently of incoming web orders. */
+const DRAFT_KEY="bechefaa_pos_active_draft_v1";
+function persistDraft(){
+ if(editingOrderId)return;
+ try{if(!cart.length){localStorage.removeItem(DRAFT_KEY);return;}
+ localStorage.setItem(DRAFT_KEY,JSON.stringify({items:cart,channel:ch,customerId:sel?.id||null,updatedAt:Date.now()}));}
+ catch(e){console.warn("Sauvegarde panier impossible",e)}
+}
+function restoreDraft(){
+ try{const d=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null");
+ if(!d||!Array.isArray(d.items)||!d.items.length)return;
+ cart=d.items.filter(x=>x&&typeof x.name==="string"&&Number.isFinite(Number(x.unit))&&Number(x.qty)>0).map(x=>({...x,lineId:x.lineId||Date.now()+Math.random()}));
+ if(!cart.length)return;
+ ch=String(d.channel||"CAISSE");
+ sel=d.customerId?clients.find(x=>String(x.id)===String(d.customerId))||null:null;
+ document.querySelectorAll(".channel").forEach(b=>b.classList.toggle("active",b.dataset.ch===ch));
+ if(sel){$("selected").classList.remove("hidden");$("selected").textContent="✓ Client actif : "+sel.name;}
+ rCart();
+ }catch(e){console.warn("Restauration panier impossible",e)}
+}
+window.addEventListener("pagehide",persistDraft);
 const price=p=>["UBER EATS","DELIVEROO"].includes(ch)?+(p*1.15).toFixed(2):p;
 
 /* V0.5.1 : passerelle publique utilisée par cloud.js.
@@ -263,7 +284,7 @@ function addConfigured(){
  cart.push({lineId:Date.now()+Math.random(),id:current.id,name:current.name,unit:u,qty:1,options:opts,optionsText:txt,wixModifierGroupIds:ek?(WIX_GROUP_IDS[ek]||[]):[]});
  $("optionModal").classList.add("hidden");rCart();
 }
-function rCart(){$("cartItems").innerHTML=cart.length?cart.map(x=>`<div class="line"><div class="lineTop"><span><b>${x.qty}×</b> ${x.name}</span><b>${euro(x.qty*x.unit)}</b></div>${x.optionsText?`<div class="lineopts">${formatOptionHTML(x.optionsText)}</div>`:""}<div class="actions"><button data-dec="${x.lineId}">−</button><button data-inc="${x.lineId}">＋</button>${editingOrderId&&profile(window.PRODUCTS.find(p=>String(p.id)===String(x.id))||{}).length?`<button data-edit-options="${x.lineId}">Modifier options</button>`:""}<button class="danger" data-del="${x.lineId}">Supprimer</button></div></div>`).join(""):'<div class="empty">Commande vide</div>';$("total").textContent=euro(cart.reduce((s,x)=>s+x.qty*x.unit,0));document.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.inc);x.qty++;rCart()});document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.dec);if(--x.qty<=0)cart=cart.filter(i=>i.lineId!=b.dataset.dec);rCart()});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart=cart.filter(i=>i.lineId!=b.dataset.del);rCart()});document.querySelectorAll("[data-edit-options]").forEach(b=>b.onclick=()=>openExistingLineOptions(b.dataset.editOptions))}
+function rCart(){persistDraft();$("cartItems").innerHTML=cart.length?cart.map(x=>`<div class="line"><div class="lineTop"><span><b>${x.qty}×</b> ${x.name}</span><b>${euro(x.qty*x.unit)}</b></div>${x.optionsText?`<div class="lineopts">${formatOptionHTML(x.optionsText)}</div>`:""}<div class="actions"><button data-dec="${x.lineId}">−</button><button data-inc="${x.lineId}">＋</button>${editingOrderId&&profile(window.PRODUCTS.find(p=>String(p.id)===String(x.id))||{}).length?`<button data-edit-options="${x.lineId}">Modifier options</button>`:""}<button class="danger" data-del="${x.lineId}">Supprimer</button></div></div>`).join(""):'<div class="empty">Commande vide</div>';$("total").textContent=euro(cart.reduce((s,x)=>s+x.qty*x.unit,0));document.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.inc);x.qty++;rCart()});document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{let x=cart.find(x=>x.lineId==b.dataset.dec);if(--x.qty<=0)cart=cart.filter(i=>i.lineId!=b.dataset.dec);rCart()});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart=cart.filter(i=>i.lineId!=b.dataset.del);rCart()});document.querySelectorAll("[data-edit-options]").forEach(b=>b.onclick=()=>openExistingLineOptions(b.dataset.editOptions))}
 function saveC(){localStorage.setItem("b_clients043",JSON.stringify(clients))}function saveO(){localStorage.setItem("b_orders043",JSON.stringify(orders))}
 function find(q){q=q.toLowerCase().replace(/\s/g,"");return clients.filter(c=>c.name.toLowerCase().includes(q)||c.phone.replace(/\s/g,"").includes(q))}
 $("cust").oninput=()=>{let q=$("cust").value.trim();$("matches").innerHTML=q?find(q).slice(0,5).map(c=>`<div class="match" data-cid="${c.id}"><b>${c.name}</b><br>${c.phone}</div>`).join(""):"";document.querySelectorAll("[data-cid]").forEach(e=>e.onclick=()=>pick(+e.dataset.cid))};function pick(id){
@@ -271,6 +292,7 @@ $("cust").oninput=()=>{let q=$("cust").value.trim();$("matches").innerHTML=q?fin
  if(!sel)return;
  $("selected").classList.remove("hidden");
  $("selected").innerHTML=`<div class="selected-client-title">✓ Client actif</div><b>${sel.name}</b><br>${sel.phone}${sel.email?`<br>${sel.email}`:""}${sel.address?`<br>${sel.address}`:""}${sel.postalCode||sel.city?`<br>${sel.postalCode||""} ${sel.city||""}`:""}`;
+ persistDraft();
  $("matches").innerHTML="";
  $("cust").value="";
 }
@@ -350,6 +372,7 @@ function boards(){
    try{await fetch(`/api/orders/${oid}/items/${idx}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({prepared:cb.checked})})}catch(e){}
  });
 }
+restoreDraft();
 $("addConfigured").onclick=addConfigured;$("closeOptions").onclick=()=>$("optionModal").classList.add("hidden");
 $("validate").onclick=async()=>{
  if(!cart.length)return alert("Ajoutez un produit.");
