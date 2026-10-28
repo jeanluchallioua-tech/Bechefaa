@@ -103,7 +103,7 @@ def reconcile(payload, catalog):
                 raw_choice_name = (choice.get("name") or choice.get("label")
                                    or choice.get("title") or choice.get("value")
                                    or choice.get("id") or "")
-                if _unsafe_catalogue_label(raw_choice_name):
+                if isinstance(raw_choice_name, bool):
                     raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
                 choice_name = str(raw_choice_name)
             elif isinstance(choice, (list, tuple)):
