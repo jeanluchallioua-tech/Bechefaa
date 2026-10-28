@@ -1621,6 +1621,59 @@ def register_deliveroo_menu_upload_phase6(app, db):
             return jsonify({"ok":False,"read_only":True,"error":"Lecture job S15 impossible",
                             "detail":str(exc)}),500
 
+    @app.get("/api/deliveroo/scenarios-12-15-16-diagnostic-phase6")
+    def deliveroo_scenarios_12_15_16_diagnostic_phase6():
+        """Diagnostic local, lecture seule. Aucun appel API d'ecriture."""
+        site_id="101"
+        menu_id="bechefaa-menu-01"
+        result={
+            "ok":True,"read_only":True,"sandbox_only":True,
+            "site_id":site_id,"menu_id":menu_id,
+            "scenario15":{
+                "job_action":"publish_menu_to_live",
+                "job_params_shape":"params.menu_id",
+                "job_creation_requires_sandbox":True,
+            },
+            "scenario16":{"requires_scenario15_job_id":True},
+            "scenario12":{"post_endpoint":"item_unavailabilities/101"},
+        }
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('deliveroo_scenario15_state') AS table_name")
+                    exists=cur.fetchone()
+                    if exists and exists.get("table_name"):
+                        cur.execute("""
+                            SELECT job_id,brand_id,created_at
+                            FROM deliveroo_scenario15_state
+                            WHERE site_id=%s AND menu_id=%s
+                        """,(site_id,menu_id))
+                        state=cur.fetchone()
+                    else:
+                        state=None
+                    cur.execute("SELECT to_regclass('deliveroo_scenario12_trace') AS table_name")
+                    trace_exists=cur.fetchone()
+                    if trace_exists and trace_exists.get("table_name"):
+                        cur.execute("""
+                            SELECT created_at,http_status,request_payload
+                            FROM deliveroo_scenario12_trace ORDER BY id DESC LIMIT 1
+                        """)
+                        trace=cur.fetchone()
+                    else:
+                        trace=None
+            result["scenario15"]["job_present"]=bool(state and state.get("job_id"))
+            result["scenario15"]["job_id"]=state.get("job_id") if state else None
+            result["scenario15"]["job_created_at"]=state["created_at"].isoformat() if state and state.get("created_at") else None
+            result["scenario16"]["ready_for_get"]=bool(state and state.get("job_id"))
+            result["scenario12"]["last_post_http_status"]=trace.get("http_status") if trace else None
+            result["scenario12"]["last_post_at"]=trace["created_at"].isoformat() if trace and trace.get("created_at") else None
+            result["scenario12"]["last_post_payload"]=trace.get("request_payload") if trace else None
+        except Exception as exc:
+            result["ok"]=False
+            result["diagnostic_error"]=str(exc)
+            return jsonify(result),500
+        return jsonify(result),200
+
     @app.post("/api/deliveroo/scenario15-v3-async-upload-phase6")
     def deliveroo_scenario15_v3_async_upload_phase6():
         payload=request.get_json(silent=True) or {}
@@ -1742,11 +1795,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
             jobs_url=(
                 api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")+"/jobs"
             )
-            # Deliveroo exige un objet params, mais aucun champ interne n'est
-            # documenté pour publish_menu_to_live. Le support a confirmé que
-            # params.menu_id provoquait "invalid params".
-            # Exemple officiel Deliveroo V3 : action seule, sans params vide.
-            # Interdire toute execution si l'URL configuree n'est pas le Sandbox.
+            # Protection : ne jamais declencher un job V3 hors Sandbox.
             if urllib.parse.urlparse(api_url).hostname != "api-sandbox.developers.deliveroo.com":
                 return jsonify({
                     "ok":False,"stage":"sandbox_guard",
@@ -1801,7 +1850,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "primary_job_http_status":primary_job_status,
                 "primary_job_response":primary_job_response,
                 "webhook_expected":"menu.upload_result",
-                "next":"Attendre le webhook de résultat Deliveroo"
+                "next":"Attendre le webhook de résultat Deliveroo" if ok and job_id else "Job non créé : examiner job_response avant toute relance"
             }),200 if ok else 502
         except Exception as exc:
             return jsonify({
