@@ -461,6 +461,23 @@ def create_mollie_payment_for_order(db, ensure_order_schema, order_id, *, test_m
         },
     }
     payment = _mollie_request("POST", "/payments", mollie_payload, api_key=key)
+    # The return URL must identify the payment even if iOS changes browser context.
+    # PATCH only changes Mollie's redirect, never the payment amount or webhook.
+    if payment.get("id"):
+        try:
+            from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+            parts = urlsplit(return_url)
+            query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                     if k not in ("payment_id", "mollie_mode")]
+            query.extend([("payment_id", str(payment["id"])),
+                          ("mollie_mode", "TEST" if test_mode else "LIVE")])
+            tagged_return = urlunsplit((parts.scheme, parts.netloc, parts.path,
+                                        urlencode(query), parts.fragment))
+            payment = _mollie_request("PATCH", "/payments/" + str(payment["id"]),
+                                      {"redirectUrl": tagged_return}, api_key=key)
+        except Exception as exc:
+            app_logger = __import__("logging").getLogger(__name__)
+            app_logger.warning("Mollie redirect payment reference update failed: %s", exc)
     checkout = _checkout_url(payment)
     if not payment.get("id") or not checkout:
         raise RuntimeError("Mollie n'a pas retourné de lien de paiement")
