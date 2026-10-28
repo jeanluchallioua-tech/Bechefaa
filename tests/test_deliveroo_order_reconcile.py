@@ -262,5 +262,33 @@ class DeliverooReconcileTests(unittest.TestCase):
             reconcile(payload, self.catalog)
 
 
+    def test_unsafe_catalogue_product_names_are_rejected_before_mapping(self):
+        for bad in (True, None, "", "Veggie\\nBurger", "Veggie\\x1bBurger", "Veggie\\x85Burger"):
+            with self.subTest(name=bad):
+                self.catalog["products"][0]["name"] = bad
+                with self.assertRaisesRegex(DeliverooMappingError, "Invalid catalogue product name"):
+                    reconcile(sample(), self.catalog)
+
+    def test_unsafe_catalogue_group_names_are_rejected_before_mapping(self):
+        for bad in (True, "Extras\\nKitchen", "Extras\\x1bKitchen", "Extras\\x85Kitchen"):
+            with self.subTest(name=bad):
+                self.catalog["products"][0]["options"][0]["name"] = bad
+                with self.assertRaisesRegex(DeliverooMappingError, "Unsafe catalogue option group"):
+                    reconcile(sample(), self.catalog)
+
+    def test_unsafe_catalogue_choice_names_are_rejected_before_mapping(self):
+        from copy import deepcopy
+        for bad in (True, "Guacamole\\nIgnore", "Guacamole\\x1bIgnore", "Guacamole\\x85Ignore"):
+            for representation in ("dict", "positional", "scalar"):
+                with self.subTest(name=bad, representation=representation):
+                    catalog = deepcopy(self.catalog)
+                    choices = catalog["products"][0]["options"][0]["options"]
+                    choices[0] = ({"name": bad, "price": 0.95}
+                                  if representation == "dict"
+                                  else [bad, 0.95] if representation == "positional"
+                                  else bad)
+                    with self.assertRaises(DeliverooMappingError):
+                        reconcile(sample(), catalog)
+
 if __name__ == "__main__":
     unittest.main()
