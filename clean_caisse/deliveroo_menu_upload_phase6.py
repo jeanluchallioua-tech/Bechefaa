@@ -1631,7 +1631,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
             "site_id":site_id,"menu_id":menu_id,
             "scenario15":{
                 "job_action":"publish_menu_to_live",
-                "job_params_shape":"params.menu_id",
+                "job_params_shape":"omitted",
                 "job_creation_requires_sandbox":True,
             },
             "scenario16":{"requires_scenario15_job_id":True},
@@ -1801,11 +1801,10 @@ def register_deliveroo_menu_upload_phase6(app, db):
                     "ok":False,"stage":"sandbox_guard",
                     "error":"Creation du job S15 interdite hors Sandbox Deliveroo"
                 }),403
-            # Deliveroo exige menu_id dans les parametres de publication V3.
-            # Limite strictement cette action a l'API Sandbox.
+            # Essai Sandbox conforme a l'exemple minimal demande par l'utilisateur.
+            # Ne pas ajouter de params au POST de creation du job.
             job_payload={
                 "action":"publish_menu_to_live",
-                "params":{"menu_id":menu_id},
             }
             job_status,job_response=_api_json(jobs_url,token,method="POST",payload=job_payload)
             fallback_used=False
