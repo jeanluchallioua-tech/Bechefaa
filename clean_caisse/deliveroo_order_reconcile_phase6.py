@@ -4,8 +4,8 @@ from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, p
 
 def _unsafe_catalogue_label(value):
     """Do not let control bytes or synthetic bool labels reach kitchen mapping."""
-    return (isinstance(value, bool) or
-            any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in str(value)))
+    return (not isinstance(value, str) or
+            any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value))
 
 
 def catalogue_entry_active(entry, label):
@@ -94,26 +94,38 @@ def reconcile(payload, catalog):
                 raise DeliverooMappingError("Inactive catalogue option group: " + plu)
             if isinstance(choice, dict) and not catalogue_entry_active(choice, "option choice " + plu):
                 raise DeliverooMappingError("Inactive catalogue option choice: " + plu)
+            # An explicitly supplied non-text label must not disappear behind
+            # the fallback group title or become a synthetic kitchen label.
+            if any(key in group and group[key] is not None
+                   and not isinstance(group[key], str)
+                   for key in ("name", "label", "title")):
+                raise DeliverooMappingError("Unsafe catalogue option group: " + plu)
             raw_group_name = (group.get("name") or group.get("label")
                               or group.get("title") or "Groupe " + str(group_index + 1))
             if _unsafe_catalogue_label(raw_group_name):
                 raise DeliverooMappingError("Unsafe catalogue option group: " + plu)
             group_name = str(raw_group_name)
             if isinstance(choice, dict):
+                # A malformed explicit label cannot be silently replaced by
+                # a different field, or stringified as a Python object.
+                if any(key in choice and choice[key] is not None
+                       and not isinstance(choice[key], str)
+                       for key in ("name", "label", "title", "value")):
+                    raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
                 raw_choice_name = (choice.get("name") or choice.get("label")
                                    or choice.get("title") or choice.get("value")
                                    or choice.get("id") or "")
-                if isinstance(raw_choice_name, bool):
+                if _unsafe_catalogue_label(raw_choice_name):
                     raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
-                choice_name = str(raw_choice_name)
+                choice_name = raw_choice_name
             elif isinstance(choice, (list, tuple)):
-                # A null/boolean positional label must not become the
-                # printable string "None" or "True" for a canonical PLU.
-                if not choice or choice[0] is None or isinstance(choice[0], bool):
+                if not choice or not isinstance(choice[0], str):
                     raise DeliverooMappingError("Invalid catalogue option choice: " + plu)
-                choice_name = str(choice[0])
+                choice_name = choice[0]
             else:
-                choice_name = str(choice)
+                if not isinstance(choice, str):
+                    raise DeliverooMappingError("Invalid catalogue option choice: " + plu)
+                choice_name = choice
             # Preserve the existing empty-label diagnostic for whitespace-only
             # values; reject nonblank control characters separately.
             choice_name = choice_name.strip()

@@ -290,5 +290,31 @@ class DeliverooReconcileTests(unittest.TestCase):
                     with self.assertRaises(DeliverooMappingError):
                         reconcile(sample(), catalog)
 
+    def test_nontext_catalogue_group_names_never_fall_back_to_printable_titles(self):
+        from copy import deepcopy
+        for bad in (False, 0, 42, [], {"text": "Extras"}):
+            with self.subTest(value=bad):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["name"] = bad
+                with self.assertRaisesRegex(
+                    DeliverooMappingError, "Unsafe catalogue option group"
+                ):
+                    reconcile(sample(), catalog)
+
+    def test_nontext_catalogue_choice_labels_never_become_kitchen_strings(self):
+        from copy import deepcopy
+        for bad in (False, 0, 42, {"text": "Guacamole"}):
+            for representation in ("dict", "positional", "scalar"):
+                with self.subTest(value=bad, representation=representation):
+                    catalog = deepcopy(self.catalog)
+                    choices = catalog["products"][0]["options"][0]["options"]
+                    choices[0] = (
+                        {"name": bad, "price": 0.95}
+                        if representation == "dict" else
+                        [bad, 0.95] if representation == "positional" else bad
+                    )
+                    with self.assertRaises(DeliverooMappingError):
+                        reconcile(sample(), catalog)
+
 if __name__ == "__main__":
     unittest.main()

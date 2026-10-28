@@ -249,5 +249,19 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
                 self.assertFalse(result["catalogue_label_check_complete"])
                 self.assertFalse(result["ready_for_dispatch"])
 
+    def test_nontext_catalogue_group_or_choice_blocks_preflight(self):
+        for location in ("group", "choice"):
+            with self.subTest(location=location):
+                self.setUp()
+                group = self.catalog["products"][0]["options"][0]
+                if location == "group":
+                    group["name"] = 42
+                else:
+                    group["options"][0]["name"] = {"text": "Guacamole"}
+                result = self.audit()
+                self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+                self.assertFalse(result["catalogue_label_check_complete"])
+                self.assertFalse(result["ready_for_dispatch"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -58,3 +58,7 @@ Le balayage des instructions clients dispose désormais d'une limite couvrant é
 ## Contrôle BIS du 28/10/2026 — types des libellés webhook
 
 Le parseur consultatif et le pont opt-in refusent désormais les noms d'articles et de suppléments reçus sous forme de booléens, nombres, objets, listes ou valeurs nulles. Une conversion automatique en texte (par exemple `true` → `True`) aurait pu fabriquer un libellé cuisine et masquer une anomalie de contrat. Les tests isolés vérifient le refus **avant toute requête SQL** ; les chaînes vides restent diagnostiquées séparément dans le préflight. Cette correction n'autorise ni import réel ni déploiement. Le rapprochement catalogue/prix sur le chemin d'import reste à finaliser ; test 2 non validé de bout en bout, scénarios 12 et 16 toujours bloqués. La majoration Deliveroo de 20 % reste une hypothèse d'audit, sans changement du taux Uber Eats.
+
+## Contrôle BIS du 28/10/2026 — libellés catalogue non textuels
+
+Le rapprochement PLU consultatif refuse désormais les noms de groupes et de choix d'options fournis comme booléens, nombres, listes ou objets, au lieu de les convertir en texte ou de substituer silencieusement un titre de groupe. Les nouveaux tests vérifient le refus du rapprochement et le blocage du préflight, sans commande ni écriture SQL. Ce contrôle reste **distinct du pont d'import réel** ; le scénario 2 n'est pas validé, les scénarios 12 et 16 restent bloqués, et la parité BIS/production doit encore être vérifiée. Majoration Deliveroo : hypothèse d'audit **20 %** ; Uber Eats inchangé. **NO-GO.**
