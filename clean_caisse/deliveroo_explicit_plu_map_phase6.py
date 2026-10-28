@@ -64,6 +64,22 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
             if not target.startswith("opt:" + product_id + ":"):
                 raise DeliverooMappingError("Cross-product modifier PLU mapping: " + old_plu)
             lines[line_index]["modifiers"][modifier_index]["pos_item_id"] = target
+    # A canonical modifier and an approved legacy alias must not become two
+    # kitchen options with the same target PLU in a single order line.
+    # Repeated occurrences of the *same* source remain unchanged; quantity
+    # semantics are a separate, explicitly unapproved Deliveroo policy.
+    for original_line, translated_line in zip(parsed["items"], lines):
+        source_by_target = {}
+        for original_modifier, translated_modifier in zip(
+                original_line["modifiers"], translated_line["modifiers"]):
+            source = original_modifier["pos_item_id"]
+            target = translated_modifier["pos_item_id"]
+            previous = source_by_target.get(target)
+            if previous is not None and previous != source:
+                raise DeliverooMappingError(
+                    "Canonical/legacy modifier PLU collision: " + target
+                )
+            source_by_target[target] = source
     result = reconcile(translated, catalog)
     for line_index, item in enumerate(parsed["items"]):
         for modifier_index, modifier in enumerate(item["modifiers"]):
