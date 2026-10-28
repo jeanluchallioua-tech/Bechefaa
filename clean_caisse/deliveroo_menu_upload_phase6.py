@@ -1843,6 +1843,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "scenario15_marker":scenario15_marker,
                 "job_http_status":job_status,
                 "job_id":job_id,
+                "scenario15_handler_revision":"s15-no-params-d1d987ee",
                 "job_payload":job_payload,
                 "job_response":job_response,
                 "fallback_used":fallback_used,
