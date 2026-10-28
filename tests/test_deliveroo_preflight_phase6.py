@@ -229,9 +229,9 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
                 self.setUp()
                 product = self.catalog["products"][0]
                 if location == "product":
-                    product["name"] = "Veggie\\nBurger"
+                    product["name"] = "Veggie\nBurger"
                 elif location == "group":
-                    product["options"][0]["name"] = "Extras\\x1bPrint"
+                    product["options"][0]["name"] = "Extras\x1bPrint"
                 else:
                     product["options"][0]["options"][0]["name"] = True
                 result = self.audit()
