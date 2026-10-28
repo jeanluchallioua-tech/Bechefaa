@@ -2018,13 +2018,27 @@ def register_deliveroo_menu_upload_phase6(app, db):
             job_id=str(state["job_id"]).strip()
             url=(api_url+"/menu/v3/brands/"+urllib.parse.quote(brand_id,safe="")
                  +"/jobs/"+urllib.parse.quote(job_id,safe=""))
-            status,response=_api_json(url,_oauth_token(),method="GET")
+            # Horodatage UTC autour du GET réel (après obtention du token).
+            token=_oauth_token()
+            get_started_at=datetime.now(timezone.utc).isoformat()
+            status,response=_api_json(url,token,method="GET")
+            get_finished_at=datetime.now(timezone.utc).isoformat()
             ok=200 <= status < 300
+            trace={
+                "event":"deliveroo_scenario16_get_job",
+                "get_started_at_utc":get_started_at,
+                "get_finished_at_utc":get_finished_at,
+                "brand_id":brand_id,"job_id":job_id,
+                "http_status":status,
+                "job_status":response.get("status") if isinstance(response,dict) else None,
+            }
+            print(json.dumps(trace,ensure_ascii=False),flush=True)
             return jsonify({
-                "ok":ok,"scenario16_revision":"direct-single-get-20261028",
+                "ok":ok,"scenario16_revision":"direct-single-get-timed-20261028",
                 "site_id":site_id,"menu_id":menu_id,"brand_id":brand_id,
                 "job_id":job_id,"job_status_http_status":status,
-                "get_attempts":1,"response":response,
+                "get_attempts":1,"get_started_at_utc":get_started_at,
+                "get_finished_at_utc":get_finished_at,"response":response,
             }),200 if ok else 502
         except Exception as exc:
             return jsonify({"ok":False,"stage":"scenario16_direct","error":str(exc)}),500
