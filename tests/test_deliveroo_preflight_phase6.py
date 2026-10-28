@@ -134,10 +134,16 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
                 else:
                     self.catalog["products"][0]["name"] = "Veggie\nBurger"
                 result = self.audit()
-                self.assertIn("catalogue_labels_unverifiable", result["blockers"])
-                self.assertEqual(result["catalogue_label_unverifiable"], [{
-                    "kind": "product", "line_index": 0, "pos_item_id": "MU11002",
-                }])
+                if location == "catalogue":
+                    # Strict reconciliation now rejects unsafe catalogue
+                    # labels before the advisory label-comparison stage.
+                    self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+                    self.assertFalse(result["catalogue_label_check_complete"])
+                else:
+                    self.assertIn("catalogue_labels_unverifiable", result["blockers"])
+                    self.assertEqual(result["catalogue_label_unverifiable"], [{
+                        "kind": "product", "line_index": 0, "pos_item_id": "MU11002",
+                    }])
                 self.assertFalse(result["ready_for_dispatch"])
 
     def test_control_characters_in_modifier_or_group_require_review(self):
@@ -151,11 +157,15 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
                 else:
                     self.catalog["products"][0]["options"][0]["name"] = "Extras\n"
                 result = self.audit()
-                self.assertIn("catalogue_labels_unverifiable", result["blockers"])
-                self.assertEqual(result["catalogue_label_unverifiable"], [{
-                    "kind": "modifier", "line_index": 0, "modifier_index": 0,
-                    "pos_item_id": "opt:MU11002:0:0",
-                }])
+                if location in ("choice", "group"):
+                    self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+                    self.assertFalse(result["catalogue_label_check_complete"])
+                else:
+                    self.assertIn("catalogue_labels_unverifiable", result["blockers"])
+                    self.assertEqual(result["catalogue_label_unverifiable"], [{
+                        "kind": "modifier", "line_index": 0, "modifier_index": 0,
+                        "pos_item_id": "opt:MU11002:0:0",
+                    }])
                 self.assertFalse(result["ready_for_dispatch"])
 
     def test_null_positional_choice_cannot_pass_preflight(self):
