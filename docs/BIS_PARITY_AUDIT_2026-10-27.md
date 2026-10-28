@@ -53,3 +53,8 @@ Le balayage des instructions clients dispose désormais d'une limite couvrant é
 ## Décision de sortie
 
 **NO-GO par défaut** tant que la parité fonctionnelle n'est pas constatée, que les résultats CI du SHA candidat ne sont pas vérifiés, et que les scénarios Deliveroo bloquants ne sont pas explicitement traités. Le document ne modifie aucun état applicatif.
+
+
+## Contrôle BIS du 28/10/2026 — types des libellés webhook
+
+Le parseur consultatif et le pont opt-in refusent désormais les noms d'articles et de suppléments reçus sous forme de booléens, nombres, objets, listes ou valeurs nulles. Une conversion automatique en texte (par exemple `true` → `True`) aurait pu fabriquer un libellé cuisine et masquer une anomalie de contrat. Les tests isolés vérifient le refus **avant toute requête SQL** ; les chaînes vides restent diagnostiquées séparément dans le préflight. Cette correction n'autorise ni import réel ni déploiement. Le rapprochement catalogue/prix sur le chemin d'import reste à finaliser ; test 2 non validé de bout en bout, scénarios 12 et 16 toujours bloqués. La majoration Deliveroo de 20 % reste une hypothèse d'audit, sans changement du taux Uber Eats.

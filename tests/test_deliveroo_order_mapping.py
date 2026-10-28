@@ -63,6 +63,18 @@ class DeliverooMappingTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["modifiers"][0]["pos_item_id"],
                          order["items"][0]["modifiers"][0]["pos_item_id"])
 
+    def test_nontext_item_and_modifier_labels_rejected(self):
+        from copy import deepcopy
+        for field in ("item", "modifier"):
+            for invalid in (None, True, 42, [], {"text": "Guacamole"}):
+                with self.subTest(field=field, invalid=repr(invalid)):
+                    event = deepcopy(self.payload)
+                    item = event["body"]["order"]["items"][0]
+                    target = item if field == "item" else item["modifiers"][0]
+                    target["name"] = invalid
+                    with self.assertRaisesRegex(DeliverooMappingError, "Invalid Deliveroo"):
+                        parse_order_new(event)
+
     def test_nontext_order_id_rejected(self):
         for bad in (123, True, [], {"id": "x"}, None):
             with self.subTest(bad=bad):

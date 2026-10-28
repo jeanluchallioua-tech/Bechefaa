@@ -131,6 +131,23 @@ class BisDeliverooBridgeRuntimeTests(unittest.TestCase):
         with patch.dict(os.environ, env), patch.dict(sys.modules, {"clean_caisse.app": stub_app}):
             return namespace["_bridge_order_new"](order_payload)
 
+    def test_nontext_item_and_modifier_labels_block_before_sql(self):
+        # JSON scalars must not become printable names such as "True" or
+        # "{'name': '...'}" in the opt-in kitchen bridge.
+        for scope in ("item", "modifier"):
+            for invalid in (None, True, 42, [], {"text": "Guacamole"}):
+                with self.subTest(scope=scope, invalid=repr(invalid)):
+                    db = FakeDB()
+                    event = payload()
+                    item = event["body"]["order"]["items"][0]
+                    target = item if scope == "item" else item["modifiers"][0]
+                    target["name"] = invalid
+                    with self.assertRaisesRegex(ValueError, "invalid Deliveroo .* name type"):
+                        self.bridge(db, event)
+                    self.assertEqual(db.statements, [])
+                    self.assertEqual(db.orders, {})
+                    self.assertEqual(db.items, [])
+
     def test_allergy_and_kitchen_notes_block_bridge_before_sql(self):
         for scope, field, value in (
             ("customer", "Food Allergies", "Arachides"),

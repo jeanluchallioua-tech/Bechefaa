@@ -243,7 +243,10 @@ def register_deliveroo_sandbox_phase6(app, db):
         for position, item in enumerate(items):
             if not isinstance(item, dict):
                 raise ValueError("invalid order item")
-            name = str(item.get("name") or "").strip()
+            raw_name = item.get("name")
+            if not isinstance(raw_name, str):
+                raise ValueError("invalid Deliveroo item name type")
+            name = raw_name.strip()
             qty = item.get("quantity")
             if type(qty) is not int or qty < 1:
                 raise ValueError("invalid Deliveroo item quantity")
@@ -300,7 +303,10 @@ def register_deliveroo_sandbox_phase6(app, db):
                 # Keep the established POS options_json format unchanged.
                 modifier_unit_cents = (_required_eur_cents(modifier["unit_price"], "modifier unit price")
                                        if "unit_price" in modifier else None)
-                label = str(modifier.get("name") or "").strip()
+                raw_label = modifier.get("name")
+                if not isinstance(raw_label, str):
+                    raise ValueError("invalid Deliveroo modifier name type")
+                label = raw_label.strip()
                 if not label or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in label):
                     raise ValueError("invalid Deliveroo modifier name")
                 # Keep the established one-unit JSON contract; record higher

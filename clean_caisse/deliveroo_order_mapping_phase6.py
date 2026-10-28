@@ -18,6 +18,17 @@ def _canonical_id(value, label):
     return value
 
 
+def _webhook_label(value, label):
+    """Preserve customer-facing labels without converting JSON scalars to text.
+
+    A boolean or object must never become a printable product/option name.
+    Empty strings remain available for the separate missing-label diagnostic.
+    """
+    if not isinstance(value, str):
+        raise DeliverooMappingError("Invalid Deliveroo " + label)
+    return value
+
+
 def _money(value):
     if not isinstance(value, dict) or value.get("currency_code") != "EUR":
         raise DeliverooMappingError("Expected EUR money object")
@@ -78,13 +89,13 @@ def parse_order_new(payload):
                 raise DeliverooMappingError("Invalid modifier quantity")
             modifiers.append({
                 "pos_item_id": modifier_pos_id,
-                "name": str(modifier.get("name") or ""),
+                "name": _webhook_label(modifier.get("name"), "modifier name"),
                 "quantity": modifier_qty,
                 "unit_price_eur": _money(modifier.get("unit_price")),
             })
         items.append({
             "pos_item_id": pos_id,
-            "name": str(item.get("name") or ""),
+            "name": _webhook_label(item.get("name"), "item name"),
             "quantity": qty,
             "unit_price_eur": _money(item.get("unit_price")),
             "line_total_eur": _money(item.get("total_price")),
