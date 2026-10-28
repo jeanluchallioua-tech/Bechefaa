@@ -50,6 +50,35 @@ class ExplicitPluMapTests(unittest.TestCase):
                 self.payload, self.catalog, {("MU11002", "OM21001"): "opt:MU11002:0:0"}
             )
 
+    def test_legacy_label_control_character_cannot_be_trimmed_into_match(self):
+        # The old .strip() accepted a trailing newline as an exact label
+        # match, even though it is unsafe to trust as kitchen text.
+        for label in ("Guacamole\\n", "Guacamole\\x7f", "Guaca\\x85mole"):
+            with self.subTest(label=repr(label)):
+                payload = deepcopy(self.payload)
+                payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = label
+                with self.assertRaisesRegex(DeliverooMappingError, "Unsafe legacy"):
+                    reconcile_with_explicit_plu_map(
+                        payload, self.catalog,
+                        {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+                    )
+
+    def test_mapped_catalogue_label_and_group_must_be_printable(self):
+        for location in ("choice", "group"):
+            with self.subTest(location=location):
+                payload = deepcopy(self.payload)
+                catalog = deepcopy(self.catalog)
+                if location == "choice":
+                    catalog["products"][0]["options"][0]["options"][0]["name"] = "Guaca\\nmole"
+                    payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = "Guacamole"
+                else:
+                    catalog["products"][0]["options"][0]["name"] = "Extras\\n"
+                with self.assertRaisesRegex(DeliverooMappingError, "Unsafe mapped"):
+                    reconcile_with_explicit_plu_map(
+                        payload, catalog,
+                        {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+                    )
+
     def test_same_legacy_plu_with_conflicting_labels_is_rejected(self):
         modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
         conflicting = deepcopy(modifiers[0])
