@@ -262,5 +262,33 @@ class ExplicitPluMapTests(unittest.TestCase):
         self.assertFalse(audit["writes"])
 
 
+    def test_canonical_and_legacy_alias_cannot_double_one_kitchen_choice(self):
+        # An explicitly approved legacy alias and an already-canonical PLU
+        # must not silently produce two copies of the same option in a line.
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        canonical = deepcopy(modifiers[0])
+        canonical["pos_item_id"] = "opt:MU11002:0:0"
+        modifiers.append(canonical)
+        original = deepcopy(self.payload)
+        with self.assertRaisesRegex(DeliverooMappingError, "modifier PLU collision"):
+            reconcile_with_explicit_plu_map(
+                self.payload, self.catalog,
+                {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+            )
+        self.assertEqual(self.payload, original)
+
+    def test_repeated_same_legacy_source_is_not_an_alias_collision(self):
+        # Identical source IDs are not distinct aliases; existing quantity
+        # and duplication policy still requires separate Deliveroo review.
+        modifiers = self.payload["body"]["order"]["items"][0]["modifiers"]
+        modifiers.append(deepcopy(modifiers[0]))
+        result = reconcile_with_explicit_plu_map(
+            self.payload, self.catalog,
+            {("MU11002", "OM21001"): "opt:MU11002:0:0"}
+        )
+        self.assertEqual(len(result["mapped_items"][0]["options"]), 2)
+        self.assertFalse(result["ready_for_dispatch"])
+
+
 if __name__ == "__main__":
     unittest.main()
