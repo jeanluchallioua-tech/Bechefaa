@@ -129,13 +129,15 @@ def reconcile(payload, catalog):
                 if not isinstance(choice, str):
                     raise DeliverooMappingError("Invalid catalogue option choice: " + plu)
                 choice_name = choice
-            # Preserve the existing empty-label diagnostic for whitespace-only
-            # values; reject nonblank control characters separately.
-            choice_name = choice_name.strip()
-            if not choice_name:
+            # Preserve the empty-label diagnostic for whitespace-only
+            # values, but inspect the original nonblank label BEFORE strip():
+            # trimming a trailing newline/control byte would hide unsafe
+            # kitchen text and falsely approve a canonical modifier PLU.
+            if not choice_name.strip():
                 raise DeliverooMappingError("Empty choice for modifier PLU")
             if _unsafe_catalogue_label(choice_name):
                 raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
+            choice_name = choice_name.strip()
             selections.append({"group": group_name, "name": choice_name,
                                "quantity": modifier["quantity"]})
         mapped.append({
