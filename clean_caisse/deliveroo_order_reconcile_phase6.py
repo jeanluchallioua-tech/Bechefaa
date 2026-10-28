@@ -2,6 +2,12 @@
 from clean_caisse.deliveroo_order_mapping_phase6 import DeliverooMappingError, parse_order_new
 
 
+def _unsafe_catalogue_label(value):
+    """Do not let control bytes or synthetic bool labels reach kitchen mapping."""
+    return (isinstance(value, bool) or
+            any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in str(value)))
+
+
 def catalogue_entry_active(entry, label):
     """Fail closed for disabled or malformed catalogue activation flags.
 
@@ -45,6 +51,10 @@ def reconcile(payload, catalog):
         product = by_id.get(product_id)
         if not product or not catalogue_entry_active(product, "product " + product_id):
             raise DeliverooMappingError("Unknown or inactive POS product: " + product_id)
+        product_name = product.get("name")
+        if (not isinstance(product_name, str) or not product_name.strip()
+                or _unsafe_catalogue_label(product_name)):
+            raise DeliverooMappingError("Invalid catalogue product name: " + product_id)
         groups = product.get("options")
         if groups is None:
             groups = []
@@ -84,9 +94,18 @@ def reconcile(payload, catalog):
                 raise DeliverooMappingError("Inactive catalogue option group: " + plu)
             if isinstance(choice, dict) and not catalogue_entry_active(choice, "option choice " + plu):
                 raise DeliverooMappingError("Inactive catalogue option choice: " + plu)
-            group_name = str(group.get("name") or group.get("label") or group.get("title") or "Groupe " + str(group_index + 1))
+            raw_group_name = (group.get("name") or group.get("label")
+                              or group.get("title") or "Groupe " + str(group_index + 1))
+            if _unsafe_catalogue_label(raw_group_name):
+                raise DeliverooMappingError("Unsafe catalogue option group: " + plu)
+            group_name = str(raw_group_name)
             if isinstance(choice, dict):
-                choice_name = str(choice.get("name") or choice.get("label") or choice.get("title") or choice.get("value") or choice.get("id") or "")
+                raw_choice_name = (choice.get("name") or choice.get("label")
+                                   or choice.get("title") or choice.get("value")
+                                   or choice.get("id") or "")
+                if _unsafe_catalogue_label(raw_choice_name):
+                    raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
+                choice_name = str(raw_choice_name)
             elif isinstance(choice, (list, tuple)):
                 # A null/boolean positional label must not become the
                 # printable string "None" or "True" for a canonical PLU.
@@ -95,6 +114,8 @@ def reconcile(payload, catalog):
                 choice_name = str(choice[0])
             else:
                 choice_name = str(choice)
+            if _unsafe_catalogue_label(choice_name):
+                raise DeliverooMappingError("Unsafe catalogue option choice: " + plu)
             choice_name = choice_name.strip()
             if not choice_name:
                 raise DeliverooMappingError("Empty choice for modifier PLU")
@@ -102,7 +123,7 @@ def reconcile(payload, catalog):
                                "quantity": modifier["quantity"]})
         mapped.append({
             "product_id": product_id,
-            "name": str(product.get("name") or ""),
+            "name": product_name.strip(),
             "qty": line["quantity"],
             "options": selections,
             "deliveroo_unit_eur": line["unit_price_eur"],
