@@ -223,5 +223,21 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         self.assertFalse(result["instruction_scan_complete"])
 
 
+    def test_unsafe_catalogue_labels_block_preflight_even_when_prices_match(self):
+        for location in ("product", "group", "choice"):
+            with self.subTest(location=location):
+                self.setUp()
+                product = self.catalog["products"][0]
+                if location == "product":
+                    product["name"] = "Veggie\\nBurger"
+                elif location == "group":
+                    product["options"][0]["name"] = "Extras\\x1bPrint"
+                else:
+                    product["options"][0]["options"][0]["name"] = True
+                result = self.audit()
+                self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+                self.assertFalse(result["catalogue_label_check_complete"])
+                self.assertFalse(result["ready_for_dispatch"])
+
 if __name__ == "__main__":
     unittest.main()
