@@ -92,6 +92,19 @@ def _nonnegative_decimal(value, label):
     return amount
 
 
+def _catalogue_cent_amount(value, label):
+    """Reject sub-cent catalogue prices rather than silently rounding them.
+
+    A rounded source price can accidentally match a Deliveroo cent amount,
+    hiding a discrepancy in this read-only financial audit.
+    """
+    amount = _nonnegative_decimal(value, label)
+    cents = Decimal("0.01")
+    if amount != amount.quantize(cents):
+        raise ValueError("Sub-cent " + label)
+    return amount.quantize(cents)
+
+
 def audit_catalog_base_markup(payload, catalog, *, markup_percentage):
     """Compare received ITEM unit prices to an *assumed* catalogue markup.
 
@@ -137,8 +150,7 @@ def audit_catalog_base_markup(payload, catalog, *, markup_percentage):
             status = "inactive_catalog_product"
         else:
             try:
-                base = _nonnegative_decimal(product.get("price"), "catalogue price")
-                base = base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                base = _catalogue_cent_amount(product.get("price"), "catalogue price")
                 expected = (base * (Decimal("1") + percentage / Decimal("100"))).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
                 )
@@ -294,9 +306,9 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                                     else:
                                         raw_price = 0
                                     try:
-                                        base = _nonnegative_decimal(
+                                        base = _catalogue_cent_amount(
                                             raw_price, "catalogue modifier price"
-                                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                                        )
                                         expected = (
                                             base * (Decimal("1") + percentage / Decimal("100"))
                                         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
