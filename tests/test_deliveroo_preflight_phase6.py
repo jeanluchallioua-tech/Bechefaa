@@ -177,6 +177,17 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
         result = self.audit()
         self.assertIn("order_amounts_require_review", result["blockers"])
 
+    def test_subcent_catalogue_prices_block_preflight_even_when_rounded_price_matches(self):
+        # The audit must not silently turn 10.004 into 10.00 or 1.004 into 1.00.
+        self.catalog["products"][0]["price"] = "10.004"
+        self.catalog["products"][0]["options"][0]["options"][0]["price"] = "1.004"
+        result = self.audit()
+        self.assertIn("base_prices_differ_from_20pct_policy", result["blockers"])
+        self.assertIn("modifier_prices_differ_from_20pct_policy", result["blockers"])
+        self.assertEqual(result["base_price_audit"]["review_reasons"], ["invalid_catalog_price"])
+        self.assertEqual(result["modifier_price_audit"]["review_reasons"], ["invalid_catalog_modifier_price"])
+        self.assertFalse(result["ready_for_dispatch"])
+
     def test_malformed_catalogue_returns_blockers_not_an_audit_exception(self):
         # Invalid catalogue data must not turn a mandatory financial check
         # into an unstructured error or an accidental dispatch approval.
