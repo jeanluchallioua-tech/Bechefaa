@@ -53,7 +53,7 @@ class ExplicitPluMapTests(unittest.TestCase):
     def test_legacy_label_control_character_cannot_be_trimmed_into_match(self):
         # The old .strip() accepted a trailing newline as an exact label
         # match, even though it is unsafe to trust as kitchen text.
-        for label in ("Guacamole\\n", "Guacamole\\x7f", "Guaca\\x85mole"):
+        for label in ("Guacamole\n", "Guacamole\x7f", "Guaca\x85mole"):
             with self.subTest(label=repr(label)):
                 payload = deepcopy(self.payload)
                 payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = label
@@ -69,10 +69,10 @@ class ExplicitPluMapTests(unittest.TestCase):
                 payload = deepcopy(self.payload)
                 catalog = deepcopy(self.catalog)
                 if location == "choice":
-                    catalog["products"][0]["options"][0]["options"][0]["name"] = "Guaca\\nmole"
+                    catalog["products"][0]["options"][0]["options"][0]["name"] = "Guaca\nmole"
                     payload["body"]["order"]["items"][0]["modifiers"][0]["name"] = "Guacamole"
                 else:
-                    catalog["products"][0]["options"][0]["name"] = "Extras\\n"
+                    catalog["products"][0]["options"][0]["name"] = "Extras\n"
                 with self.assertRaisesRegex(DeliverooMappingError, "Unsafe mapped"):
                     reconcile_with_explicit_plu_map(
                         payload, catalog,
