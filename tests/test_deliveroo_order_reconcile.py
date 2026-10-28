@@ -316,5 +316,26 @@ class DeliverooReconcileTests(unittest.TestCase):
                     with self.assertRaises(DeliverooMappingError):
                         reconcile(sample(), catalog)
 
+    def test_terminal_controls_in_nonblank_catalogue_choice_are_not_trimmed_away(self):
+        # A trailing newline or C1 control must not be silently stripped
+        # from a name used for kitchen/PLU reconciliation.
+        from copy import deepcopy
+        for bad in ("Guacamole\n", "\nGuacamole", "Guacamole\t",
+                    "Guacamole\x85", "Guacamole\r\n"):
+            for representation in ("dict", "positional", "scalar"):
+                with self.subTest(name=repr(bad), representation=representation):
+                    catalog = deepcopy(self.catalog)
+                    choices = catalog["products"][0]["options"][0]["options"]
+                    choices[0] = (
+                        {"name": bad, "price": 0.95}
+                        if representation == "dict" else
+                        [bad, 0.95] if representation == "positional" else bad
+                    )
+                    with self.assertRaisesRegex(
+                        DeliverooMappingError, "Unsafe catalogue option choice"
+                    ):
+                        reconcile(sample(), catalog)
+
+
 if __name__ == "__main__":
     unittest.main()
