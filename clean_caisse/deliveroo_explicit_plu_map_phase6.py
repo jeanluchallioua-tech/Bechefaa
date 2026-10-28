@@ -48,6 +48,12 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
             if old_plu.startswith("opt:"):
                 continue
             key = (product_id, old_plu)
+            # Never normalize away line breaks or terminal controls in a
+            # legacy label: a name match would otherwise conceal unsafe
+            # kitchen text from the human PLU reconciliation.
+            if any(ord(char) < 32 or 127 <= ord(char) <= 159
+                   for char in modifier["name"]):
+                raise DeliverooMappingError("Unsafe legacy modifier label: " + old_plu)
             label = modifier["name"].strip().casefold()
             if key in legacy_labels and legacy_labels[key] != label:
                 raise DeliverooMappingError("Conflicting legacy modifier labels: " + old_plu)
@@ -64,7 +70,15 @@ def reconcile_with_explicit_plu_map(payload, catalog, approved_map):
             if modifier["pos_item_id"].startswith("opt:"):
                 continue
             original_name = modifier["name"].strip()
-            resolved_name = result["mapped_items"][line_index]["options"][modifier_index]["name"].strip()
+            mapped_option = result["mapped_items"][line_index]["options"][modifier_index]
+            resolved_name = mapped_option["name"].strip()
+            # An approved PLU target still needs printable catalogue names;
+            # matching unsafe text is not evidence of a valid translation.
+            if any(ord(char) < 32 or 127 <= ord(char) <= 159
+                   for char in mapped_option["name"] + mapped_option["group"]):
+                raise DeliverooMappingError(
+                    "Unsafe mapped modifier label: " + modifier["pos_item_id"]
+                )
             if not original_name or original_name.casefold() != resolved_name.casefold():
                 raise DeliverooMappingError(
                     "Legacy modifier label mismatch: " + modifier["pos_item_id"]
