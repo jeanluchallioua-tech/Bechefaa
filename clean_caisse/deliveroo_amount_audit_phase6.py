@@ -263,7 +263,13 @@ def audit_catalog_modifier_markup(payload, catalog, *, markup_percentage):
                                         or choice.get("id") or ""
                                     ).strip()
                                 elif isinstance(choice, (list, tuple)):
-                                    choice_label = str(choice[0] if choice else "").strip()
+                                    # Match the strict PLU reconciler: positional
+                                    # null/boolean names are not valid free options.
+                                    choice_label = (
+                                        str(choice[0]).strip()
+                                        if choice and choice[0] is not None
+                                        and not isinstance(choice[0], bool) else ""
+                                    )
                                 else:
                                     choice_label = str(choice).strip()
                                 if (choice is None or isinstance(choice, bool)

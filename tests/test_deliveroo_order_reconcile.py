@@ -94,6 +94,19 @@ class DeliverooReconcileTests(unittest.TestCase):
                 with self.assertRaisesRegex(DeliverooMappingError, "Empty choice"):
                     reconcile(sample(), self.catalog)
 
+    def test_null_or_boolean_positional_choice_labels_rejected(self):
+        # A legacy positional option [None, 0] must not become the
+        # printable name "None" for a seemingly valid canonical PLU.
+        from copy import deepcopy
+        for invalid in (None, True, False):
+            with self.subTest(label=invalid):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["options"][0] = [invalid, 0]
+                with self.assertRaisesRegex(
+                    DeliverooMappingError, "Invalid catalogue option choice"
+                ):
+                    reconcile(sample(), catalog)
+
     def test_option_name_is_trimmed(self):
         self.catalog["products"][0]["options"][0]["options"][0]["name"] = "  Guacamole  "
         result = reconcile(sample(), self.catalog)

@@ -158,6 +158,14 @@ class Deliveroo20PercentPreflightTests(unittest.TestCase):
                 }])
                 self.assertFalse(result["ready_for_dispatch"])
 
+    def test_null_positional_choice_cannot_pass_preflight(self):
+        self.catalog["products"][0]["options"][0]["options"][0] = [None, 0]
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 0
+        result = self.audit()
+        self.assertIn("catalogue_reconciliation_failed", result["blockers"])
+        self.assertIn("modifier_prices_differ_from_20pct_policy", result["blockers"])
+        self.assertFalse(result["catalogue_label_check_complete"])
+
     def test_failed_reconciliation_does_not_claim_label_check_complete(self):
         self.payload["body"]["order"]["items"][0]["modifiers"][0]["pos_item_id"] = "OM21001"
         result = self.audit()

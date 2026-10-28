@@ -299,6 +299,25 @@ class DeliverooModifierMarkupAuditTests(unittest.TestCase):
                 self.assertEqual(self.payload, before_payload)
                 self.assertEqual(catalog, before_catalog)
 
+    def test_null_or_boolean_positional_labels_never_pass_price_audit(self):
+        from clean_caisse.deliveroo_amount_audit_phase6 import audit_catalog_modifier_markup
+
+        self.payload["body"]["order"]["items"][0]["modifiers"][0]["unit_price"]["fractional"] = 0
+        for invalid in (None, True, False):
+            with self.subTest(label=invalid):
+                catalog = deepcopy(self.catalog)
+                catalog["products"][0]["options"][0]["options"][0] = [invalid, 0]
+                audit = audit_catalog_modifier_markup(
+                    self.payload, catalog, markup_percentage="20"
+                )
+                self.assertEqual(
+                    audit["review_reasons"], ["invalid_catalog_modifier_choice"]
+                )
+                self.assertIsNone(audit["modifier_diagnostics"][0]["expected_unit_eur"])
+                self.assertTrue(audit["requires_financial_review"])
+                self.assertFalse(audit["ready_for_dispatch"])
+                self.assertFalse(audit["writes"])
+
     def test_blank_catalogue_modifier_labels_never_pass_price_audit(self):
         # A zero-price placeholder used to look like a valid free supplement
         # in this price audit, although the strict PLU reconciler rejects it.

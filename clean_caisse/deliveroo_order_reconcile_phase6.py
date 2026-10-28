@@ -88,7 +88,11 @@ def reconcile(payload, catalog):
             if isinstance(choice, dict):
                 choice_name = str(choice.get("name") or choice.get("label") or choice.get("title") or choice.get("value") or choice.get("id") or "")
             elif isinstance(choice, (list, tuple)):
-                choice_name = str(choice[0] if choice else "")
+                # A null/boolean positional label must not become the
+                # printable string "None" or "True" for a canonical PLU.
+                if not choice or choice[0] is None or isinstance(choice[0], bool):
+                    raise DeliverooMappingError("Invalid catalogue option choice: " + plu)
+                choice_name = str(choice[0])
             else:
                 choice_name = str(choice)
             choice_name = choice_name.strip()
