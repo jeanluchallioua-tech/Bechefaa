@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from clean_caisse.deliveroo_order_pricing_phase6 import net_item_cents
-from clean_caisse.deliveroo_order_plu_phase6 import missing_plu_paths
+from clean_caisse.deliveroo_order_plu_phase6 import missing_plu_paths, mismatched_sandbox_plu_paths
 from clean_caisse.deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 
@@ -144,13 +144,13 @@ class WebhookOrderingTests(unittest.TestCase):
                          _bridge_order_cancelled=bridge, _send_sync_status=sync,
                          _bridge_order_rejected=Mock(), _last_webhooks={},
                          db=lambda: nullcontext(conn), cancellation_ready=cancellation_ready,
-                         should_sync_order=should_sync_order, accepted_import_ready=accepted_import_ready, missing_plu_paths=missing_plu_paths,
+                         should_sync_order=should_sync_order, accepted_import_ready=accepted_import_ready, missing_plu_paths=missing_plu_paths, mismatched_sandbox_plu_paths=mismatched_sandbox_plu_paths,
                          _bridge_order_new=import_order)
         tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
         register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'register_deliveroo_sandbox_phase6')
         function = next(n for n in register.body if isinstance(n, ast.FunctionDef) and n.name == '_capture_webhook')
         exec(compile(ast.Module(body=[function], type_ignores=[]), '<webhook>', 'exec'), namespace)
-        with patch.dict(os.environ, {'BECHEFAA_DELIVEROO_WEBHOOK_SECRET': 'test-secret'}):
+        with patch.dict(os.environ, {'BECHEFAA_DELIVEROO_WEBHOOK_SECRET': 'test-secret', 'CC_APP_ID': 'app_fad0809f-954d-47e7-983d-afb7c3867cd0'}):
             status = namespace['_capture_webhook']('orders')
         return status, calls
 
@@ -178,6 +178,21 @@ class WebhookOrderingTests(unittest.TestCase):
         self.assertEqual(calls[0][0], 'sync')
         self.assertEqual(calls[0][1]['status'], 'failed')
         self.assertEqual(calls[0][1]['reason'], 'pos_item_id_not_found')
+
+    def test_swapped_plu_failure_after_acceptance_without_import(self):
+        payload = event('accepted')
+        payload['body']['order']['items'] = [
+            {'name': 'Veggie Burger (V)', 'pos_item_id': 'MU11001'},
+            {'name': 'Chicken Burger', 'pos_item_id': 'MU11002'},
+        ]
+        status, calls = self.run_webhook(payload=payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]['reason'], 'pos_item_id_mismatched')
+        self.assertEqual(calls[0][1]['status'], 'failed')
+        payload['body']['order']['status'] = 'placed'
+        payload['body']['order']['status_log'] = [{'status': 'placed'}]
+        self.assertEqual(self.run_webhook(payload=payload), (200, []))
 
     def test_missing_plu_does_not_sync_before_acceptance(self):
         payload = event('placed')
@@ -217,7 +232,7 @@ class AcceptedBridgeTests(unittest.TestCase):
             return Mock()
         self.conn = SimpleNamespace(transaction=lambda: nullcontext(), execute=execute)
         self.db = Mock(side_effect=lambda: nullcontext(self.conn))
-        namespace = dict(os=os, json=json, db=self.db, order_status_and_log=order_status_and_log, net_item_cents=net_item_cents, missing_plu_paths=missing_plu_paths,
+        namespace = dict(os=os, json=json, db=self.db, order_status_and_log=order_status_and_log, net_item_cents=net_item_cents, missing_plu_paths=missing_plu_paths, mismatched_sandbox_plu_paths=mismatched_sandbox_plu_paths,
                          datetime=__import__('datetime').datetime, timezone=__import__('datetime').timezone)
         exec(compile(ast.Module(body=[function], type_ignores=[]), '<accepted-bridge>', 'exec'), namespace)
         self.bridge = namespace['_bridge_order_new']
@@ -248,6 +263,11 @@ class AcceptedBridgeTests(unittest.TestCase):
     def test_missing_plu_never_writes_order(self):
         del self.payload['body']['order']['items'][0]['pos_item_id']
         self.assertEqual(self.bridge(self.payload), 'missing_plu')
+        self.db.assert_not_called()
+
+    def test_swapped_plu_never_writes_order(self):
+        self.payload['body']['order']['items'][0].update(name='Chicken Burger', pos_item_id='MU11002')
+        self.assertEqual(self.bridge(self.payload), 'mismatched_plu')
         self.db.assert_not_called()
 
     def test_incomplete_update_never_imports(self):

@@ -12,7 +12,7 @@ import hashlib
 from datetime import datetime, timezone
 from flask import jsonify, request, Response
 from .deliveroo_order_pricing_phase6 import net_item_cents
-from .deliveroo_order_plu_phase6 import missing_plu_paths
+from .deliveroo_order_plu_phase6 import missing_plu_paths, mismatched_sandbox_plu_paths
 from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
@@ -268,6 +268,8 @@ def register_deliveroo_sandbox_phase6(app, db):
             raise ValueError("order.new missing items")
         if missing_plu_paths(payload):
             return "missing_plu"
+        if mismatched_sandbox_plu_paths(payload):
+            return "mismatched_plu"
         from decimal import Decimal
         import time
         import uuid
@@ -448,6 +450,11 @@ def register_deliveroo_sandbox_phase6(app, db):
         sync_http_status=None
         sync_error=None
         missing_plus = missing_plu_paths(payload) if kind == "orders" else []
+        # Fixture mappings are only valid on the isolated preproduction app.
+        mismatched_plus = (mismatched_sandbox_plu_paths(payload)
+            if kind == "orders" and os.environ.get("CC_APP_ID", "").strip()
+            == "app_fad0809f-954d-47e7-983d-afb7c3867cd0" else [])
+        invalid_plus = missing_plus or mismatched_plus
 
         if kind=="orders":
             try:
@@ -470,7 +477,7 @@ def register_deliveroo_sandbox_phase6(app, db):
 
             # A complete accepted update can arrive without an order.new event.
             # Import through the same guarded, idempotent bridge before syncing.
-            if accepted_import_ready(payload) and not missing_plus:
+            if accepted_import_ready(payload) and not invalid_plus:
                 try:
                     bridge_result = _bridge_order_new(payload)
                     app.logger.info("Deliveroo accepted import result=%s order=%s", bridge_result, order_id)
@@ -480,14 +487,16 @@ def register_deliveroo_sandbox_phase6(app, db):
 
             # Preserve accepted-order behavior; cancellations require their own log entry.
             should_sync=should_sync_order(payload, order_id, accepted_log)
-            if missing_plus and not cancellation_ready(payload):
+            if invalid_plus and not cancellation_ready(payload):
                 should_sync = should_sync and accepted_import_ready(payload)
             if should_sync:
                 try:
-                    if missing_plus and accepted_log and not cancellation_ready(payload):
+                    if invalid_plus and accepted_log and not cancellation_ready(payload):
                         sync_http_status,_sync_body=_send_sync_status(
-                            order_id, status="failed", reason="pos_item_id_not_found",
-                            notes="Missing POS identifiers: " + ", ".join(missing_plus[:20]),
+                            order_id, status="failed",
+                            reason="pos_item_id_not_found" if missing_plus else "pos_item_id_mismatched",
+                            notes=("Missing POS identifiers: " if missing_plus else "Mismatched sandbox POS identifiers: ")
+                                  + ", ".join(invalid_plus[:20]),
                         )
                         sync_status="failed" if 200 <= sync_http_status < 300 else "unexpected_response"
                     else:

@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import os
-from clean_caisse.deliveroo_order_plu_phase6 import missing_plu_paths
+from clean_caisse.deliveroo_order_plu_phase6 import missing_plu_paths, mismatched_sandbox_plu_paths
 
 
 class PluTests(unittest.TestCase):
@@ -24,6 +24,20 @@ class PluTests(unittest.TestCase):
 
     def test_present_identifiers_are_not_catalogue_guesses(self):
         self.assertEqual(missing_plu_paths({'body': {'order': {'items': [{'pos_item_id': 'not-in-local-catalogue'}]}}}), [])
+
+    def test_original_basket_matches_and_swapped_codes_fail(self):
+        items = [{'name': 'Veggie Burger (V)', 'pos_item_id': 'MU11002'},
+                 {'name': 'Chicken Burger', 'pos_item_id': 'MU11001'}]
+        payload = {'body': {'order': {'items': items}}}
+        self.assertEqual(mismatched_sandbox_plu_paths(payload), [])
+        items[0]['pos_item_id'], items[1]['pos_item_id'] = items[1]['pos_item_id'], items[0]['pos_item_id']
+        self.assertEqual(mismatched_sandbox_plu_paths(payload), ['items[0].pos_item_id', 'items[1].pos_item_id'])
+
+    def test_unknown_fixture_not_guessed_and_missing_is_separate(self):
+        for item in ({'name': 'Other product', 'pos_item_id': 'other'}, {'name': 'Chicken Burger', 'pos_item_id': ''}):
+            self.assertEqual(mismatched_sandbox_plu_paths({'body': {'order': {'items': [item]}}}), [])
+        self.assertEqual(mismatched_sandbox_plu_paths({'body': {'order': {'items': [
+            {'name': '  chicken  BURGER ', 'pos_item_id': 'MU11001'}]}}}), [])
 
     def test_sync_body_has_failure_reason_or_existing_success(self):
         tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
