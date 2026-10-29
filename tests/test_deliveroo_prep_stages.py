@@ -117,6 +117,7 @@ class PrepStagesTests(unittest.TestCase):
         self.assertEqual(body['stage'], 'in_kitchen')
         self.assertIn('api-sandbox.developers.deliveroo.com', req.full_url)
         self.assertTrue(req.full_url.endswith('/prep_stage'))
+        self.assertEqual(req.get_header('User-agent'), 'Bechefaa-Deliveroo-Integration/1.0')
 
     def test_access_diagnostic_sends_no_preparation_request(self):
         response = self.routes['/api/deliveroo/prep-access-phase6']()
@@ -142,6 +143,16 @@ class PrepStagesTests(unittest.TestCase):
         self.assertEqual(result['code'], 'forbidden')
         self.assertEqual(result['message'], 'Insufficient permissions')
         self.assertNotIn('do-not-return', json.dumps(result))
+
+    def test_html_denial_returns_only_fixed_markers_and_safe_headers(self):
+        exc = HTTPError('sandbox', 403, 'Forbidden', {'Content-Type': 'text/html', 'Server': 'CloudFront',
+            'Set-Cookie': 'private-cookie'}, BytesIO(b'<html>Request blocked by CloudFront <script>private-token</script></html>'))
+        detail = safe_deliveroo_error(exc)
+        self.assertEqual(detail['format'], 'non_json')
+        self.assertIn('cloudfront', detail['body_markers'])
+        self.assertEqual(detail['response_headers']['Server'], 'CloudFront')
+        self.assertNotIn('private-token', json.dumps(detail))
+        self.assertNotIn('private-cookie', json.dumps(detail))
 
     def test_sequence_integrity(self):
         self.assertIsNone(next_stage(STAGES))

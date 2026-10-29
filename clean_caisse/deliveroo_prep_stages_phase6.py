@@ -27,7 +27,8 @@ def stage_request(order_id, stage, token):
         'https://api-sandbox.developers.deliveroo.com/order/v1/orders/'
         + urllib.parse.quote(order_id, safe=':') + '/prep_stage',
         data=json.dumps(payload).encode(), method='POST',
-        headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json'})
+        headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json',
+                 'User-Agent': 'Bechefaa-Deliveroo-Integration/1.0'})
 
 
 def token_scope_summary(token):
@@ -46,15 +47,27 @@ def token_scope_summary(token):
 
 
 def safe_deliveroo_error(exc):
+    raw = exc.read(8192) if hasattr(exc, 'read') else b''
+    headers = getattr(exc, 'headers', None) or {}
+    metadata = {key: str(headers.get(key))[:240] for key in
+                ('Content-Type', 'Server', 'Via', 'X-Cache', 'X-Amzn-Errortype', 'X-Request-Id')
+                if headers.get(key)}
+    text = raw.decode('utf-8', 'replace')
     try:
-        data = json.loads(exc.read(8192).decode('utf-8', 'replace'))
-    except (ValueError, AttributeError):
-        return {'format': 'non_json', 'detail': 'Réponse non JSON ; corps non affiché'}
+        data = json.loads(text)
+    except ValueError:
+        # Return only fixed recognizers, never arbitrary HTML, scripts or tokens.
+        phrases = ('cloudfront', 'cloudflare', 'nginx', 'access denied', 'forbidden',
+                   'request blocked', 'the request could not be satisfied', 'not authorized')
+        return {'format': 'non_json', 'response_headers': metadata,
+                'body_markers': [phrase for phrase in phrases if phrase in text.lower()],
+                'body_prefix_sha256': hashlib.sha256(raw).hexdigest(),
+                'detail': 'Corps non affiché ; indices techniques uniquement'}
     if not isinstance(data, dict):
-        return {'format': 'json', 'detail': 'Structure inattendue'}
+        return {'format': 'json', 'response_headers': metadata, 'detail': 'Structure inattendue'}
     error = data.get('error')
     node = error if isinstance(error, dict) else data
-    out = {'format': 'json'}
+    out = {'format': 'json', 'response_headers': metadata}
     for key in ('code', 'message', 'error_description'):
         value = node.get(key)
         if isinstance(value, str):
