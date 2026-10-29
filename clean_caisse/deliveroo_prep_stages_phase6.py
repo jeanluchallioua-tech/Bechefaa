@@ -1,5 +1,7 @@
 """Manual sandbox preparation stages; no production access or payment writes."""
 import hmac
+import base64
+import hashlib
 import json
 import os
 import urllib.parse
@@ -26,6 +28,40 @@ def stage_request(order_id, stage, token):
         + urllib.parse.quote(order_id, safe=':') + '/prep_stage',
         data=json.dumps(payload).encode(), method='POST',
         headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json'})
+
+
+def token_scope_summary(token):
+    """Read only scope claims for diagnosis; never use these unverified claims for access."""
+    try:
+        part = token.split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(part + '=' * (-len(part) % 4)))
+        scope = claims.get('scope', claims.get('scp'))
+        scopes = scope.split() if isinstance(scope, str) else scope
+        if not isinstance(scopes, list) or not all(isinstance(v, str) for v in scopes):
+            return {'scope_readable': False}
+        return {'scope_readable': True, 'token_scopes': scopes,
+                'claim_signature_verified': False, 'diagnostic_only': True}
+    except (ValueError, IndexError, TypeError, UnicodeError):
+        return {'scope_readable': False}
+
+
+def safe_deliveroo_error(exc):
+    try:
+        data = json.loads(exc.read(8192).decode('utf-8', 'replace'))
+    except (ValueError, AttributeError):
+        return {'format': 'non_json', 'detail': 'Réponse non JSON ; corps non affiché'}
+    if not isinstance(data, dict):
+        return {'format': 'json', 'detail': 'Structure inattendue'}
+    error = data.get('error')
+    node = error if isinstance(error, dict) else data
+    out = {'format': 'json'}
+    for key in ('code', 'message', 'error_description'):
+        value = node.get(key)
+        if isinstance(value, str):
+            out[key] = value[:600]
+    if isinstance(error, str):
+        out['code'] = error[:120]
+    return out
 
 
 def register_deliveroo_prep_stages_phase6(app, db):
@@ -136,10 +172,31 @@ def register_deliveroo_prep_stages_phase6(app, db):
         except ValueError as exc:
             return jsonify({'ok': False, 'error': str(exc)}), 409
         except HTTPError as exc:
-            return jsonify({'ok': False, 'http_status': exc.code, 'error': 'Étape non confirmée par Deliveroo. Ne pas passer à la suivante.'}), 502
+            detail = safe_deliveroo_error(exc)
+            app.logger.warning('Deliveroo prep stage refused order=%s stage=%s http=%s detail=%s', order_id, stage, exc.code, detail)
+            return jsonify({'ok': False, 'http_status': exc.code, 'order_id': order_id, 'stage': stage,
+                            'deliveroo_error': detail,
+                            'error': 'Étape non confirmée par Deliveroo. Ne pas passer à la suivante.'}), 502
         except Exception:
             app.logger.exception('Deliveroo preparation stage failed')
             return jsonify({'ok': False, 'error': 'Envoi non confirmé. Recharger l’état avant toute nouvelle action.'}), 500
+
+    @app.get('/api/deliveroo/prep-access-phase6')
+    def prep_access():
+        if not authorized():
+            return jsonify({'ok': False, 'error': 'Accès préproduction/PIN requis'}), 403
+        try:
+            from .deliveroo_menu_upload_phase6 import _oauth_token
+            summary = token_scope_summary(_oauth_token())
+            fingerprint = hashlib.sha256(os.environ.get('BECHEFAA_DELIVEROO_CLIENT_ID', '').encode()).hexdigest()[:12]
+            return jsonify({'ok': True, 'prep_stage_sent': False, 'oauth_token_obtained': True,
+                            'credential_fingerprint': fingerprint, **summary})
+        except HTTPError as exc:
+            return jsonify({'ok': False, 'stage': 'oauth', 'http_status': exc.code,
+                            'deliveroo_error': safe_deliveroo_error(exc), 'prep_stage_sent': False}), 502
+        except Exception:
+            app.logger.exception('Deliveroo prep access diagnosis failed')
+            return jsonify({'ok': False, 'error': 'Diagnostic accès indisponible', 'prep_stage_sent': False}), 500
 
     @app.get('/api/deliveroo/prep-stages-page')
     def prep_page():
@@ -148,13 +205,14 @@ def register_deliveroo_prep_stages_phase6(app, db):
         return Response('''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Préparation Deliveroo — Préproduction</title><style>body{font:17px system-ui;max-width:820px;margin:36px auto;padding:16px}button,input{padding:14px;margin:6px;font:inherit}button:disabled{opacity:.4}pre{white-space:pre-wrap;background:#f2f4f6;padding:14px}</style>
 <h1>Préparation Deliveroo — Préproduction</h1><p>Scénario 13 : charger la commande acceptée, puis confirmer les quatre étapes dans l’ordre. Aucun paiement n’est effectué.</p>
-<label>PIN de la caisse <input id="pin" type="password" autocomplete="off"></label><button id="load">Charger la commande</button>
+<label>PIN de la caisse <input id="pin" type="password" autocomplete="off"></label><button id="load">Charger la commande</button><button id="access">Diagnostic accès — aucun envoi de préparation</button>
 <p id="order"></p><div id="steps"></div><pre id="result">Aucune étape envoyée.</pre>
 <script>
 let current=null,busy=false;const stages=['in_kitchen','ready_for_collection_soon','ready_for_collection','collected'];
 const labels=['1 • Début de préparation','2 • Prête dans moins de 60 secondes','3 • Prête à être récupérée','4 • Récupérée'];
-function render(){const box=document.getElementById('steps');box.replaceChildren();stages.forEach((stage,i)=>{const b=document.createElement('button');b.textContent=labels[i]+(current?.completed?.includes(stage)?' ✓':'');b.disabled=busy||current?.next!==stage;b.onclick=()=>send(stage);box.appendChild(b)});document.getElementById('load').disabled=busy;}
+function render(){const box=document.getElementById('steps');box.replaceChildren();stages.forEach((stage,i)=>{const b=document.createElement('button');b.textContent=labels[i]+(current?.completed?.includes(stage)?' ✓':'');b.disabled=busy||current?.next!==stage;b.onclick=()=>send(stage);box.appendChild(b)});document.getElementById('load').disabled=busy;document.getElementById('access').disabled=busy;}
 async function call(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Diagnostic-Pin':document.getElementById('pin').value,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'});const d=await r.json();document.getElementById('result').textContent=JSON.stringify(d,null,2);return r.ok&&d.ok?d:null;}
+document.getElementById('access').onclick=async()=>{busy=true;render();try{await call('/api/deliveroo/prep-access-phase6');}catch(e){document.getElementById('result').textContent=e.message}finally{busy=false;render()}};
 document.getElementById('load').onclick=async()=>{busy=true;render();try{current=await call('/api/deliveroo/prep-stages-state-phase6');document.getElementById('order').textContent=current?'Ticket '+current.ticket+' — référence Deliveroo '+current.reference+' — '+current.order_id:'';}catch(e){current=null;document.getElementById('result').textContent=e.message}finally{busy=false;render()}};
 async function send(stage){if(!current||busy)return;if(!confirm('Confirmer « '+labels[stages.indexOf(stage)]+' » pour le ticket '+current.ticket+' de préproduction ?'))return;busy=true;render();try{const d=await call('/api/deliveroo/prep-stage-phase6',{order_id:current.order_id,stage});current=d;}catch(e){current=null;document.getElementById('result').textContent=e.message}finally{busy=false;render()}}
 render();

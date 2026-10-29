@@ -1,4 +1,6 @@
 import json
+import base64
+from io import BytesIO
 import os
 import sys
 import unittest
@@ -8,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
-from clean_caisse.deliveroo_prep_stages_phase6 import STAGES, next_stage, stage_request, register_deliveroo_prep_stages_phase6
+from clean_caisse.deliveroo_prep_stages_phase6 import STAGES, next_stage, stage_request, register_deliveroo_prep_stages_phase6, token_scope_summary, safe_deliveroo_error
 
 
 class PrepStagesTests(unittest.TestCase):
@@ -115,6 +117,31 @@ class PrepStagesTests(unittest.TestCase):
         self.assertEqual(body['stage'], 'in_kitchen')
         self.assertIn('api-sandbox.developers.deliveroo.com', req.full_url)
         self.assertTrue(req.full_url.endswith('/prep_stage'))
+
+    def test_access_diagnostic_sends_no_preparation_request(self):
+        response = self.routes['/api/deliveroo/prep-access-phase6']()
+        self.assertTrue(response['ok'])
+        self.assertFalse(response['prep_stage_sent'])
+        self.urlopen.assert_not_called()
+        self.db.assert_not_called()
+
+    def test_scope_summary_never_returns_token_or_other_claims(self):
+        claims = {'scope': 'orders:read orders:sync', 'client_id': 'private-client', 'secret': 'do-not-return'}
+        encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+        token = 'header.' + encoded + '.signature'
+        summary = token_scope_summary(token)
+        self.assertEqual(summary['token_scopes'], ['orders:read', 'orders:sync'])
+        self.assertNotIn('private-client', json.dumps(summary))
+        self.assertNotIn(token, json.dumps(summary))
+        self.assertFalse(token_scope_summary('opaque-token')['scope_readable'])
+
+    def test_api_error_preserves_code_message_without_credentials(self):
+        exc = HTTPError('sandbox', 403, 'Forbidden', {}, BytesIO(json.dumps({
+            'error': {'code': 'forbidden', 'message': 'Insufficient permissions', 'access_token': 'do-not-return'}}).encode()))
+        result = safe_deliveroo_error(exc)
+        self.assertEqual(result['code'], 'forbidden')
+        self.assertEqual(result['message'], 'Insufficient permissions')
+        self.assertNotIn('do-not-return', json.dumps(result))
 
     def test_sequence_integrity(self):
         self.assertIsNone(next_stage(STAGES))
