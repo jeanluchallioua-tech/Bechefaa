@@ -198,6 +198,8 @@ register_delivery_guard_phase27(app, db)
 register_order_update_guard_phase30(app, db)
 register_order_tax_snapshot_phase31(app, db)
 register_order_notifications_phase33(app)
+from clean_caisse.deliveroo_notice_preprod_phase6 import register_deliveroo_notice_preprod_phase6
+register_deliveroo_notice_preprod_phase6(app)
 register_cash_x_phase34(app, db, ensure_order_schema)
 register_cash_z_phase35(app, db, ensure_order_schema)
 register_phase35_ui_stability(app)
