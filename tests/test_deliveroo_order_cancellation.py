@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from clean_caisse.deliveroo_order_status_phase6 import cancellation_ready, should_sync_order
+from clean_caisse.deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 
 def event(status='canceled', log=None):
@@ -112,7 +112,7 @@ class CancellationBridgeTests(unittest.TestCase):
 
 
 class WebhookOrderingTests(unittest.TestCase):
-    def run_webhook(self, bridge_result='cancelled', bridge_error=None, payload=None):
+    def run_webhook(self, bridge_result='cancelled', bridge_error=None, payload=None, import_error=None):
         payload = payload or event()
         raw = json.dumps(payload).encode()
         signature = hmac.new(b'test-secret', b'test-guid ' + raw, hashlib.sha256).hexdigest()
@@ -125,6 +125,11 @@ class WebhookOrderingTests(unittest.TestCase):
             if bridge_error:
                 raise bridge_error
             return bridge_result
+        def import_order(p):
+            calls.append('import')
+            if import_error:
+                raise import_error
+            return 'created'
         def sync(order_id):
             calls.append('sync')
             return 200, ''
@@ -137,7 +142,8 @@ class WebhookOrderingTests(unittest.TestCase):
                          _bridge_order_cancelled=bridge, _send_sync_status=sync,
                          _bridge_order_rejected=Mock(), _last_webhooks={},
                          db=lambda: nullcontext(conn), cancellation_ready=cancellation_ready,
-                         should_sync_order=should_sync_order)
+                         should_sync_order=should_sync_order, accepted_import_ready=accepted_import_ready,
+                         _bridge_order_new=import_order)
         tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
         register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'register_deliveroo_sandbox_phase6')
         function = next(n for n in register.body if isinstance(n, ast.FunctionDef) and n.name == '_capture_webhook')
@@ -157,6 +163,78 @@ class WebhookOrderingTests(unittest.TestCase):
 
     def test_accepted_history_cannot_ack_cancel_before_log(self):
         self.assertEqual(self.run_webhook(payload=event(log=[{'status': 'accepted'}])), (200, []))
+
+    def test_accepted_import_before_sync(self):
+        self.assertEqual(self.run_webhook(payload=event('accepted')), (200, ['import', 'sync']))
+
+    def test_failed_accepted_import_does_not_sync(self):
+        self.assertEqual(self.run_webhook(payload=event('accepted'), import_error=ValueError('missing items')),
+                         (500, ['import']))
+
+
+class AcceptedBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.payload = event('accepted')
+        self.payload['body']['order'].update(items=[{'name': 'Burger', 'quantity': 1,
+            'total_price': {'fractional': 700}, 'discount_amount': {'fractional': 100}}], asap=True)
+        tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
+        register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'register_deliveroo_sandbox_phase6')
+        function = next(n for n in register.body if isinstance(n, ast.FunctionDef) and n.name == '_bridge_order_new')
+        self.exists = False
+        self.prior = []
+        self.inserts = []
+        def execute(sql, params=None):
+            if sql.startswith('SELECT id FROM'):
+                return SimpleNamespace(fetchone=lambda: {'id': 'existing'} if self.exists else None)
+            if sql.startswith('SELECT payload FROM'):
+                return SimpleNamespace(fetchall=lambda: self.prior)
+            if 'MAX(num)' in sql:
+                return SimpleNamespace(fetchone=lambda: {'n': 48})
+            if 'INSERT INTO caisse_orders' in sql:
+                self.exists = True
+                self.inserts.append(params)
+            return Mock()
+        self.conn = SimpleNamespace(transaction=lambda: nullcontext(), execute=execute)
+        self.db = Mock(side_effect=lambda: nullcontext(self.conn))
+        namespace = dict(os=os, json=json, db=self.db, order_status_and_log=order_status_and_log,
+                         datetime=__import__('datetime').datetime, timezone=__import__('datetime').timezone)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), '<accepted-bridge>', 'exec'), namespace)
+        self.bridge = namespace['_bridge_order_new']
+        for patcher in (patch.dict(os.environ, {'CC_APP_ID': 'app_fad0809f-954d-47e7-983d-afb7c3867cd0',
+                            'BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED': '1'}),
+                        patch.dict(sys.modules, {'clean_caisse.app': SimpleNamespace(ensure_order_schema=Mock())})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_complete_update_imported_once_even_if_new_arrives_later(self):
+        self.assertEqual(self.bridge(self.payload), 'created')
+        self.payload['event'] = 'order.new'
+        self.assertEqual(self.bridge(self.payload), 'duplicate')
+        self.assertEqual(len(self.inserts), 1)
+        self.assertEqual(str(self.inserts[0][8]), '7')
+
+    def test_terminal_history_prevents_import(self):
+        for status in ('cancelled', 'canceled', 'rejected'):
+            self.prior = [{'payload': event(status)}]
+            self.assertEqual(self.bridge(self.payload), 'terminal_event_received')
+        self.assertEqual(self.inserts, [])
+
+    def test_production_never_imports(self):
+        with patch.dict(os.environ, {'CC_APP_ID': 'production'}):
+            self.assertEqual(self.bridge(self.payload), 'not_preproduction')
+        self.db.assert_not_called()
+
+    def test_incomplete_update_never_imports(self):
+        self.payload['body']['order']['items'] = []
+        with self.assertRaises(ValueError):
+            self.bridge(self.payload)
+        self.db.assert_not_called()
+
+    def test_only_current_accepted_with_log_qualifies(self):
+        self.assertTrue(accepted_import_ready(self.payload))
+        self.assertFalse(accepted_import_ready(event('accepted', [])))
+        for status in ('placed', 'rejected', 'canceled', 'confirmed'):
+            self.assertFalse(accepted_import_ready(event(status)))
 
 
 if __name__ == '__main__':

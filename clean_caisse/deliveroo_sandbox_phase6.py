@@ -11,7 +11,7 @@ import hmac
 import hashlib
 from datetime import datetime, timezone
 from flask import jsonify, request, Response
-from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order
+from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
 
@@ -322,6 +322,18 @@ def register_deliveroo_sandbox_phase6(app, db):
                 existing = conn.execute("SELECT id FROM caisse_orders WHERE id=%s", (pos_id,)).fetchone()
                 if existing:
                     return "duplicate"
+                # Never resurrect a terminal order if its updates arrived out of order.
+                prior_events = conn.execute(
+                    "SELECT payload FROM deliveroo_sandbox_events WHERE order_id=%s",
+                    (external_id,),
+                ).fetchall()
+                for prior in prior_events:
+                    prior_payload = prior.get("payload") or {}
+                    if isinstance(prior_payload, str):
+                        prior_payload = json.loads(prior_payload)
+                    prior_status, _ = order_status_and_log(prior_payload)
+                    if prior_status in {"canceled", "cancelled", "rejected", "reject", "declined"}:
+                        return "terminal_event_received"
                 num = int(conn.execute("SELECT COALESCE(MAX(num),0)+1 AS n FROM caisse_orders").fetchone()["n"])
                 # Preserve delivery and customer contact data for POS history/preview.
                 # Customer Collect is collected at the restaurant, not delivered.
@@ -441,6 +453,16 @@ def register_deliveroo_sandbox_phase6(app, db):
                         return Response(status=503)
                 except Exception as exc:
                     app.logger.exception("Deliveroo cancellation handling failed: %s", exc)
+                    return Response(status=500)
+
+            # A complete accepted update can arrive without an order.new event.
+            # Import through the same guarded, idempotent bridge before syncing.
+            if accepted_import_ready(payload):
+                try:
+                    bridge_result = _bridge_order_new(payload)
+                    app.logger.info("Deliveroo accepted import result=%s order=%s", bridge_result, order_id)
+                except Exception as exc:
+                    app.logger.exception("Deliveroo accepted import failed: %s", exc)
                     return Response(status=500)
 
             # Preserve accepted-order behavior; cancellations require their own log entry.
@@ -642,7 +664,7 @@ small{color:#53636c}</style></head><body>
 <script>
 const form=document.getElementById('form'),state=document.getElementById('state'),out=document.getElementById('result');
 document.getElementById('repair-form').addEventListener('submit',async e=>{e.preventDefault();const status=document.getElementById('repair-state');const field=document.getElementById('repair-pin');const pin=field.value;field.value='';if(!confirm('Corriger uniquement le ticket Deliveroo 43 en À emporter ?'))return;status.textContent='Correction en cours…';try{const res=await fetch('/api/deliveroo/repair-customer-collect-43',{method:'POST',headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});const data=await res.json().catch(()=>({}));status.textContent=res.ok&&data.ok?(data.result==='already_correct'?'Ticket 43 déjà corrigé.':'Ticket 43 corrigé en À emporter Deliveroo.'):('Correction non effectuée : '+(data.error||'HTTP '+res.status));}catch(err){status.textContent='Correction non effectuée : '+err.message;}});
-function cell(row,value){const td=document.createElement('td');td.textContent=value==null?'—':String(value);row.appendChild(td)}
+function cell(row,value){const td=document.createElement('td');td.textContent=value==null?'—':(typeof value==='object'?JSON.stringify(value):String(value));row.appendChild(td)}
 function table(title,rows,columns){const h=document.createElement('h2');h.textContent=title;out.appendChild(h);
 const t=document.createElement('table'),head=document.createElement('tr');
 columns.forEach(c=>{const th=document.createElement('th');th.textContent=c[0];head.appendChild(th)});t.appendChild(head);
@@ -652,7 +674,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements Deliveroo reçus',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Type événement','event_type'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Cuisine SQL: ticket visible','kitchen_sql_visible'],['Statut ticket','ticket_status'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements Deliveroo reçus',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Type événement','event_type'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Cuisine SQL: ticket visible','kitchen_sql_visible'],['Statut ticket','ticket_status'],['Total caisse','ticket_total'],['Total Deliveroo','order_total'],['Total partenaire','partner_order_total'],['Remise commande','offer_discount'],['Montants articles','item_amounts'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -758,7 +780,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         FROM caisse_orders WHERE sales_channel = 'DELIVEROO'
                         ORDER BY created_at DESC LIMIT 40""")
                     orders = cur.fetchall()
-                    cur.execute("""SELECT id, num, status FROM caisse_orders
+                    cur.execute("""SELECT id, num, status, total FROM caisse_orders
                         WHERE sales_channel = 'DELIVEROO'
                         ORDER BY created_at DESC LIMIT 100""")
                     order_states = {str(r["id"]): r for r in cur.fetchall()}
@@ -804,6 +826,13 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                         "site_id", "brand_id", "reference", "display_id",
                     })),
                     "ticket_status": str(order_states[pos_id]["status"]) if pos_id in order_states else "ABSENT",
+                    "ticket_total": str(order_states[pos_id].get("total")) if pos_id in order_states else None,
+                    "order_total": order.get("total_price"),
+                    "partner_order_total": order.get("partner_order_total"),
+                    "offer_discount": order.get("offer_discount"),
+                    "item_amounts": [{"quantity": item.get("quantity"), "total_price": item.get("total_price"),
+                                      "discount_amount": item.get("discount_amount")}
+                                     for item in items if isinstance(item, dict)],
                     "kitchen_sql_visible": (
                         "OUI" if pos_id in order_states
                         and order_states[pos_id]["status"] in ("À préparer", "En préparation")

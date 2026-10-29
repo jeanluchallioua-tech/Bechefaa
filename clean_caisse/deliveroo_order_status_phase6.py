@@ -36,3 +36,12 @@ def should_sync_order(payload, order_id, accepted_log):
     if status in CANCELLED_STATUSES:
         return cancellation_ready(payload)
     return bool(accepted_log)
+
+
+def accepted_import_ready(payload):
+    """Only a current accepted update with an accepted status-log entry can import."""
+    status, log = order_status_and_log(payload)
+    return status == "accepted" and any(
+        isinstance(entry, dict) and entry.get("status") == "accepted"
+        for entry in log
+    )
