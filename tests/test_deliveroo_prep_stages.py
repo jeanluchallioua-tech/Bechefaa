@@ -16,7 +16,7 @@ from clean_caisse.deliveroo_prep_stages_phase6 import STAGES, next_stage, stage_
 class PrepStagesTests(unittest.TestCase):
     def setUp(self):
         self.routes = {}
-        self.app = SimpleNamespace(logger=Mock())
+        self.app = SimpleNamespace(logger=Mock(), after_request=lambda f: f)
         def register(path):
             def wrapper(f): self.routes[path] = f; return f
             return wrapper
@@ -153,6 +153,15 @@ class PrepStagesTests(unittest.TestCase):
         self.assertEqual(detail['response_headers']['Server'], 'CloudFront')
         self.assertNotIn('private-token', json.dumps(detail))
         self.assertNotIn('private-cookie', json.dumps(detail))
+
+    def test_build_marker_is_read_only_and_identifies_loaded_diagnostics(self):
+        result = self.routes['/api/deliveroo/prep-build-phase6']()
+        self.assertEqual(result['prep_revision'], 'prep-diag-v3-20261029')
+        self.assertTrue(result['error_diagnostic_has_markers'])
+        self.assertFalse(result['prep_stage_sent'])
+        self.assertEqual(result['prep_request_user_agent'], 'Bechefaa-Deliveroo-Integration/1.0')
+        self.db.assert_not_called()
+        self.urlopen.assert_not_called()
 
     def test_sequence_integrity(self):
         self.assertIsNone(next_stage(STAGES))

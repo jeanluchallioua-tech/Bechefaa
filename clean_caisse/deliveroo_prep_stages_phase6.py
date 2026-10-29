@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 
+PREP_REVISION = 'prep-diag-v3-20261029'
+
 STAGES = ('in_kitchen', 'ready_for_collection_soon', 'ready_for_collection', 'collected')
 
 
@@ -78,8 +80,18 @@ def safe_deliveroo_error(exc):
 
 
 def register_deliveroo_prep_stages_phase6(app, db):
-    from flask import jsonify, request, Response
+    from flask import jsonify as flask_jsonify, request, Response
     from .deliveroo_order_status_phase6 import order_status_and_log
+
+    def jsonify(data):
+        return flask_jsonify({'prep_revision': PREP_REVISION, **data})
+
+    @app.after_request
+    def prep_response_revision(response):
+        if request.path.startswith('/api/deliveroo/prep-') and allowed():
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['X-Bechefaa-Prep-Revision'] = PREP_REVISION
+        return response
 
     def allowed():
         return (os.environ.get('CC_APP_ID', '').strip() == 'app_fad0809f-954d-47e7-983d-afb7c3867cd0'
@@ -123,6 +135,15 @@ def register_deliveroo_prep_stages_phase6(app, db):
         order = (payload.get('body') or {}).get('order') or {}
         return {'order_id': target, 'pos_id': pos_id, 'ticket': ticket['num'],
                 'reference': str(order.get('display_id') or ''), 'completed': completed, 'next': next_stage(completed)}
+
+    @app.get('/api/deliveroo/prep-build-phase6')
+    def prep_build():
+        if not allowed():
+            return Response(status=404)
+        req = stage_request('fr:diagnostic-not-sent', 'in_kitchen', 'not-sent')
+        return jsonify({'ok': True, 'prep_stage_sent': False,
+                        'error_diagnostic_has_markers': any(value == 'body_markers' or (isinstance(value, tuple) and 'body_markers' in value) for value in safe_deliveroo_error.__code__.co_consts),
+                        'prep_request_user_agent': req.get_header('User-agent')})
 
     @app.get('/api/deliveroo/prep-stages-state-phase6')
     def prep_state():
