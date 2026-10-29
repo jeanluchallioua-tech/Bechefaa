@@ -11,6 +11,7 @@ import hmac
 import hashlib
 from datetime import datetime, timezone
 from flask import jsonify, request, Response
+from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
 
@@ -212,6 +213,38 @@ def register_deliveroo_sandbox_phase6(app, db):
                 )
         return "rejected"
 
+    def _bridge_order_cancelled(payload):
+        """Apply a confirmed cancellation only to the opt-in preproduction POS."""
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return "not_preproduction"
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
+            return "disabled"
+        if not cancellation_ready(payload):
+            return "not_cancelled"
+        external_id = _extract_order_id(payload)
+        if not external_id:
+            return "missing_order_id"
+        import uuid
+        import time
+        pos_id = "deliveroo-" + uuid.uuid5(uuid.NAMESPACE_URL, external_id).hex
+        with db() as conn:
+            with conn.transaction():
+                from clean_caisse.app import ensure_order_schema
+                ensure_order_schema(conn)
+                row = conn.execute(
+                    "SELECT id,status FROM caisse_orders WHERE id=%s AND sales_channel='DELIVEROO' FOR UPDATE",
+                    (pos_id,),
+                ).fetchone()
+                if not row:
+                    return "not_imported"
+                if str(row["status"] or "").lower() in {"terminée", "annulée", "rejetée"}:
+                    return "already_terminal"
+                conn.execute(
+                    "UPDATE caisse_orders SET status=%s, updated_at=%s WHERE id=%s AND sales_channel='DELIVEROO'",
+                    ("Annulée", int(time.time() * 1000), pos_id),
+                )
+        return "cancelled"
+
     def _bridge_order_new(payload):
         """Import an order.new into the isolated preproduction POS, once per Deliveroo ID.
 
@@ -398,9 +431,20 @@ def register_deliveroo_sandbox_phase6(app, db):
                 app.logger.exception("Deliveroo event persistence failed: %s", exc)
                 return Response(status=500)
 
-            # Deliveroo Sandbox expects sync_status only after a webhook
-            # confirms that the order has reached accepted in its status log.
-            should_sync=(event.strip().lower()=="order.status_update" and accepted_log and bool(order_id))
+            # Apply the cancellation before acknowledging its synchronization.
+            # A database failure must leave the webhook retryable, with no sync sent.
+            if cancellation_ready(payload):
+                try:
+                    cancellation_result = _bridge_order_cancelled(payload)
+                    app.logger.info("Deliveroo preproduction cancellation result=%s order=%s", cancellation_result, order_id)
+                    if cancellation_result == "not_imported":
+                        return Response(status=503)
+                except Exception as exc:
+                    app.logger.exception("Deliveroo cancellation handling failed: %s", exc)
+                    return Response(status=500)
+
+            # Preserve accepted-order behavior; cancellations require their own log entry.
+            should_sync=should_sync_order(payload, order_id, accepted_log)
             if should_sync:
                 try:
                     sync_http_status,_sync_body=_send_sync_status(order_id)
