@@ -12,6 +12,7 @@ import hashlib
 from datetime import datetime, timezone
 from flask import jsonify, request, Response
 from .deliveroo_order_pricing_phase6 import net_item_cents
+from .deliveroo_order_plu_phase6 import missing_plu_paths
 from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
@@ -265,6 +266,8 @@ def register_deliveroo_sandbox_phase6(app, db):
         items = order.get("items")
         if not isinstance(items, list) or not items:
             raise ValueError("order.new missing items")
+        if missing_plu_paths(payload):
+            return "missing_plu"
         from decimal import Decimal
         import time
         import uuid
@@ -384,14 +387,14 @@ def register_deliveroo_sandbox_phase6(app, db):
                          " • ".join(o["name"] for o in options),position))
         return "created"
 
-    def _send_sync_status(order_id):
+    def _send_sync_status(order_id, *, status="succeeded", reason=None, notes=None):
         token=_oauth_token()
         api_url=(os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/")
         url=api_url+"/order/v1/orders/"+urllib.parse.quote(order_id,safe=":")+"/sync_status"
         payload=json.dumps({
-            "status":"succeeded",
-            "reason":None,
-            "notes":"BÉCHÉFAA sandbox order event ingested successfully",
+            "status":status,
+            "reason":reason,
+            "notes":notes or "BÉCHÉFAA sandbox order event ingested successfully",
             "occurred_at":datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
         }).encode("utf-8")
         req=urllib.request.Request(
@@ -444,6 +447,7 @@ def register_deliveroo_sandbox_phase6(app, db):
         sync_status=None
         sync_http_status=None
         sync_error=None
+        missing_plus = missing_plu_paths(payload) if kind == "orders" else []
 
         if kind=="orders":
             try:
@@ -466,7 +470,7 @@ def register_deliveroo_sandbox_phase6(app, db):
 
             # A complete accepted update can arrive without an order.new event.
             # Import through the same guarded, idempotent bridge before syncing.
-            if accepted_import_ready(payload):
+            if accepted_import_ready(payload) and not missing_plus:
                 try:
                     bridge_result = _bridge_order_new(payload)
                     app.logger.info("Deliveroo accepted import result=%s order=%s", bridge_result, order_id)
@@ -476,10 +480,19 @@ def register_deliveroo_sandbox_phase6(app, db):
 
             # Preserve accepted-order behavior; cancellations require their own log entry.
             should_sync=should_sync_order(payload, order_id, accepted_log)
+            if missing_plus and not cancellation_ready(payload):
+                should_sync = should_sync and accepted_import_ready(payload)
             if should_sync:
                 try:
-                    sync_http_status,_sync_body=_send_sync_status(order_id)
-                    sync_status="succeeded" if 200 <= sync_http_status < 300 else "unexpected_response"
+                    if missing_plus and accepted_log and not cancellation_ready(payload):
+                        sync_http_status,_sync_body=_send_sync_status(
+                            order_id, status="failed", reason="pos_item_id_not_found",
+                            notes="Missing POS identifiers: " + ", ".join(missing_plus[:20]),
+                        )
+                        sync_status="failed" if 200 <= sync_http_status < 300 else "unexpected_response"
+                    else:
+                        sync_http_status,_sync_body=_send_sync_status(order_id)
+                        sync_status="succeeded" if 200 <= sync_http_status < 300 else "unexpected_response"
                 except Exception as exc:
                     sync_status="failed"
                     sync_http_status=getattr(exc,"code",None)
