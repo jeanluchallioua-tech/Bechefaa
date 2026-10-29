@@ -3,7 +3,7 @@ import os
 import sys
 import unittest
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -95,6 +95,71 @@ class StatusUpdateTests(unittest.TestCase):
         self.body['reject_reason'] = 'other'
         for settings in ({'CC_APP_ID': 'production'}, {'BECHEFAA_CAISSE_PIN': 'wrong'}):
             with patch.dict(os.environ, settings): self.assertEqual(self.reject()[1], 403)
+        self.db.assert_not_called()
+        self.urlopen.assert_not_called()
+
+    def scheduled_payload(self, status='placed', seconds=-5):
+        self.payload = payload(status)
+        self.payload['body']['order'].update(asap=False,
+            confirm_at=(datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat(),
+            start_preparing_at=(datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat())
+
+    def test_scheduled_accept_then_confirm_only_once(self):
+        self.scheduled_payload()
+        result = self.routes['/api/deliveroo/accept-scheduled-phase6']()
+        self.assertTrue(result['ok'])
+        self.assertFalse(result['asap'])
+        self.assertEqual(json.loads(self.urlopen.call_args.args[0].data), {'status': 'accepted'})
+        self.payload['body']['order']['status'] = 'accepted'
+        result = self.routes['/api/deliveroo/confirm-scheduled-phase6']()
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['status'], 'confirmed')
+        self.assertEqual(json.loads(self.urlopen.call_args.args[0].data), {'status': 'confirmed'})
+        self.assertTrue(self.routes['/api/deliveroo/confirm-scheduled-phase6']()['already_sent'])
+        self.assertEqual(self.urlopen.call_count, 2)
+        self.assertFalse(any('caisse_orders' in sql or 'payment' in sql for sql, _ in self.calls))
+
+    def test_scheduled_confirm_before_deadline_never_sends(self):
+        self.scheduled_payload('accepted', seconds=120)
+        self.recorded = 'accepted'
+        result, code = self.routes['/api/deliveroo/confirm-scheduled-phase6']()
+        self.assertEqual(code, 409)
+        self.assertIn('Trop tôt', result['error'])
+        self.urlopen.assert_not_called()
+
+    def test_scheduled_state_shows_future_deadline_without_sending(self):
+        self.scheduled_payload('accepted', seconds=120)
+        result = self.routes['/api/deliveroo/scheduled-state-phase6']()
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['status'], 'accepted')
+        self.assertIn('confirm_at', result)
+        self.urlopen.assert_not_called()
+
+    def test_scheduled_confirm_requires_accepted_webhook(self):
+        self.scheduled_payload('placed')
+        self.recorded = 'accepted'
+        self.assertEqual(self.routes['/api/deliveroo/confirm-scheduled-phase6']()[1], 409)
+        self.urlopen.assert_not_called()
+
+    def test_scheduled_invalid_or_naive_deadlines_block_acceptance(self):
+        for stamp in (None, '', '2026-10-29T12:00:00', 'bad'):
+            self.scheduled_payload()
+            self.payload['body']['order']['confirm_at'] = stamp
+            self.assertEqual(self.routes['/api/deliveroo/accept-scheduled-phase6']()[1], 409)
+        self.urlopen.assert_not_called()
+
+    def test_scheduled_routes_cannot_operate_on_asap(self):
+        self.assertEqual(self.routes['/api/deliveroo/accept-scheduled-phase6']()[1], 409)
+        self.payload['body']['order']['status'] = 'accepted'
+        self.assertEqual(self.routes['/api/deliveroo/confirm-scheduled-phase6']()[1], 409)
+        self.urlopen.assert_not_called()
+
+    def test_scheduled_wrong_pin_or_production_blocked(self):
+        self.scheduled_payload()
+        for settings in ({'CC_APP_ID': 'production'}, {'BECHEFAA_CAISSE_PIN': 'wrong'}):
+            with patch.dict(os.environ, settings):
+                for route in ('scheduled-state', 'accept-scheduled', 'confirm-scheduled'):
+                    self.assertEqual(self.routes['/api/deliveroo/'+route+'-phase6']()[1], 403)
         self.db.assert_not_called()
         self.urlopen.assert_not_called()
 

@@ -7,13 +7,13 @@ import urllib.request
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 
-STATUS_REVISION = 'manual-status-v2-20261029'
+STATUS_REVISION = 'manual-status-v3-20261029'
 
 
 REJECT_REASONS = frozenset({'closing_early', 'busy', 'ingredient_unavailable', 'other'})
 
 def status_request(order_id, token, action, reason=None):
-    if action not in ('accepted', 'rejected'):
+    if action not in ('accepted', 'rejected', 'confirmed'):
         raise ValueError('Action invalide')
     data = {'status': action}
     if action == 'rejected':
@@ -32,7 +32,15 @@ def status_request(order_id, token, action, reason=None):
 def accept_request(order_id, token):
     return status_request(order_id, token, 'accepted')
 
-def validate_accept_candidate(payload):
+def parse_scheduled_time(value):
+    try:
+        stamp = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if stamp.tzinfo is None: raise ValueError()
+        return stamp.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        raise ValueError('Horodatage programmé absent ou invalide')
+
+def validate_accept_candidate(payload, scheduled=False, confirming=False, enforce_time=True):
     from .deliveroo_order_plu_phase6 import missing_plu_paths, mismatched_sandbox_plu_paths
     from .deliveroo_order_pricing_phase6 import net_item_cents
     body = payload.get('body') if isinstance(payload, dict) else None
@@ -41,10 +49,15 @@ def validate_accept_candidate(payload):
         raise ValueError('Commande complète absente')
     if str(order.get('location_id') or '') != '101':
         raise ValueError('Cette commande ne concerne pas le site sandbox 101')
-    if str(order.get('status') or '').lower() != 'placed':
-        raise ValueError('La commande n’est plus au statut placed ; aucun nouvel envoi')
-    if order.get('asap') is not True:
-        raise ValueError('Cette action est réservée au scénario ASAP')
+    if str(order.get('status') or '').lower() != ('accepted' if confirming else 'placed'):
+        raise ValueError('Statut incompatible : ' + ('accepted requis pour confirmer' if confirming else 'placed requis pour accepter ou rejeter'))
+    if order.get('asap') is not (False if scheduled else True):
+        raise ValueError('Type de commande incompatible avec cette action')
+    if scheduled:
+        confirm_at = parse_scheduled_time(order.get('confirm_at'))
+        parse_scheduled_time(order.get('start_preparing_at'))
+        if confirming and enforce_time and datetime.now(timezone.utc) < confirm_at:
+            raise ValueError('Trop tôt : attendre confirm_at avant de confirmer')
     items = order.get('items')
     if not isinstance(items, list) or not items:
         raise ValueError('Panier absent')
@@ -74,7 +87,7 @@ def register_deliveroo_status_update_phase6(app, db):
         pin = os.environ.get('BECHEFAA_CAISSE_PIN', '').strip()
         return allowed() and bool(pin) and hmac.compare_digest(pin, request.headers.get('X-Diagnostic-Pin', '').strip())
 
-    def read_candidate(cur, target=None):
+    def read_candidate(cur, target=None, scheduled=False, confirming=False):
         if target:
             cur.execute('SELECT order_id,payload,received_at FROM deliveroo_sandbox_events WHERE order_id=%s ORDER BY received_at DESC LIMIT 1', (target,))
             rows = [cur.fetchone()]
@@ -89,28 +102,37 @@ def register_deliveroo_status_update_phase6(app, db):
             payload = row['payload']
             if isinstance(payload, str): payload = json.loads(payload)
             order = (payload.get('body') or {}).get('order') or {}
-            if not target and (order.get('status') != 'placed' or order.get('asap') is not True):
+            if not target and (order.get('status') not in (('placed', 'accepted') if scheduled else ('placed',)) or order.get('asap') is not (False if scheduled else True)):
                 continue
-            order = validate_accept_candidate(payload)
+            order = validate_accept_candidate(payload, scheduled, confirming or (scheduled and not target and order.get('status') == 'accepted'), enforce_time=bool(target))
             if str(order['id']) != str(row['order_id']):
                 raise ValueError('Identifiants de commande incohérents')
             return {'order_id': str(order['id']), 'reference': str(order.get('display_id') or ''),
-                    'status': 'placed', 'total': order.get('total_price'), 'item_count': len(order['items'])}
-        raise ValueError('Aucune nouvelle commande ASAP placed récente. Ne pas relancer un test déjà validé.')
+                    'status': order['status'], 'total': order.get('total_price'), 'item_count': len(order['items']),
+                    'asap': order['asap'], 'confirm_at': order.get('confirm_at'), 'start_preparing_at': order.get('start_preparing_at'),
+                    'server_time': datetime.now(timezone.utc).isoformat()}
+        raise ValueError('Aucune nouvelle commande ' + ('programmée placed/accepted' if scheduled else 'ASAP placed') + ' récente. Ne pas relancer un test déjà validé.')
+
+    @app.get('/api/deliveroo/scheduled-state-phase6')
+    def scheduled_state():
+        return state_response(scheduled=True)
 
     @app.get('/api/deliveroo/status-update-state-phase6')
     def status_state():
+        return state_response()
+
+    def state_response(scheduled=False):
         if not authorized(): return jsonify({'ok': False, 'error': 'Accès préproduction/PIN requis'}), 403
         try:
             with db() as conn:
-                with conn.cursor() as cur: context = read_candidate(cur)
+                with conn.cursor() as cur: context = read_candidate(cur, scheduled=scheduled)
             return jsonify({'ok': True, **context})
         except ValueError as exc: return jsonify({'ok': False, 'error': str(exc)}), 409
         except Exception:
             app.logger.exception('Deliveroo placed-order read failed')
             return jsonify({'ok': False, 'error': 'Lecture impossible'}), 500
 
-    def send_action(action):
+    def send_action(action, scheduled=False):
         if not authorized(): return jsonify({'ok': False, 'error': 'Accès préproduction/PIN requis'}), 403
         data = request.get_json(silent=True) or {}
         reason = data.get('reject_reason')
@@ -129,11 +151,11 @@ def register_deliveroo_status_update_phase6(app, db):
                             http_status INTEGER NOT NULL, PRIMARY KEY(order_id,action))''')
                         cur.execute("SELECT action,http_status FROM deliveroo_status_action_trace WHERE order_id=%s ORDER BY sent_at DESC LIMIT 1", (target,))
                         previous = cur.fetchone()
-                        if previous and previous['action'] != action:
+                        if previous and previous['action'] != action and not (scheduled and action == 'confirmed' and previous['action'] == 'accepted'):
                             raise ValueError('Une autre action a déjà été confirmée pour cette commande')
-                        if previous:
+                        if previous and previous['action'] == action:
                             return jsonify({'ok': True, 'order_id': target, 'already_sent': True, 'http_status': previous['http_status']})
-                        context = read_candidate(cur, target)
+                        context = read_candidate(cur, target, scheduled, action == 'confirmed')
                         req = status_request(target, _oauth_token(), action, reason)
                         with urllib.request.urlopen(req, timeout=15) as response:
                             status = int(response.status)
@@ -141,7 +163,7 @@ def register_deliveroo_status_update_phase6(app, db):
                         if status != 204: raise ValueError('Réponse inattendue : HTTP ' + str(status))
                         cur.execute("INSERT INTO deliveroo_status_action_trace(order_id,action,http_status) VALUES (%s,%s,%s)", (target, action, status))
             return jsonify({'ok': True, 'http_status': status, 'sent': {'status': action, **({'reject_reason': reason} if action == 'rejected' else {})},
-                            'next': ('Attendre le webhook rejected et le résultat Deliveroo ; aucun ticket attendu' if action == 'rejected' else 'Attendre le webhook accepted puis vérifier la caisse et le résultat Deliveroo'), **context, 'status': action})
+                            'next': ('Attendre confirm_at puis confirmer la commande programmée' if scheduled and action == 'accepted' else 'Vérifier le résultat Deliveroo' if action == 'confirmed' else 'Attendre le webhook rejected et le résultat Deliveroo ; aucun ticket attendu' if action == 'rejected' else 'Attendre le webhook accepted puis vérifier la caisse et le résultat Deliveroo'), **context, 'status': action})
         except ValueError as exc: return jsonify({'ok': False, 'error': str(exc)}), 409
         except HTTPError as exc:
             retry = (exc.headers or {}).get('Retry-After')
@@ -160,6 +182,14 @@ def register_deliveroo_status_update_phase6(app, db):
     def reject_asap():
         return send_action('rejected')
 
+    @app.post('/api/deliveroo/accept-scheduled-phase6')
+    def accept_scheduled():
+        return send_action('accepted', scheduled=True)
+
+    @app.post('/api/deliveroo/confirm-scheduled-phase6')
+    def confirm_scheduled():
+        return send_action('confirmed', scheduled=True)
+
     @app.get('/api/deliveroo/status-update-page')
     def status_page():
         if not allowed(): return Response(status=404)
@@ -176,4 +206,24 @@ async function call(path,body){const r=await fetch(path,{method:body?'POST':'GET
 document.getElementById('load').onclick=async()=>{busy=true;render();try{current=await call('/api/deliveroo/status-update-state-phase6');document.getElementById('order').textContent=current?'Référence '+current.reference+' — '+current.order_id+' — '+current.item_count+' article(s)':'';}catch(e){current=null;document.getElementById('result').textContent=e.message}finally{busy=false;render()}};
 document.getElementById('accept').onclick=async()=>{if(!current||busy)return;if(!confirm('Accepter uniquement la commande '+current.reference+' dans le sandbox Deliveroo ?'))return;busy=true;render();try{await call('/api/deliveroo/accept-asap-phase6',{order_id:current.order_id});}catch(e){document.getElementById('result').textContent=e.message}finally{current=null;busy=false;render()}};
 document.getElementById('reject').onclick=async()=>{if(!current||busy)return;if(!confirm('Rejeter uniquement la commande '+current.reference+' dans le sandbox Deliveroo, motif : '+document.getElementById('reason').selectedOptions[0].text+' ?'))return;busy=true;render();try{await call('/api/deliveroo/reject-asap-phase6',{order_id:current.order_id,reject_reason:document.getElementById('reason').value});}catch(e){document.getElementById('result').textContent=e.message}finally{current=null;busy=false;render()}};
+</script></html>''', content_type='text/html; charset=utf-8')
+
+    @app.get('/api/deliveroo/scheduled-status-page')
+    def scheduled_page():
+        if not allowed(): return Response(status=404)
+        return Response('''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Commande programmée — Préproduction</title>
+<style>body{font:17px system-ui;max-width:850px;margin:30px auto;padding:16px}input,button{font:inherit;padding:14px;margin:8px}button:disabled{opacity:.4}pre{background:#f2f4f6;padding:16px;white-space:pre-wrap}</style>
+<h1>Commande programmée — Préproduction</h1><p>1. Accepter. 2. Attendre confirm_at. 3. Confirmer.</p>
+<label>PIN de la caisse <input id="pin" type="password" autocomplete="off"></label>
+<button id="load">Charger la commande programmée</button><p id="order"></p><p id="clock"></p>
+<button id="accept" disabled>Accepter la commande programmée</button>
+<button id="confirm" disabled>Confirmer la commande programmée</button><pre id="result">Aucun envoi effectué.</pre>
+<script>
+let current=null,busy=false,offset=0;
+function render(){const c=current;document.getElementById('load').disabled=busy;document.getElementById('accept').disabled=busy||!c||c.status!=='placed';const wait=c?Math.max(0,Math.ceil((Date.parse(c.confirm_at)-Date.now()-offset)/1000)):0;document.getElementById('confirm').disabled=busy||!c||c.status!=='accepted'||wait>0;document.getElementById('clock').textContent=c?'Confirmation autorisée à '+new Date(c.confirm_at).toLocaleTimeString('fr-FR')+(wait?' — attendre '+wait+' s':' — heure atteinte'):'';}
+async function call(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Diagnostic-Pin':document.getElementById('pin').value,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'});const d=await r.json();document.getElementById('result').textContent=JSON.stringify(d,null,2);if(!r.ok||!d.ok)return null;if(d.server_time)offset=Date.parse(d.server_time)-Date.now();return d;}
+document.getElementById('load').onclick=async()=>{busy=true;render();try{current=await call('/api/deliveroo/scheduled-state-phase6');document.getElementById('order').textContent=current?'Référence '+current.reference+' — '+current.order_id:'';}catch(e){current=null;document.getElementById('result').textContent=e.message}finally{busy=false;render()}};
+async function send(action){if(!current||busy)return;if(!window.confirm((action==='accept'?'Accepter':'Confirmer')+' la commande sandbox '+current.reference+' ?'))return;busy=true;render();try{const result=await call('/api/deliveroo/'+action+'-scheduled-phase6',{order_id:current.order_id});current=result&&!result.already_sent?result:null;}catch(e){current=null;document.getElementById('result').textContent=e.message}finally{busy=false;render()}}
+document.getElementById('accept').onclick=()=>send('accept');document.getElementById('confirm').onclick=()=>send('confirm');setInterval(render,500);
 </script></html>''', content_type='text/html; charset=utf-8')
