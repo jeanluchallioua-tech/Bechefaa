@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from clean_caisse.deliveroo_order_pricing_phase6 import net_item_cents
 from clean_caisse.deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 
@@ -176,13 +177,14 @@ class AcceptedBridgeTests(unittest.TestCase):
     def setUp(self):
         self.payload = event('accepted')
         self.payload['body']['order'].update(items=[{'name': 'Burger', 'quantity': 1,
-            'total_price': {'fractional': 700}, 'discount_amount': {'fractional': 100}}], asap=True)
+            'total_price': {'fractional': 800}, 'discount_amount': {'fractional': 100}}], asap=True, total_price={'fractional': 700})
         tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
         register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'register_deliveroo_sandbox_phase6')
         function = next(n for n in register.body if isinstance(n, ast.FunctionDef) and n.name == '_bridge_order_new')
         self.exists = False
         self.prior = []
         self.inserts = []
+        self.item_inserts = []
         def execute(sql, params=None):
             if sql.startswith('SELECT id FROM'):
                 return SimpleNamespace(fetchone=lambda: {'id': 'existing'} if self.exists else None)
@@ -190,13 +192,15 @@ class AcceptedBridgeTests(unittest.TestCase):
                 return SimpleNamespace(fetchall=lambda: self.prior)
             if 'MAX(num)' in sql:
                 return SimpleNamespace(fetchone=lambda: {'n': 48})
+            if 'INSERT INTO caisse_order_items' in sql:
+                self.item_inserts.append(params)
             if 'INSERT INTO caisse_orders' in sql:
                 self.exists = True
                 self.inserts.append(params)
             return Mock()
         self.conn = SimpleNamespace(transaction=lambda: nullcontext(), execute=execute)
         self.db = Mock(side_effect=lambda: nullcontext(self.conn))
-        namespace = dict(os=os, json=json, db=self.db, order_status_and_log=order_status_and_log,
+        namespace = dict(os=os, json=json, db=self.db, order_status_and_log=order_status_and_log, net_item_cents=net_item_cents,
                          datetime=__import__('datetime').datetime, timezone=__import__('datetime').timezone)
         exec(compile(ast.Module(body=[function], type_ignores=[]), '<accepted-bridge>', 'exec'), namespace)
         self.bridge = namespace['_bridge_order_new']
@@ -235,6 +239,60 @@ class AcceptedBridgeTests(unittest.TestCase):
         self.assertFalse(accepted_import_ready(event('accepted', [])))
         for status in ('placed', 'rejected', 'canceled', 'confirmed'):
             self.assertFalse(accepted_import_ready(event(status)))
+
+    def test_fractional_unit_rounding_matches_exact_total(self):
+        order = self.payload['body']['order']
+        order['items'] = [{'name': 'Burger', 'quantity': 3, 'total_price': {'fractional': 1001}}]
+        order['total_price'] = {'fractional': 1001}
+        self.assertEqual(self.bridge(self.payload), 'created')
+        from decimal import Decimal
+        self.assertEqual(sum(row[4] * row[5] for row in self.item_inserts), Decimal('10.01'))
+        self.assertEqual(sum(row[4] for row in self.item_inserts), 3)
+
+
+class RecoveryGuardsTests(unittest.TestCase):
+    def test_recovery_scoped_authenticated_and_idempotent(self):
+        import copy
+        tree = ast.parse(Path('clean_caisse/deliveroo_sandbox_phase6.py').read_text())
+        register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'register_deliveroo_sandbox_phase6')
+        function = copy.deepcopy(next(n for n in register.body if isinstance(n, ast.FunctionDef) and n.name == 'deliveroo_recover_discount_order_9034'))
+        function.decorator_list = []
+        payload = event('accepted')
+        target = 'fr:6044a42b-b404-432a-a34c-fc0279f89794'
+        payload['body']['order']['id'] = target
+        cursor = Mock()
+        cursor.fetchone.return_value = {'payload': payload}
+        conn = Mock()
+        conn.cursor.return_value = nullcontext(cursor)
+        db = Mock(side_effect=lambda: nullcontext(conn))
+        bridge = Mock(return_value='created')
+        request = SimpleNamespace(headers={'X-Diagnostic-Pin': 'test-pin'})
+        namespace = dict(os=os, hmac=hmac, json=json, request=request, db=db,
+                         jsonify=lambda data: data, app=SimpleNamespace(logger=Mock()),
+                         accepted_import_ready=accepted_import_ready,
+                         _extract_order_id=lambda p: p['body']['order']['id'], _bridge_order_new=bridge)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), '<recovery>', 'exec'), namespace)
+        recover = namespace['deliveroo_recover_discount_order_9034']
+        with patch.dict(os.environ, {'CC_APP_ID': 'production'}):
+            self.assertEqual(recover()[1], 403)
+            db.assert_not_called()
+        settings = {'CC_APP_ID': 'app_fad0809f-954d-47e7-983d-afb7c3867cd0',
+                    'BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED': '1', 'BECHEFAA_CAISSE_PIN': 'test-pin'}
+        with patch.dict(os.environ, settings):
+            request.headers = {}
+            self.assertEqual(recover()[1], 403)
+            db.assert_not_called()
+            request.headers = {'X-Diagnostic-Pin': 'test-pin'}
+            for result in ('created', 'duplicate'):
+                bridge.return_value = result
+                response = recover()
+                self.assertTrue(response['ok'])
+                self.assertFalse(response['deliveroo_api_called'])
+            self.assertEqual(cursor.execute.call_args.args[1], (target,))
+            bridge.reset_mock()
+            cursor.fetchone.return_value = {'payload': event('cancelled')}
+            self.assertEqual(recover()[1], 409)
+            bridge.assert_not_called()
 
 
 if __name__ == '__main__':

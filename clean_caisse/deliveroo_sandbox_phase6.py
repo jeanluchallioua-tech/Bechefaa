@@ -11,6 +11,7 @@ import hmac
 import hashlib
 from datetime import datetime, timezone
 from flask import jsonify, request, Response
+from .deliveroo_order_pricing_phase6 import net_item_cents
 from .deliveroo_order_status_phase6 import cancellation_ready, should_sync_order, accepted_import_ready, order_status_and_log
 
 _last_webhooks = {"orders": None, "menu": None, "last_error": None}
@@ -270,6 +271,7 @@ def register_deliveroo_sandbox_phase6(app, db):
         from clean_caisse.app import ensure_order_schema
         normalized = []
         total = Decimal("0")
+        net_amounts = net_item_cents(order)
         for position, item in enumerate(items):
             if not isinstance(item, dict):
                 raise ValueError("invalid order item")
@@ -279,7 +281,7 @@ def register_deliveroo_sandbox_phase6(app, db):
             fractional = price.get("fractional") if isinstance(price, dict) else None
             if not name or qty <= 0 or fractional is None:
                 raise ValueError("order item missing name/quantity/total_price")
-            amount = Decimal(str(fractional)) / Decimal("100")
+            amount = Decimal(net_amounts[position]) / Decimal("100")
             if amount < 0:
                 raise ValueError("negative item price")
             modifiers = item.get("modifiers") or []
@@ -291,8 +293,15 @@ def register_deliveroo_sandbox_phase6(app, db):
                     label = str(modifier.get("name") or "").strip()
                     if label:
                         options.append({"name": label, "plu": str(modifier.get("pos_item_id") or "")})
-            unit = amount / qty
-            normalized.append((str(item.get("pos_item_id") or ""), name, qty, unit, options, position))
+            # unit_price has two decimal places in the POS schema. Split only
+            # the rounding remainder so that qty * unit_price stays exact.
+            unit_cents, extra_units = divmod(net_amounts[position], qty)
+            if qty - extra_units:
+                normalized.append((str(item.get("pos_item_id") or ""), name, qty - extra_units,
+                                   Decimal(unit_cents) / 100, options, position))
+            if extra_units:
+                normalized.append((str(item.get("pos_item_id") or ""), name, extra_units,
+                                   Decimal(unit_cents + 1) / 100, options, position))
             total += amount
         # Deliveroo schedules are UTC timestamps. Invalid scheduled data must not
         # silently turn a scheduled order into an immediate kitchen ticket.
@@ -655,6 +664,12 @@ small{color:#53636c}</style></head><body>
 <form id="form"><label for="pin">PIN de la caisse</label>
 <input id="pin" type="password" autocomplete="off" required>
 <button type="submit">Afficher le diagnostic</button></form>
+<hr><h2>Commande remisée Deliveroo 9034</h2>
+<p>Récupération en préproduction depuis la trace existante, sans renvoyer de commande à Deliveroo.</p>
+<form id="recover-9034"><label for="recover-pin">PIN de la caisse</label>
+<input id="recover-pin" type="password" autocomplete="off" required>
+<button type="submit">Importer la commande 9034 en préproduction</button></form>
+<p id="recover-state" role="status"></p>
 <hr><h2>Correction du ticket 43</h2><p>Commande Deliveroo 3541 — uniquement en préproduction.</p>
 <form id="repair-form"><label for="repair-pin">PIN de la caisse</label>
 <input id="repair-pin" type="password" autocomplete="off" required>
@@ -662,6 +677,7 @@ small{color:#53636c}</style></head><body>
 <p id="repair-state" role="status"></p>
 <p id="state" role="status"></p><div id="result"></div>
 <script>
+document.getElementById('recover-9034').addEventListener('submit',async e=>{e.preventDefault();const field=document.getElementById('recover-pin'),status=document.getElementById('recover-state');const pin=field.value;field.value='';if(!confirm('Importer uniquement la commande Deliveroo 9034 dans la caisse de préproduction ?'))return;const button=e.target.querySelector('button');button.disabled=true;try{const response=await fetch('/api/deliveroo/recover-discount-order-9034',{method:'POST',headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});const data=await response.json();status.textContent=JSON.stringify(data);}catch(err){status.textContent='Erreur : '+err.message}finally{button.disabled=false}});
 const form=document.getElementById('form'),state=document.getElementById('state'),out=document.getElementById('result');
 document.getElementById('repair-form').addEventListener('submit',async e=>{e.preventDefault();const status=document.getElementById('repair-state');const field=document.getElementById('repair-pin');const pin=field.value;field.value='';if(!confirm('Corriger uniquement le ticket Deliveroo 43 en À emporter ?'))return;status.textContent='Correction en cours…';try{const res=await fetch('/api/deliveroo/repair-customer-collect-43',{method:'POST',headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});const data=await res.json().catch(()=>({}));status.textContent=res.ok&&data.ok?(data.result==='already_correct'?'Ticket 43 déjà corrigé.':'Ticket 43 corrigé en À emporter Deliveroo.'):('Correction non effectuée : '+(data.error||'HTTP '+res.status));}catch(err){status.textContent='Correction non effectuée : '+err.message;}});
 function cell(row,value){const td=document.createElement('td');td.textContent=value==null?'—':(typeof value==='object'?JSON.stringify(value):String(value));row.appendChild(td)}
@@ -679,6 +695,38 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
 """)
+
+    @app.post("/api/deliveroo/recover-discount-order-9034")
+    def deliveroo_recover_discount_order_9034():
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return jsonify({"ok": False, "error": "preproduction_only"}), 403
+        if os.environ.get("BECHEFAA_DELIVEROO_ORDER_BRIDGE_ENABLED", "").strip() != "1":
+            return jsonify({"ok": False, "error": "bridge_disabled"}), 403
+        expected = (os.environ.get("BECHEFAA_CAISSE_PIN") or "").strip()
+        supplied = (request.headers.get("X-Diagnostic-Pin") or "").strip()
+        if not expected or not hmac.compare_digest(expected, supplied):
+            return jsonify({"ok": False, "error": "PIN incorrect"}), 403
+        order_id = "fr:6044a42b-b404-432a-a34c-fc0279f89794"
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT payload FROM deliveroo_sandbox_events WHERE order_id=%s ORDER BY received_at DESC LIMIT 1", (order_id,))
+                    row = cur.fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "stored_event_missing"}), 404
+            payload = row["payload"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            if not accepted_import_ready(payload):
+                return jsonify({"ok": False, "error": "latest_event_not_accepted"}), 409
+            if _extract_order_id(payload) != order_id:
+                return jsonify({"ok": False, "error": "order_mismatch"}), 409
+            result = _bridge_order_new(payload)
+            return jsonify({"ok": result in {"created", "duplicate"}, "result": result,
+                            "order_id": order_id, "deliveroo_api_called": False})
+        except Exception:
+            app.logger.exception("Stored discount order recovery failed")
+            return jsonify({"ok": False, "error": "Import impossible"}), 500
 
     def _diagnostic_field_paths(root, keywords):
         """Field names only: never return values or customer-identifying data."""
