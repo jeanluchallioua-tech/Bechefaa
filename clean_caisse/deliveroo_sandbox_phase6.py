@@ -263,6 +263,9 @@ def register_deliveroo_sandbox_phase6(app, db):
         external_id = str(order.get("id") or order.get("order_id") or "").strip()
         if not external_id:
             raise ValueError("order.new missing order id")
+        # A placed order must not reach preparation before Deliveroo acceptance.
+        if str(order.get("status") or "").strip().lower() == "placed":
+            return "awaiting_acceptance"
         items = order.get("items")
         if not isinstance(items, list) or not items:
             raise ValueError("order.new missing items")
@@ -449,6 +452,7 @@ def register_deliveroo_sandbox_phase6(app, db):
         sync_status=None
         sync_http_status=None
         sync_error=None
+        cancellation_without_import = False
         missing_plus = missing_plu_paths(payload) if kind == "orders" else []
         # Fixture mappings are only valid on the isolated preproduction app.
         mismatched_plus = (mismatched_sandbox_plu_paths(payload)
@@ -470,7 +474,10 @@ def register_deliveroo_sandbox_phase6(app, db):
                     cancellation_result = _bridge_order_cancelled(payload)
                     app.logger.info("Deliveroo preproduction cancellation result=%s order=%s", cancellation_result, order_id)
                     if cancellation_result == "not_imported":
-                        return Response(status=503)
+                        if accepted_log:
+                            return Response(status=503)
+                        # A still-placed order cancelled before acceptance has no POS row.
+                        cancellation_without_import = True
                 except Exception as exc:
                     app.logger.exception("Deliveroo cancellation handling failed: %s", exc)
                     return Response(status=500)
@@ -486,7 +493,7 @@ def register_deliveroo_sandbox_phase6(app, db):
                     return Response(status=500)
 
             # Preserve accepted-order behavior; cancellations require their own log entry.
-            should_sync=should_sync_order(payload, order_id, accepted_log)
+            should_sync=should_sync_order(payload, order_id, accepted_log) and not cancellation_without_import
             if invalid_plus and not cancellation_ready(payload):
                 should_sync = should_sync and accepted_import_ready(payload)
             if should_sync:

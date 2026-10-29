@@ -255,6 +255,12 @@ class AcceptedBridgeTests(unittest.TestCase):
             self.assertEqual(self.bridge(self.payload), 'terminal_event_received')
         self.assertEqual(self.inserts, [])
 
+    def test_placed_order_waits_for_acceptance_without_writes(self):
+        self.payload['event'] = 'order.new'
+        self.payload['body']['order']['status'] = 'placed'
+        self.assertEqual(self.bridge(self.payload), 'awaiting_acceptance')
+        self.db.assert_not_called()
+
     def test_production_never_imports(self):
         with patch.dict(os.environ, {'CC_APP_ID': 'production'}):
             self.assertEqual(self.bridge(self.payload), 'not_preproduction')

@@ -159,6 +159,8 @@ register_site_orders_bridge_isolated_phase6(app)
 register_deliveroo_sandbox_phase6(app, db)
 from clean_caisse.deliveroo_prep_stages_phase6 import register_deliveroo_prep_stages_phase6
 register_deliveroo_prep_stages_phase6(app, db)
+from clean_caisse.deliveroo_status_update_phase6 import register_deliveroo_status_update_phase6
+register_deliveroo_status_update_phase6(app, db)
 register_uber_webhook_phase6(app, db)
 register_deliveroo_scenarios_diag_phase6(app)
 register_deliveroo_menu_builder_phase6(app, db)
