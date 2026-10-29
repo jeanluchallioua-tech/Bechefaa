@@ -8,7 +8,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
-from clean_caisse.deliveroo_status_update_phase6 import accept_request, validate_accept_candidate, register_deliveroo_status_update_phase6
+from clean_caisse.deliveroo_status_update_phase6 import accept_request, status_request, validate_accept_candidate, register_deliveroo_status_update_phase6
 
 
 def payload(status='placed'):
@@ -33,10 +33,10 @@ class StatusUpdateTests(unittest.TestCase):
         self.calls = []
         def execute(sql, params=None):
             self.calls.append((sql, params))
-            if 'SELECT http_status FROM' in sql: self.row = {'http_status': 204} if self.recorded else None
+            if 'SELECT action,http_status FROM' in sql: self.row = {'http_status': 204, 'action': self.recorded} if self.recorded else None
             elif 'SELECT order_id,payload,received_at' in sql:
                 self.row = {'order_id': 'fr:accept-test', 'payload': self.payload, 'received_at': datetime.now(timezone.utc)}
-            elif 'INSERT INTO deliveroo_status_action_trace' in sql: self.recorded = True
+            elif 'INSERT INTO deliveroo_status_action_trace' in sql: self.recorded = params[1]
         cur = SimpleNamespace(execute=execute, fetchone=lambda: self.row, fetchall=lambda: [self.row] if self.row else [])
         conn = SimpleNamespace(cursor=lambda: nullcontext(cur), transaction=lambda: nullcontext())
         self.db = Mock(side_effect=lambda: nullcontext(conn))
@@ -53,6 +53,50 @@ class StatusUpdateTests(unittest.TestCase):
         self.urlopen = network.start(); self.addCleanup(network.stop)
 
     def send(self): return self.routes['/api/deliveroo/accept-asap-phase6']()
+
+    def reject(self): return self.routes['/api/deliveroo/reject-asap-phase6']()
+
+    def test_reject_requires_valid_explicit_reason(self):
+        for reason in (None, '', 'unknown', [], {}):
+            self.body['reject_reason'] = reason
+            self.assertEqual(self.reject()[1], 400)
+        self.db.assert_not_called()
+        self.urlopen.assert_not_called()
+
+    def test_reject_204_payload_and_no_pos_or_payment_writes(self):
+        self.body['reject_reason'] = 'other'
+        result = self.reject()
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['status'], 'rejected')
+        req = self.urlopen.call_args.args[0]
+        data = json.loads(req.data)
+        self.assertEqual(req.method, 'PATCH')
+        self.assertEqual(data['status'], 'rejected')
+        self.assertEqual(data['reject_reason'], 'other')
+        self.assertIn('sandbox', data['notes'])
+        self.assertFalse(any('caisse_orders' in sql or 'payment' in sql for sql, _ in self.calls))
+        self.assertTrue(self.reject()['already_sent'])
+        self.assertEqual(self.urlopen.call_count, 1)
+        self.assertEqual(self.send()[1], 409)
+
+    def test_accept_prevents_later_reject_even_before_webhook(self):
+        self.send()
+        self.body['reject_reason'] = 'other'
+        self.assertEqual(self.reject()[1], 409)
+        self.assertEqual(self.urlopen.call_count, 1)
+
+    def test_reject_accepted_order_is_blocked(self):
+        self.payload = payload('accepted')
+        self.body['reject_reason'] = 'other'
+        self.assertEqual(self.reject()[1], 409)
+        self.urlopen.assert_not_called()
+
+    def test_reject_wrong_pin_or_production_is_blocked(self):
+        self.body['reject_reason'] = 'other'
+        for settings in ({'CC_APP_ID': 'production'}, {'BECHEFAA_CAISSE_PIN': 'wrong'}):
+            with patch.dict(os.environ, settings): self.assertEqual(self.reject()[1], 403)
+        self.db.assert_not_called()
+        self.urlopen.assert_not_called()
 
     def test_placed_order_load_is_read_only(self):
         result = self.routes['/api/deliveroo/status-update-state-phase6']()
