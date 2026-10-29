@@ -652,7 +652,7 @@ const pin=document.getElementById('pin').value;document.getElementById('pin').va
 try{const res=await fetch('/api/deliveroo/diagnostic-doublons',{headers:{'X-Diagnostic-Pin':pin},cache:'no-store'});
 const data=await res.json();if(!res.ok||!data.ok){state.textContent=data.error||'Erreur '+res.status;return}
 state.textContent='Diagnostic chargé. Ne partagez pas le PIN.';
-table('Événements order.new',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Cuisine SQL: ticket visible','kitchen_sql_visible'],['Statut ticket','ticket_status'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
+table('Événements Deliveroo reçus',data.events||[],[['Commande Deliveroo','deliveroo_order_id'],['Type événement','event_type'],['Événement','sequence_guid'],['Reçu (UTC)','received_at_utc'],['Ticket','ticket'],['Articles','item_count'],['Empreinte panier','item_signature'],['Remake présent','remake_details_present'],['Remake type','remake_details_type'],['Champs remake','remake_details_keys'],['Référence Deliveroo','display_id'],['Brand ID','brand_id'],['Création source','order_created_at'],['Statut','order_status'],['Type','order_type'],['Champs commande','order_fields'],['Champs enveloppe','body_fields'],['Champs horaires (présence)','schedule_field_paths'],['ASAP','asap_value'],['Début préparation UTC','start_preparing_at_value'],['Programmation enregistrée','stored_schedule'],['Cuisine devrait afficher','kitchen_should_show'],['Cuisine SQL: ticket visible','kitchen_sql_visible'],['Statut ticket','ticket_status'],['Filtre préprod actif','preprod_filter_active'],['Ticket POS','ticket'],['Préparer pour UTC','prepare_for_value'],['Téléphone renseigné','contact_number_filled'],['Champs client (présence)','customer_field_paths'],['Champs livraison (présence)','delivery_field_paths']]);
 table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS','id'],['Créé','created_at']]);
 }catch(err){state.textContent='Erreur de chargement : '+err.message}});
 </script></body></html>
@@ -751,7 +751,7 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
                 with conn.cursor() as cur:
                     cur.execute("""SELECT sequence_guid, order_id, received_at, payload
                         FROM deliveroo_sandbox_events
-                        WHERE event = 'order.new'
+                        WHERE event IN ('order.new', 'order.status_update')
                         ORDER BY received_at DESC LIMIT 40""")
                     events = cur.fetchall()
                     cur.execute("""SELECT id, num, created_at
