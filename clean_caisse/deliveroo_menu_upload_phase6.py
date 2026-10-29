@@ -712,6 +712,11 @@ def register_deliveroo_menu_upload_phase6(app, db):
         # Scenario 12 Sandbox — flux volontairement minimal et déterministe.
         # Deliveroo crée le menu de test puis attend exactement un POST v1
         # mettant whole_milk en unavailable.
+        if os.environ.get("CC_APP_ID", "").strip() != "app_fad0809f-954d-47e7-983d-afb7c3867cd0":
+            return jsonify({"ok":False,"error":"Preproduction only"}),403
+        auth_host=urllib.parse.urlparse(os.environ.get("BECHEFAA_DELIVEROO_AUTH_URL") or "https://auth-sandbox.developers.deliveroo.com").hostname
+        if auth_host != "auth-sandbox.developers.deliveroo.com":
+            return jsonify({"ok":False,"error":"Sandbox OAuth required"}),403
         site_id="101"
         menu_id="bechefaa-menu-01"
         brand_id="bceaa87a-74db-434e-b548-6da7e7de67a6"
@@ -731,12 +736,8 @@ def register_deliveroo_menu_upload_phase6(app, db):
         started_at=datetime.now(timezone.utc)
         try:
             token=_oauth_token()
-            post_status,post_response=_api_json(
-                stock_url,
-                token,
-                method="POST",
-                payload=post_payload,
-            )
+            from .deliveroo_stock_transport_phase6 import post_stock_once
+            post_status,post_response,transport=post_stock_once(stock_url,token,post_payload)
 
             # Conserver une preuve serveur de l'appel réellement effectué.
             try:
@@ -764,7 +765,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
                                 "POST",stock_url,brand_id,menu_id,site_id,
                                 json.dumps(post_payload,ensure_ascii=False),
                                 int(post_status),
-                                json.dumps(post_response if isinstance(post_response,(dict,list)) else {"raw":str(post_response)},ensure_ascii=False),
+                                json.dumps({"api_response":post_response,"transport":transport},ensure_ascii=False),
                             ),
                         )
                     conn.commit()
@@ -773,10 +774,11 @@ def register_deliveroo_menu_upload_phase6(app, db):
             else:
                 trace_warning=None
 
-            ok=200 <= post_status < 300
+            ok=post_status == 200 and transport["url_unchanged"] and not (isinstance(post_response,dict) and post_response.get("format") == "non_json")
             return jsonify({
                 "ok":ok,
                 "mode":"scenario12_support_strict",
+                "transport":transport,
                 "method":"POST",
                 "request_url":stock_url,
                 "brand_id":brand_id,
