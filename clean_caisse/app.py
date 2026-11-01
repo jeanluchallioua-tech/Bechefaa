@@ -911,3 +911,7 @@ def root():
 
 
 
+
+# Preview-only module; gated by BECHEFAA_PROMO_PREPROD=1.
+from .promo_identical_preview_preprod import register_promo_identical_preprod
+register_promo_identical_preprod(app)
