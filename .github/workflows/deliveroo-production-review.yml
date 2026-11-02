@@ -8,6 +8,9 @@ on:
       - 'clean_caisse/payment_transactions_phase44.py'
       - 'clean_caisse/app.py'
       - 'clean_caisse/table_core_phase36.py'
+      - 'clean_caisse/epson_epos_network_phase6.py'
+      - 'clean_caisse/printing_phase1.py'
+      - 'tests/test_epson_navigation*'
       - 'tests/test_table_occupancy.py'
       - 'tests/test_table_release_postgres.py'
       - 'clean_caisse/order_notifications_phase33.py'
@@ -47,12 +50,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install Flask==3.1.2 'psycopg[binary]==3.2.10'
+      - run: python -m pip install Flask==3.1.2 'psycopg[binary]==3.2.10' Pillow==11.3.0
       - name: Unit contracts
         run: |
           python -m unittest discover -s tests -p 'test_deliveroo_production.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_auto_hours.py' -v
           python -m unittest discover -s tests -p 'test_table_occupancy.py' -v
+          python -m unittest discover -s tests -p 'test_receipt_layout.py' -v
+          python -m unittest discover -s tests -p 'test_epson_navigation.py' -v
       - name: Real PostgreSQL and HTTP contracts (synthetic orders only)
         run: |
           python -m unittest discover -s tests -p 'test_deliveroo_production_postgres.py' -v
@@ -63,4 +68,6 @@ jobs:
         run: |
           node --check clean_caisse/static/deliveroo-notice-production.js
           node tests/test_deliveroo_notice_production.js
+          node tests/test_epson_navigation.js
+
 
