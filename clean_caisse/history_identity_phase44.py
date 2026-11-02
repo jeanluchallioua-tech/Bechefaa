@@ -25,6 +25,8 @@ def register_history_identity_phase44(app):
   let table=String(o.table_label||'').trim();
   if(table)return table.toUpperCase();
   let source=String(o.source||'').toUpperCase();
+  const channel=String(o.sales_channel||'').toUpperCase();
+  if(channel==='DELIVEROO')return 'LIVRAISON · DELIVEROO'+(o.customer_name?' — '+String(o.customer_name):'');
   let customer=String(o.customer_name||'').trim();
   let generic=/^client\s+(comptoir|livraison|emporter)$/i.test(customer);
   if(source==='LIVRAISON'||source==='DELIVERY')return generic||!customer?'LIVRAISON':'LIVRAISON — '+customer;
@@ -192,4 +194,5 @@ def register_history_identity_phase44(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
 

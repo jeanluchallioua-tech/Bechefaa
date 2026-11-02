@@ -92,6 +92,7 @@ def register_order_notifications_phase33(app):
    gain.gain.exponentialRampToValueAtTime(.001,start+duration);
    osc.connect(gain);gain.connect(ctx.destination);osc.start(start);osc.stop(start+duration+.02);
  }
+ if(PAGE==='pos')window.bechefaaNotifyDeliveroo=()=>{beep();};
  function beep(){
    try{
      const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted)return;
@@ -229,7 +230,8 @@ def register_order_notifications_phase33(app):
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
    let orders;
    try{
-     const r=await fetch('/api/kitchen/board',{cache:'no-store',signal:controller.signal}),d=await r.json();
+     const endpoint=PAGE==='kitchen'?'/api/kitchen/orders':'/api/kitchen/board';
+     const r=await fetch(endpoint,{cache:'no-store',signal:controller.signal}),d=await r.json();
      if(!r.ok||!d||!d.ok||!Array.isArray(d.orders))throw Error('Alertes indisponibles');
      orders=d.orders;connectionRecovered();
    }catch(e){connectionFailed();}
@@ -251,3 +253,4 @@ def register_order_notifications_phase33(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

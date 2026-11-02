@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from flask import jsonify, request
 
 CENT = Decimal("0.01")
-EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE", "MOLLIE", "EDENRED_EDPS"}
+EXTERNAL_PROVIDERS = {"SUMUP", "STRIPE", "MOLLIE", "EDENRED_EDPS", "DELIVEROO"}
 
 
 def _money(value):
@@ -166,3 +166,4 @@ def register_payment_transactions_phase44(app, db, ensure_order_schema):
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "error": "Remboursement impossible", "detail": str(exc)}), 500
+

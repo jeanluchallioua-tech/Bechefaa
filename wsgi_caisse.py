@@ -279,3 +279,8 @@ register_edenred_uat_cleanup_phase6(app, db, ensure_order_schema)
 register_access_pin_phase6(app)
 register_go_live_reset_phase6(app, db)
 register_selective_reset_phase6(app, db)
+
+# Production receiver is opt-in and remains disabled until its configuration is approved.
+from clean_caisse.deliveroo_production_phase6 import register_deliveroo_production_phase6
+register_deliveroo_production_phase6(app, db)
+

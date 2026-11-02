@@ -132,6 +132,8 @@ def db():
 
 
 def ensure_order_schema(conn):
+    # Serialize existing schema initialization across POS and Deliveroo workers.
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (2026101901,))
     conn.execute("""CREATE TABLE IF NOT EXISTS caisse_clients (
         id TEXT PRIMARY KEY,
         first_name TEXT NOT NULL DEFAULT '',
@@ -908,6 +910,7 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
 
 
 
