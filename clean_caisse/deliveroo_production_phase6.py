@@ -15,6 +15,7 @@ from decimal import Decimal
 from .deliveroo_order_pricing_phase6 import cents, net_item_cents
 from .deliveroo_order_status_phase6 import cancellation_ready, order_status_and_log
 from .deliveroo_production_catalog_phase6 import load_plu_map,check_order_plus,normalized_modifiers
+from .deliveroo_production_auto_phase6 import AutoProcessor,ensure_jobs
 
 PRODUCTION_APP = 'app_5361da4b-062c-4185-99a5-0fbccc1c4cd4'
 REVISION = 'deliveroo-production-review-v2-20261102'
@@ -34,7 +35,8 @@ def readiness():
         'webhook_secret_present': bool(os.environ.get('BECHEFAA_DELIVEROO_WEBHOOK_SECRET', '').strip()),
         'production_site_set': bool(os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_SITE_ID', '').strip()) and os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_SITE_ID', '').strip() != '101',
         'production_brand_set': bool(os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID', '').strip()) and os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID', '').strip() != 'bceaa87a-74db-434e-b548-6da7e7de67a6',
-        'tablet_acceptance_configured': os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE') == 'deliveroo_tablet',
+        'acceptance_mode_configured': os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE') in ('deliveroo_tablet','auto_hours'),
+        'automatic_worker_enabled': os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE') != 'auto_hours' or os.environ.get('BECHEFAA_DELIVEROO_CONFIRM_WORKER_ENABLED') == '1',
     }
     return {'ok': all(checks.values()), 'revision': REVISION, 'checks': checks,
             'calls_deliveroo': False, 'writes_database': False,
@@ -59,8 +61,10 @@ def validate_order_context(payload):
         raise ValueError('Unexpected production brand')
     if not str(order.get('id') or '').startswith('fr:'):
         raise ValueError('Invalid French order ID')
-    if order.get('is_tabletless') is not False:
-        raise ValueError('Tabletless acceptance policy has not been configured')
+    if not isinstance(order.get('is_tabletless'),bool):
+        raise ValueError('Tablet mode is missing')
+    if os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE')=='deliveroo_tablet' and order['is_tabletless']:
+        raise ValueError('Tabletless site requires automatic acceptance mode')
     return order
 
 
@@ -215,9 +219,11 @@ def register_deliveroo_production_phase6(app, db):
         conn.execute('''CREATE TABLE IF NOT EXISTS deliveroo_production_meta (
             pos_id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, display_id TEXT NOT NULL,
             prepare_at_ms BIGINT, confirmed BOOLEAN NOT NULL DEFAULT FALSE,
-            sync_status TEXT, sync_at TIMESTAMPTZ, sync_http_status INTEGER,ack_state TEXT,parent_pos_id TEXT)''')
+            sync_status TEXT, sync_at TIMESTAMPTZ, sync_http_status INTEGER,ack_state TEXT,parent_pos_id TEXT,
+            confirm_at TIMESTAMPTZ,acceptance_confirmed BOOLEAN NOT NULL DEFAULT FALSE,accepted_via TEXT)''')
+        ensure_jobs(conn)
 
-    def _store_metadata(payload):
+    def _store_metadata(payload,proof='WEBHOOK'):
         order=payload['body']['order']
         import uuid
         pos_id='deliveroo-'+uuid.uuid5(uuid.NAMESPACE_URL,order['id']).hex
@@ -227,17 +233,26 @@ def register_deliveroo_production_phase6(app, db):
             if stamp.tzinfo is None: raise ValueError('Scheduled timestamp must have a timezone')
             prepare=int(stamp.timestamp()*1000)
         status=str(order.get('status') or '').lower()
+        confirm_at=None
+        if order.get('confirm_at'):
+            confirm_at=datetime.fromisoformat(str(order['confirm_at']).replace('Z','+00:00'))
+            if confirm_at.tzinfo is None:raise ValueError('confirm_at must include a timezone')
+        if order.get('asap') is False and requires_confirmation(order) and os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE')=='auto_hours' and confirm_at is None:
+            raise ValueError('Scheduled automatic confirmation requires confirm_at')
         parent=(order.get('remake_details') or {}).get('parent_order_id')
         parent_pos='deliveroo-'+uuid.uuid5(uuid.NAMESPACE_URL,str(parent)).hex if parent and parent!=order['id'] else None
         with db() as conn:
             with conn.transaction():
                 _ensure_metadata(conn)
-                conn.execute('''INSERT INTO deliveroo_production_meta(pos_id,order_id,display_id,prepare_at_ms,confirmed,parent_pos_id)
-                    VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(pos_id) DO UPDATE SET
+                conn.execute('''INSERT INTO deliveroo_production_meta(pos_id,order_id,display_id,prepare_at_ms,confirmed,parent_pos_id,confirm_at,acceptance_confirmed,accepted_via)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(pos_id) DO UPDATE SET
                     display_id=EXCLUDED.display_id,prepare_at_ms=CASE WHEN deliveroo_production_meta.confirmed AND NOT EXCLUDED.confirmed THEN deliveroo_production_meta.prepare_at_ms ELSE EXCLUDED.prepare_at_ms END,
                     parent_pos_id=COALESCE(EXCLUDED.parent_pos_id,deliveroo_production_meta.parent_pos_id),
-                    confirmed=deliveroo_production_meta.confirmed OR EXCLUDED.confirmed''',
-                    (pos_id,order['id'],str(order.get('display_id') or ''),prepare,not requires_confirmation(order),parent_pos))
+                    confirmed=deliveroo_production_meta.confirmed OR EXCLUDED.confirmed,
+                    confirm_at=COALESCE(EXCLUDED.confirm_at,deliveroo_production_meta.confirm_at),
+                    acceptance_confirmed=deliveroo_production_meta.acceptance_confirmed OR EXCLUDED.acceptance_confirmed,
+                    accepted_via=COALESCE(EXCLUDED.accepted_via,deliveroo_production_meta.accepted_via)''',
+                    (pos_id,order['id'],str(order.get('display_id') or ''),prepare,not requires_confirmation(order),parent_pos,confirm_at,status in ('accepted','confirmed'),proof if status in ('accepted','confirmed') else None))
 
     def _sync_status(order_id, status='succeeded', reason=None, state='accepted'):
         # Serialize final acknowledgements and throttle per order. No blind retries.
@@ -547,6 +562,45 @@ def register_deliveroo_production_phase6(app, db):
                          json.dumps(options,ensure_ascii=False),
                          " • ".join(o["name"] for o in options),plu.startswith("deliveroo:fee:"),position))
         return "created"
+    def validate_automatic_order(order):
+        validate_order_context({'body':{'order':order}})
+        validate_paid_order(order)
+        reason,invalid=check_order_plus(order,load_plu_map(db))
+        if invalid:
+            return {'status':'rejected','reject_reason':'other','notes':'Articles non reconnus dans la caisse BÉCHÉFAA'}
+        return None
+
+    def apply_authoritative_status(order,target,proof):
+        if target=='rejected':return
+        # Internal business state after PATCH 204. Never save this as a signed webhook
+        # and never invent an accepted status-log entry.
+        normalized=json.loads(json.dumps(order))
+        normalized['status']=target
+        business={'event':'order.status_update','body':{'order':normalized}}
+        _store_metadata(business,proof=proof)
+        result=_bridge_order_new(business)
+        if result=='terminal_event_received':return
+        if result not in ('created','duplicate'):raise ValueError('Order import not confirmed')
+        if proof=='WEBHOOK' and _accepted_in_status_log(business):_sync_status(order['id'],state=target)
+
+    automatic=AutoProcessor(app,db,
+        lambda:production_enabled() and os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE')=='auto_hours',
+        validate_automatic_order,apply_authoritative_status,_oauth_token,API_HOST,NoRedirect,
+        validate_context=lambda order:validate_order_context({'body':{'order':order}}))
+    app.config['BECHEFAA_DELIVEROO_AUTO_PROCESSOR']=automatic
+
+    @app.before_request
+    def start_deliveroo_automatic_worker():
+        automatic.start()
+
+    @app.get('/api/deliveroo/production-jobs-phase6')
+    def deliveroo_production_jobs_status():
+        with db() as conn:
+            exists=conn.execute("SELECT to_regclass('deliveroo_production_jobs') AS table_name").fetchone()
+            if not exists or not exists['table_name']:return jsonify({'ok':True,'read_only':True,'jobs':[]})
+            rows=conn.execute('SELECT kind,state,COUNT(*) AS count FROM deliveroo_production_jobs GROUP BY kind,state').fetchall()
+        return jsonify({'ok':True,'read_only':True,'jobs':[dict(row) for row in rows]})
+
     def receive(kind):
         if not production_enabled(): return Response(status=503)
         raw=request.get_data(cache=True)
@@ -567,14 +621,17 @@ def register_deliveroo_production_phase6(app, db):
             status=str(order.get('status') or '').lower()
             if status=='placed':
                 _store_metadata(payload)
+                if os.environ.get('BECHEFAA_DELIVEROO_ACCEPTANCE_MODE')=='auto_hours':automatic.enqueue(order['id'])
                 return Response(status=200)
             if cancellation_ready(payload):
                 result=_bridge_order_cancelled(payload)
                 if result in ('cancelled','already_terminal'):
                     _sync_status(order['id'],state='canceled')
+                automatic.observe(order)
                 return Response(status=200)
             if status in ('rejected','reject','declined'):
                 _bridge_order_rejected(payload)
+                automatic.observe(order)
                 return Response(status=200)
             if status not in ('accepted','confirmed'): return Response(status=200)
             if not _accepted_in_status_log(payload): return Response(status=503)
@@ -586,6 +643,8 @@ def register_deliveroo_production_phase6(app, db):
                 prior=conn.execute('SELECT payload FROM deliveroo_production_events WHERE order_id=%s',(order['id'],)).fetchall()
                 if any(order_status_and_log(row['payload'])[0] in ('canceled','cancelled','rejected') for row in prior):
                     return Response(status=200)
+                rejected=conn.execute("SELECT order_id FROM deliveroo_production_jobs WHERE order_id=%s AND kind='decision' AND target_status='rejected' AND http_status=204 AND state IN ('sent','applied')",(order['id'],)).fetchone()
+                if rejected:return Response(status=200)
                 existing=conn.execute("SELECT id FROM caisse_orders WHERE id=%s AND sales_channel='DELIVEROO'",(pos_id,)).fetchone()
             if not existing:
                 fail_reason,invalid_plus=check_order_plus(order,load_plu_map(db))
@@ -596,6 +655,7 @@ def register_deliveroo_production_phase6(app, db):
                 if result == 'terminal_event_received': return Response(status=200)
                 if result not in ('created','duplicate'): return Response(status=503)
             _sync_status(order['id'],state=status)
+            automatic.observe(order)
             return Response(status=200)
         except Exception:
             # Do not print payloads, phone numbers, credentials or response bodies.

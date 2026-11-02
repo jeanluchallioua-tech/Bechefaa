@@ -41,13 +41,15 @@ def register_site_order_hours_phase6(app,db):
         conn.execute("""CREATE TABLE IF NOT EXISTS caisse_site_order_hours(
         id SMALLINT PRIMARY KEY DEFAULT 1 CHECK(id=1),config_json JSONB NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
         conn.execute("INSERT INTO caisse_site_order_hours(id,config_json) VALUES(1,%s::jsonb) ON CONFLICT(id) DO NOTHING",(json.dumps(DEFAULT_CONFIG,ensure_ascii=False),))
-    def read():
+    def read(strict=False):
         with db() as conn:
             with conn.transaction():
-                ensure(conn); r=conn.execute("SELECT config_json FROM caisse_site_order_hours WHERE id=1").fetchone()
+                if not strict: ensure(conn)
+                r=conn.execute("SELECT config_json FROM caisse_site_order_hours WHERE id=1").fetchone()
+                if not r: raise ValueError("Horaires non configurés")
                 return r["config_json"] if isinstance(r["config_json"],dict) else json.loads(r["config_json"])
-    def state(cfg=None, now=None):
-        cfg=cfg or read()
+    def state(cfg=None, now=None, channel="site", strict=False):
+        cfg=cfg or read(strict=strict)
         now=(now or datetime.now(TZ)).astimezone(TZ)
         day=DAYS[now.weekday()]
         cur=now.hour*60+now.minute
@@ -93,7 +95,8 @@ def register_site_order_hours_phase6(app,db):
 
         # 2) Calendrier fêtes & Chabbat : exception datée prioritaire.
         calendar_fn=app.config.get("BECHEFAA_SITE_ORDER_CALENDAR_OVERRIDE")
-        calendar_override=calendar_fn(now) if callable(calendar_fn) else None
+        calendar_override=(calendar_fn(now,strict=True) if strict else calendar_fn(now)) if callable(calendar_fn) else None
+        if strict and not callable(calendar_fn): raise ValueError("Calendrier non disponible")
         if calendar_override:
             mode=calendar_override.get("mode")
             if mode=="closed":
@@ -112,7 +115,8 @@ def register_site_order_hours_phase6(app,db):
 
         # 3) Fermeture exceptionnelle manuelle : priorité absolue.
         closure_fn=app.config.get("BECHEFAA_ACTIVE_SITE_CLOSURE")
-        closure=closure_fn(now) if callable(closure_fn) else None
+        closure=(closure_fn(now,channel=channel,strict=True) if strict else closure_fn(now)) if callable(closure_fn) else None
+        if strict and not callable(closure_fn): raise ValueError("Fermetures non disponibles")
         if closure:
             open_now=False
             next_close=None
@@ -130,6 +134,8 @@ def register_site_order_hours_phase6(app,db):
             "next_open_time":next_open_time,
             "next_open_label":next_open_label,
         }
+    app.config["BECHEFAA_ORDER_HOURS_STATE"]=state
+
     @app.get("/api/public/order-hours")
     def public_hours():
         cfg=read(); return jsonify({"ok":True,"config":cfg,"state":state(cfg)})
@@ -176,3 +182,4 @@ async function save(){let daysCfg={};document.querySelectorAll('.day').forEach(r
 async function simulate(){let v=$('simdt').value,res=$('simres');if(!v){res.className='sim-result closed';res.textContent='Choisissez une date et une heure.';return}res.className='sim-result';res.textContent='Test en cours…';let r=await fetch('/api/admin/order-hours/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datetime:v})}),d=await r.json();if(!d.ok){res.className='sim-result closed';res.textContent='Erreur : '+d.error;return}let s=d.state||{},o=s.calendar_override||{},status=s.open?'OUVERT AUX COMMANDES':'FERMÉ AUX COMMANDES';let details=[];details.push(s.day_label+' '+v.replace('T',' '));if(o&&o.source==='RELIGIOUS_CALENDAR'){details.push('Règle calendrier : '+(o.name||o.type||'Fêtes & Chabbat'));if(o.last_order)details.push('Dernière commande : '+o.last_order);if(o.restaurant_closes)details.push('Fermeture restaurant : '+o.restaurant_closes);if(o.resume_time)details.push('Reprise commandes : '+o.resume_time);if(o.service_end_time)details.push('Fin service : '+o.service_end_time)}else{details.push('Règle : horaires habituels')}if(s.exceptional_closure)details.push('Fermeture manuelle active : '+s.exceptional_closure.name);res.className='sim-result '+(s.open?'open':'closed');res.innerHTML='<div style="font-size:20px">'+status+'</div><div style="margin-top:6px">'+details.join(' • ')+'</div>'}
 let n=new Date(),pad=x=>String(x).padStart(2,'0');$('simdt').value=n.getFullYear()+'-'+pad(n.getMonth()+1)+'-'+pad(n.getDate())+'T'+pad(n.getHours())+':'+pad(n.getMinutes());load();
 </script></body></html>''',content_type="text/html; charset=utf-8")
+

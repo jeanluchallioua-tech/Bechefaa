@@ -77,7 +77,7 @@ class ProductionPostgresTests(unittest.TestCase):
   def pos():return '<html><body>POS test shell</body></html>'
   from clean_caisse.deliveroo_production_phase6 import register_deliveroo_production_phase6
   register_deliveroo_production_phase6(self.app,lambda:self.connect())
-  self.http=[];self.sync_failures=0
+  self.http=[];self.sync_failures=0;self.patch_failures=[]
   class HTTPResponse:
    def __init__(self,status,body):self.status=status;self.body=body
    def __enter__(self):return self
@@ -89,6 +89,11 @@ class ProductionPostgresTests(unittest.TestCase):
     outer.http.append(req)
     if req.full_url=='https://auth.developers.deliveroo.com/oauth2/token':
      return HTTPResponse(200,b'{"access_token":"test-only-token"}')
+    if req.full_url.startswith('https://api.developers.deliveroo.com/order/v1/orders/') and req.get_method()=='PATCH':
+     if outer.patch_failures:
+      failure=outer.patch_failures.pop(0)
+      if isinstance(failure,Exception):raise failure
+     return HTTPResponse(204,b'')
     if req.full_url.startswith('https://api.developers.deliveroo.com/order/v1/orders/') and req.full_url.endswith('/sync_status'):
      if outer.sync_failures:
       outer.sync_failures-=1
@@ -102,6 +107,7 @@ class ProductionPostgresTests(unittest.TestCase):
  def payload(self,status='accepted',asap=True):
   from test_deliveroo_production import event
   value=event(status,asap);value['body']['order']['display_id']='1234'
+  if not asap:value['body']['order']['confirm_at']=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()
   return value
 
  def post(self,payload,guid=None):
@@ -320,5 +326,98 @@ class ProductionPostgresTests(unittest.TestCase):
    self.assertEqual(client.get('/api/deliveroo/production-events-phase6').json['events'],[])
   self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
   self.assertEqual(self.http,[])
+
+
+@unittest.skipUnless(URL, 'Set DELIVEROO_TEST_DATABASE_URL to an isolated local deliveroo_ci database')
+class AutoHoursPostgresTests(unittest.TestCase):
+ setUpClass=classmethod(ProductionPostgresTests.setUpClass.__func__)
+ payload=ProductionPostgresTests.payload
+ post=ProductionPostgresTests.post
+ rows=ProductionPostgresTests.rows
+ def setUp(self):
+  ProductionPostgresTests.setUp(self)
+  self.autoenv=patch.dict(os.environ,{'BECHEFAA_DELIVEROO_ACCEPTANCE_MODE':'auto_hours','BECHEFAA_DELIVEROO_CONFIRM_WORKER_ENABLED':'1'})
+  self.autoenv.start();self.addCleanup(self.autoenv.stop)
+  self.app.config['BECHEFAA_ORDER_HOURS_STATE']=lambda **kwargs:{'open':True}
+  self.processor=self.app.config['BECHEFAA_DELIVEROO_AUTO_PROCESSOR']
+ def patches(self):return [json.loads(req.data) for req in self.http if req.get_method()=='PATCH']
+ def tick(self):return self.processor.tick()
+
+ def test_open_automatically_accepts_and_imports_after_204(self):
+  placed=self.payload('placed');self.assertEqual(self.post(placed).status_code,200)
+  self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
+  self.tick();self.assertEqual(self.patches(),[{'status':'accepted'}])
+  self.assertEqual(self.rows('SELECT payment FROM caisse_orders')[0]['payment'],'PAYÉ DELIVEROO')
+  self.assertEqual(self.rows('SELECT accepted_via FROM deliveroo_production_meta')[0]['accepted_via'],'PATCH_204')
+  # Authentic stored status log is untouched; no sync before the accepted webhook.
+  source=self.rows('SELECT payload FROM deliveroo_production_events')[0]['payload']
+  self.assertEqual(source['body']['order']['status'],'placed')
+  self.assertEqual(len([r for r in self.http if r.full_url.endswith('/sync_status')]),0)
+  self.assertEqual(self.post(self.payload()).status_code,200)
+  self.assertEqual(len(self.rows('SELECT id FROM caisse_payment_transactions')),1)
+
+ def test_closed_auto_rejects_with_reason_and_never_creates_ticket(self):
+  self.app.config['BECHEFAA_ORDER_HOURS_STATE']=lambda **kwargs:{'open':False}
+  self.assertEqual(self.post(self.payload('placed')).status_code,200)
+  self.tick()
+  self.assertEqual(self.patches()[0]['status'],'rejected');self.assertEqual(self.patches()[0]['reject_reason'],'closing_early')
+  self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
+
+ def test_hours_are_rechecked_at_processing_time(self):
+  self.assertEqual(self.post(self.payload('placed')).status_code,200)
+  self.app.config['BECHEFAA_ORDER_HOURS_STATE']=lambda **kwargs:{'open':False}
+  self.tick();self.assertEqual(self.patches()[0]['status'],'rejected')
+
+ def test_calendar_error_does_not_accept_or_reject(self):
+  self.app.config['BECHEFAA_ORDER_HOURS_STATE']=lambda **kwargs:(_ for _ in ()).throw(RuntimeError('calendar unavailable'))
+  self.assertEqual(self.post(self.payload('placed')).status_code,200)
+  self.tick();self.assertEqual(self.patches(),[])
+  self.assertEqual(self.rows('SELECT state FROM deliveroo_production_jobs')[0]['state'],'pending')
+
+ def test_cancelled_before_worker_is_not_accepted(self):
+  self.assertEqual(self.post(self.payload('placed')).status_code,200)
+  self.assertEqual(self.post(self.payload('canceled')).status_code,200)
+  self.tick();self.assertEqual(self.patches(),[]);self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
+
+ def test_duplicate_placed_never_sends_two_acceptances(self):
+  payload=self.payload('placed')
+  self.assertEqual(self.post(payload).status_code,200);self.tick()
+  self.assertEqual(self.post(payload).status_code,200);self.tick()
+  self.assertEqual(self.patches(),[{'status':'accepted'}])
+  self.assertEqual(len(self.rows('SELECT id FROM caisse_payment_transactions')),1)
+
+ def test_future_order_is_accepted_while_currently_closed_if_target_slot_open(self):
+  placed=self.payload('placed',asap=False);target=datetime.fromisoformat(placed['body']['order']['start_preparing_at'])
+  self.app.config['BECHEFAA_ORDER_HOURS_STATE']=lambda now,**kwargs:{'open':now>=target}
+  self.assertEqual(self.post(placed).status_code,200);self.tick()
+  self.assertEqual(self.patches(),[{'status':'accepted'}])
+  with self.app.test_client() as client:self.assertEqual(client.get('/api/kitchen/orders').json['orders'],[])
+
+ def test_confirmation_waits_until_confirm_at_then_remains_out_of_kitchen_until_due(self):
+  placed=self.payload('placed',asap=False)
+  self.assertEqual(self.post(placed).status_code,200);self.tick();self.tick()
+  self.assertEqual(self.patches(),[{'status':'accepted'}])
+  with self.connect() as conn:conn.execute("UPDATE deliveroo_production_meta SET confirm_at=NOW()-INTERVAL '1 second'")
+  self.tick();self.assertEqual(self.patches(),[{'status':'accepted'},{'status':'confirmed'}])
+  with self.app.test_client() as client:self.assertEqual(client.get('/api/kitchen/orders').json['orders'],[])
+  with self.connect() as conn:conn.execute('UPDATE deliveroo_production_meta SET prepare_at_ms=0')
+  with self.app.test_client() as client:self.assertEqual(len(client.get('/api/kitchen/orders').json['orders']),1)
+
+ def test_unknown_network_outcome_is_not_retried_as_another_acceptance(self):
+  self.patch_failures=[TimeoutError('synthetic')]
+  self.assertEqual(self.post(self.payload('placed')).status_code,200);self.tick();self.tick()
+  self.assertEqual(self.patches(),[{'status':'accepted'}])
+  self.assertEqual(self.rows('SELECT state FROM deliveroo_production_jobs')[0]['state'],'uncertain')
+  self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
+  # A real accepted webhook resolves the ambiguity without another PATCH.
+  self.assertEqual(self.post(self.payload()).status_code,200);self.tick()
+  self.assertEqual(self.patches(),[{'status':'accepted'}])
+  self.assertEqual(self.rows('SELECT state FROM deliveroo_production_jobs')[0]['state'],'applied')
+
+ def test_bad_catalogue_is_rejected_before_acceptance_or_payment(self):
+  placed=self.payload('placed');placed['body']['order']['items'][0]['pos_item_id']='unknown'
+  self.assertEqual(self.post(placed).status_code,200);self.tick()
+  self.assertEqual(self.patches()[0]['status'],'rejected');self.assertEqual(self.patches()[0]['reject_reason'],'other')
+  self.assertEqual(self.rows('SELECT id FROM caisse_orders'),[])
 
 if __name__=='__main__':unittest.main()

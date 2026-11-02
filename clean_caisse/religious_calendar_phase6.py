@@ -304,7 +304,7 @@ def register_religious_calendar_phase6(app, db):
                     }
         return None
 
-    def _operational_periods(events, load_saved=True):
+    def _operational_periods(events, load_saved=True, strict=False, reference_date=None):
         """Transforme les événements Hebcal en périodes lisibles pour le restaurant."""
         rows = [dict(x) for x in events]
         rows.sort(key=lambda x: x.get("starts_at") or datetime.max.replace(tzinfo=TZ))
@@ -402,7 +402,7 @@ def register_religious_calendar_phase6(app, db):
         if load_saved:
             with db() as conn:
                 with conn.transaction():
-                    ensure_tables(conn)
+                    if not strict: ensure_tables(conn)
                     overrides = conn.execute("SELECT event_key,hours_json FROM caisse_religious_hours_overrides").fetchall()
         saved = {r["event_key"]: r["hours_json"] if isinstance(r["hours_json"], dict) else json.loads(r["hours_json"]) for r in overrides}
         for p in periods:
@@ -417,14 +417,14 @@ def register_religious_calendar_phase6(app, db):
             if p.get("restaurant_reopen_time") and p.get("resume_at"):
                 p["restaurant_reopen_date"] = p["resume_date"]
 
-        today = datetime.now(TZ).date()
+        today = reference_date or datetime.now(TZ).date()
         periods = [
             p for p in periods
             if datetime.fromisoformat(p["exit_at"]).astimezone(TZ).date() >= today
         ]
         return periods
 
-    def automatic_site_order_override(now=None):
+    def automatic_site_order_override(now=None, strict=False):
         """Décision automatique du calendrier pour la prise de commandes du site.
 
         - ferme plus tôt avant Chabbat / fête à partir de la dernière commande calculée ;
@@ -435,15 +435,21 @@ def register_religious_calendar_phase6(app, db):
         now = (now or datetime.now(TZ)).astimezone(TZ)
         try:
             with db() as conn:
-                ensure_tables(conn)
+                if not strict: ensure_tables(conn)
                 events = conn.execute("""SELECT event_key,hebrew_year,title,hebrew_title,category,subcat,starts_at
                     FROM caisse_hebrew_calendar_events
                     WHERE starts_at >= %s AND starts_at <= %s
                     ORDER BY starts_at NULLS LAST, title
                 """, (now - timedelta(days=8), now + timedelta(days=45))).fetchall()
 
-            periods = _operational_periods(events)
+            if strict:
+                candles=[row for row in events if row['category']=='candles' and row['starts_at'] and now-timedelta(days=8)<=row['starts_at']<=now+timedelta(days=8)]
+                exits=[row['starts_at'] for row in events if row['category']=='havdalah' and row['starts_at']]
+                if not candles or not any(candle['starts_at']>=now for candle in candles) or any(not any(exit_at>candle['starts_at'] for exit_at in exits) for candle in candles):
+                    raise ValueError("Calendrier Fêtes et Chabbat incomplet")
+            periods = _operational_periods(events,strict=strict,reference_date=now.date() if strict else None)
             cfg = _site_hours_config() or {}
+            if strict and not cfg: raise ValueError("Horaires du calendrier absents")
             cutoff = int(cfg.get("cutoff_minutes", 30))
 
             for p in periods:
@@ -508,19 +514,21 @@ def register_religious_calendar_phase6(app, db):
                         }
             return None
         except Exception:
+            if strict: raise
             return None
 
     # Décision dynamique utilisée par le moteur central des horaires du site.
     app.config["BECHEFAA_SITE_ORDER_CALENDAR_OVERRIDE"] = automatic_site_order_override
 
-    def active_site_closure(now=None):
+    def active_site_closure(now=None, channel="site", strict=False):
         now = now or datetime.now(TZ)
         try:
             with db() as conn:
-                ensure_tables(conn)
-                row = conn.execute("""SELECT id,name,starts_at,ends_at,source,notes
+                if not strict: ensure_tables(conn)
+                column={"site":"site_enabled","deliveroo":"deliveroo_enabled","uber":"uber_enabled"}[channel]
+                row = conn.execute(f"""SELECT id,name,starts_at,ends_at,source,notes
                     FROM caisse_exceptional_closures
-                    WHERE active=TRUE AND site_enabled=TRUE
+                    WHERE active=TRUE AND {column}=TRUE
                       AND starts_at <= %s AND ends_at > %s
                     ORDER BY starts_at ASC LIMIT 1
                 """, (now, now)).fetchone()
@@ -536,6 +544,7 @@ def register_religious_calendar_phase6(app, db):
                 "notes": row["notes"],
             }
         except Exception:
+            if strict: raise
             return None
 
     # Utilisable par le module d'horaires sans import circulaire.
@@ -709,5 +718,6 @@ async function saveHours(button,reset){
 async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let type=x.type==='shabbat'?'CHABBAT':'FÊTE';let typeClass=x.type==='shabbat'?'shabbat':'holiday';let close=(x.closure_time&&x.last_order)?('<div class="time-big">'+x.closure_time+'</div><div class="time-sub">Fermeture BÉCHÉFAA</div><div style="margin-top:14px"><div class="time-big" style="font-size:24px">'+x.last_order+'</div><div class="time-sub">Dernière commande</div></div>'):'Selon horaires enregistrés';let resume=(x.resume_date&&x.resume_time)?((x.restaurant_reopen_time?('<div class="time-big">'+x.restaurant_reopen_time+'</div><div class="time-sub">Réouverture restaurant</div><div style="margin-top:14px">'):'')+'<div class="time-big" style="font-size:24px">'+x.resume_time+'</div><div class="time-sub">Reprise des commandes</div>'+(x.restaurant_reopen_time?'</div>':'')+(x.service_end_time?('<div style="margin-top:14px"><b>Fin service :</b> '+x.service_end_time+'</div>'):'')):'À définir';return '<div class="planning-row"><div class="planning-cell"><span class="type-badge '+typeClass+'">'+type+'</span><div class="planning-title">'+x.name+'</div><div class="date-line"><b>Entrée :</b> '+x.entry_date+' à <b>'+x.entry_time+'</b></div><div class="date-line"><b>Sortie :</b> '+x.exit_date+' à <b>'+x.exit_time+'</b></div><span class="badge">Deliveroo : '+x.deliveroo_rule+'</span></div><div class="planning-cell">'+close+'</div><div class="planning-cell">'+resume+'</div>'+hoursEditor(x)+'</div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
+
 
 

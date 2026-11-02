@@ -163,7 +163,7 @@ class ProductionTests(unittest.TestCase):
 
  def test_receiver_disabled_or_bad_signature_never_touches_db(self):
   app=SimpleNamespace(view_functions={'deliveroo_orders_webhook_phase6':Mock(),
-   'deliveroo_menu_webhook_phase6':Mock(),'kitchen_orders':Mock()},logger=Mock())
+   'deliveroo_menu_webhook_phase6':Mock(),'kitchen_orders':Mock()},logger=Mock(),config={})
   app.get=lambda path:(lambda f:f);app.after_request=lambda f:f;app.before_request=lambda f:f
   request=SimpleNamespace(headers={},get_data=lambda **kw:b'{}',get_json=lambda **kw:{})
   db=Mock()
