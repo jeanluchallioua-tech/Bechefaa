@@ -1,5 +1,8 @@
 """Phase 3.6 — socle PostgreSQL des 9 tables Salle."""
 import re
+from datetime import datetime, timedelta
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 from flask import jsonify, request
 
 
@@ -8,6 +11,37 @@ OPEN_TABLE_ORDER_SQL = """table_number IS NOT NULL
     AND COALESCE(status,'') NOT IN ('Annulée','ANNULÉE','Annulee','Cancelled','Canceled')
     AND COALESCE(payment_status,'À ENCAISSER') <> 'PAYÉE'
     AND (COALESCE(total,0)<=0 OR COALESCE(paid_amount,0)<total)"""
+
+
+def service_day_bounds_ms(now=None):
+    """Same Europe/Paris calendar day as the POS history (including DST)."""
+    local=(now or datetime.now(ZoneInfo('Europe/Paris'))).astimezone(ZoneInfo('Europe/Paris'))
+    start=local.replace(hour=0,minute=0,second=0,microsecond=0)
+    return int(start.timestamp()*1000),int((start+timedelta(days=1)).timestamp()*1000)
+
+
+def active_table_orders(conn, number=None, exclude_order_id=''):
+    # Occupancy is a current-service view, never a rewrite of archived orders
+    # or fiscal records. Use this same rule for the UI AND atomic table claims.
+    start,end=service_day_bounds_ms()
+    sql=("SELECT id,num,table_number,total FROM caisse_orders WHERE "+OPEN_TABLE_ORDER_SQL+
+         " AND created_at>=%s AND created_at<%s"
+         " AND (to_jsonb(caisse_orders)->>'z_closure_id') IS NULL")
+    params=[start,end]
+    if number is not None:
+        sql+=' AND table_number=%s AND id<>%s';params.extend([number,exclude_order_id])
+    orders=conn.execute(sql+' ORDER BY created_at DESC,id',tuple(params)).fetchall()
+    if not orders:return []
+    exists=conn.execute("SELECT to_regclass('caisse_payment_transactions') AS name").fetchone()
+    if not exists or not exists['name']:return orders
+    rows=conn.execute("""SELECT order_id,
+        COALESCE(SUM(CASE WHEN transaction_type='PAYMENT' THEN amount
+                          WHEN transaction_type='REFUND' THEN -amount ELSE 0 END),0) AS net_paid
+        FROM caisse_payment_transactions WHERE order_id=ANY(%s) AND status='SUCCEEDED'
+        GROUP BY order_id""",([o['id'] for o in orders],)).fetchall()
+    paid={row['order_id']:Decimal(str(row['net_paid'])) for row in rows}
+    return [o for o in orders if Decimal(str(o['total'] or 0))<=0
+            or paid.get(o['id'],Decimal('0'))<Decimal(str(o['total']))]
 
 
 def ensure_table_availability_schema(conn):
@@ -25,8 +59,8 @@ def ensure_table_availability_schema(conn):
 def table_conflict(conn, number, token='', exclude_order_id=''):
     # Caller holds the same orders lock as create_order. This serializes claims,
     # order creation and table transfers across processes, not just one browser.
-    row=conn.execute("SELECT id,num FROM caisse_orders WHERE "+OPEN_TABLE_ORDER_SQL+
-                     " AND table_number=%s AND id<>%s LIMIT 1",(number,exclude_order_id)).fetchone()
+    orders=active_table_orders(conn,number,exclude_order_id)
+    row=orders[0] if orders else None
     if row:
         return {"ok":False,"code":"TABLE_OCCUPIED","error":f"Table {number} occupée : réglez ou modifiez la commande existante.","order_id":row['id'],"num":row['num']}
     reservation=conn.execute("SELECT owner_token FROM caisse_table_reservations WHERE table_number=%s AND expires_at>NOW()",(number,)).fetchone()
@@ -47,9 +81,10 @@ def register_table_core_phase36(app, db):
             with db() as conn:
                 with conn.transaction():
                     ensure_table_availability_schema(conn)
-                    orders=conn.execute("SELECT id,num,table_number FROM caisse_orders WHERE "+OPEN_TABLE_ORDER_SQL).fetchall()
+                    orders=active_table_orders(conn)
                     reservations=conn.execute("SELECT table_number,owner_token FROM caisse_table_reservations WHERE expires_at>NOW()").fetchall()
-            occupied={int(row['table_number']):row for row in orders}
+            occupied={}
+            for row in orders:occupied.setdefault(int(row['table_number']),row)
             reserved={int(row['table_number']):row['owner_token'] for row in reservations}
             tables=[]
             for number in range(1,10):
@@ -170,4 +205,5 @@ def register_table_core_phase36(app, db):
         except Exception:
             pass
         return response
+
 

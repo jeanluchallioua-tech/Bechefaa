@@ -9,8 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from datetime import datetime, timezone
 from flask import Flask, jsonify, request
-from clean_caisse.table_core_phase36 import OPEN_TABLE_ORDER_SQL, register_table_core_phase36
+from clean_caisse.table_core_phase36 import OPEN_TABLE_ORDER_SQL, register_table_core_phase36, service_day_bounds_ms
 
 
 class Result:
@@ -47,8 +48,11 @@ class MemoryDB:
                     return Result([owner.orders[params[0]]] if params[0] in owner.orders else [])
                 if 'FROM caisse_orders WHERE table_number IS NOT NULL' in q:
                     rows=owner.open_orders()
-                    if params:rows=[o for o in rows if o['table_number']==params[0] and o['id']!=params[1]]
+                    if params:
+                        rows=[o for o in rows if params[0]<=o.get('created_at',int(time.time()*1000))<params[1] and o.get('z_closure_id') is None]
+                        if len(params)>2:rows=[o for o in rows if o['table_number']==params[2] and o['id']!=params[3]]
                     return Result(rows)
+                if q.startswith("SELECT to_regclass('caisse_payment_transactions')"):return Result([{'name':None}])
                 if 'FROM caisse_table_reservations' in q and q.startswith('SELECT'):
                     rows=[{'table_number':n,**r} for n,r in owner.reservations.items() if r['expires_at']>owner.now]
                     if params:rows=[r for r in rows if r['table_number']==params[0]]
@@ -73,6 +77,7 @@ class MemoryDB:
                                        'total':float(params[14]),'paid_amount':0,'payment_status':'À ENCAISSER'}
                     return Result()
                 if q.startswith('INSERT INTO caisse_order_items'):return Result()
+                if q.startswith('UPDATE caisse_orders SET discount_amount'):return Result()
                 if q.startswith('UPDATE caisse_orders SET table_number'):
                     owner.orders[params[-1]]['table_number']=params[0];return Result()
                 raise AssertionError(q)
@@ -147,4 +152,20 @@ class TableOccupancyTests(unittest.TestCase):
             count=conn.execute('SELECT COUNT(*) FROM caisse_orders WHERE '+OPEN_TABLE_ORDER_SQL).fetchone()[0]
             self.assertEqual(count,expected,(status,payment,total,paid))
 
+    def test_archived_previous_day_order_does_not_block_new_service(self):
+        oid=self.create().get_json()['id'];self.db.orders[oid]['created_at']=service_day_bounds_ms()[0]-1
+        self.assertTrue(self.status()['available'])
+        self.assertEqual(self.claim('b'*24).status_code,200)
+        self.assertIn(oid,self.db.orders)
+
+    def test_paris_service_day_handles_utc_midnight_and_dst(self):
+        start,end=service_day_bounds_ms(datetime(2026,11,2,23,30,tzinfo=timezone.utc))
+        self.assertEqual(datetime.fromtimestamp(start/1000,timezone.utc),datetime(2026,11,2,23,0,tzinfo=timezone.utc))
+        self.assertEqual(end-start,24*3600000)
+        start,end=service_day_bounds_ms(datetime(2026,3,29,12,tzinfo=timezone.utc))
+        self.assertEqual(end-start,23*3600000)
+        start,end=service_day_bounds_ms(datetime(2026,10,25,12,tzinfo=timezone.utc))
+        self.assertEqual(end-start,25*3600000)
+
 if __name__=='__main__':unittest.main()
+
