@@ -284,3 +284,7 @@ register_selective_reset_phase6(app, db)
 from clean_caisse.deliveroo_production_phase6 import register_deliveroo_production_phase6
 register_deliveroo_production_phase6(app, db)
 
+
+# Dedicated production menu tool: preview first; explicit publication confirmation.
+from clean_caisse.deliveroo_production_menu_phase6 import register_deliveroo_production_menu_phase6
+register_deliveroo_production_menu_phase6(app, db)
