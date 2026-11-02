@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock,patch
 from clean_caisse.deliveroo_production_phase6 import (PRODUCTION_APP,API_HOST,AUTH_HOST,readiness,
     signature_valid,validate_order_context,validate_paid_order,missing_plu_paths,
-    production_enabled,production_line_amounts,delivery_details,register_deliveroo_production_phase6)
+    production_enabled,production_line_amounts,requires_confirmation,delivery_details,register_deliveroo_production_phase6)
 
 ENV={'CC_APP_ID':PRODUCTION_APP,'BECHEFAA_DELIVEROO_PRODUCTION_ENABLED':'1',
  'BECHEFAA_DELIVEROO_API_URL':API_HOST,'BECHEFAA_DELIVEROO_AUTH_URL':AUTH_HOST,
@@ -93,6 +93,16 @@ class ProductionTests(unittest.TestCase):
   amounts,fees=production_line_amounts(order)
   self.assertEqual(sum(amounts),1100);self.assertEqual(fees,[])
 
+ def test_past_scheduled_is_asap_only_when_proved_due_at_placement(self):
+  order=event(asap=False)['body']['order']
+  now=datetime.now(timezone.utc)
+  order['start_preparing_at']=(now-timedelta(minutes=10)).isoformat()
+  order['status_log']=[{'status':'placed','at':now.isoformat()},{'status':'accepted'}]
+  self.assertFalse(requires_confirmation(order))
+  order['status_log'][0]['at']=(now-timedelta(hours=2)).isoformat()
+  self.assertTrue(requires_confirmation(order))
+  order['status_log'][0].pop('at');self.assertTrue(requires_confirmation(order))
+
  def bridge(self):
   tree=ast.parse(Path('clean_caisse/deliveroo_production_phase6.py').read_text())
   register=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='register_deliveroo_production_phase6')
@@ -113,6 +123,7 @@ class ProductionTests(unittest.TestCase):
   self.modules.start();self.addCleanup(self.modules.stop)
   namespace={'os':os,'json':json,'db':lambda:nullcontext(self.conn),'production_enabled':production_enabled,
     'validate_paid_order':validate_paid_order,'missing_plu_paths':missing_plu_paths,'delivery_details':delivery_details,'production_line_amounts':production_line_amounts,
+    'normalized_modifiers':__import__('clean_caisse.deliveroo_production_catalog_phase6',fromlist=['normalized_modifiers']).normalized_modifiers,
     'net_item_cents':__import__('clean_caisse.deliveroo_order_pricing_phase6',fromlist=['net_item_cents']).net_item_cents,
     'datetime':datetime,'timezone':timezone,
     'order_status_and_log':__import__('clean_caisse.deliveroo_order_status_phase6',fromlist=['order_status_and_log']).order_status_and_log}
@@ -153,7 +164,7 @@ class ProductionTests(unittest.TestCase):
  def test_receiver_disabled_or_bad_signature_never_touches_db(self):
   app=SimpleNamespace(view_functions={'deliveroo_orders_webhook_phase6':Mock(),
    'deliveroo_menu_webhook_phase6':Mock(),'kitchen_orders':Mock()},logger=Mock())
-  app.get=lambda path:(lambda f:f);app.after_request=lambda f:f
+  app.get=lambda path:(lambda f:f);app.after_request=lambda f:f;app.before_request=lambda f:f
   request=SimpleNamespace(headers={},get_data=lambda **kw:b'{}',get_json=lambda **kw:{})
   db=Mock()
   with patch.dict(sys.modules,{'flask':SimpleNamespace(jsonify=lambda x:x,request=request,Response=Response)}):

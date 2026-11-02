@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from .deliveroo_order_pricing_phase6 import cents, net_item_cents
 from .deliveroo_order_status_phase6 import cancellation_ready, order_status_and_log
+from .deliveroo_production_catalog_phase6 import load_plu_map,check_order_plus,normalized_modifiers
 
 PRODUCTION_APP = 'app_5361da4b-062c-4185-99a5-0fbccc1c4cd4'
 REVISION = 'deliveroo-production-review-v2-20261102'
@@ -111,6 +112,22 @@ def missing_plu_paths(payload):
     return paths
 
 
+def requires_confirmation(order):
+    if order.get('asap') is True or order.get('status')=='confirmed': return False
+    # A scheduled-in-the-past order is treated as ASAP only when the payload
+    # proves it was already due when it was placed, not merely received late.
+    try:
+        start=datetime.fromisoformat(str(order.get('start_preparing_at') or '').replace('Z','+00:00'))
+        if start.tzinfo is None: return True
+        for entry in order.get('status_log') or []:
+            if isinstance(entry,dict) and entry.get('status')=='placed':
+                placed=datetime.fromisoformat(str(entry.get('at') or '').replace('Z','+00:00'))
+                if placed.tzinfo is not None and start<=placed: return False
+    except (ValueError,TypeError):
+        pass
+    return True
+
+
 def delivery_details(order):
     delivery=order.get('delivery') if isinstance(order.get('delivery'),dict) else {}
     address=delivery.get('address') if isinstance(delivery.get('address'),dict) else {}
@@ -143,6 +160,44 @@ def register_deliveroo_production_phase6(app, db):
     def deliveroo_production_readiness():
         # The existing production PIN middleware protects this route.
         return jsonify(readiness())
+
+    @app.get('/api/deliveroo/production-catalog-readiness-phase6')
+    def deliveroo_production_catalog_readiness():
+        try:
+            mapping=load_plu_map(db)
+            return jsonify({'ok':True,'read_only':True,'products':sum(1 for value in mapping.values() if value['parent'] is None),'options':sum(1 for value in mapping.values() if value['parent'] is not None),'calls_deliveroo':False})
+        except Exception:
+            return jsonify({'ok':False,'read_only':True,'error':'Catalogue de production absent ou ambigu'}),409
+
+    @app.get('/api/deliveroo/production-events-phase6')
+    def deliveroo_production_events_status():
+        with db() as conn:
+            exists=conn.execute("SELECT to_regclass('deliveroo_production_events') AS table_name").fetchone()
+            if not exists or not exists['table_name']:
+                return jsonify({'ok':True,'read_only':True,'revision':REVISION,'events':[]})
+            rows=conn.execute('SELECT event,received_at FROM deliveroo_production_events ORDER BY received_at DESC LIMIT 10').fetchall()
+        return jsonify({'ok':True,'read_only':True,'revision':REVISION,'events':[{'event':row['event'],'received_at':row['received_at'].isoformat()} for row in rows]})
+
+    @app.before_request
+    def protect_external_order_edits():
+        if not production_enabled(): return None
+        order_id=str((request.view_args or {}).get('order_id') or '')
+        if not order_id.startswith('deliveroo-'): return None
+        basket_edit=request.method=='PUT' and request.path.rstrip('/')=='/api/orders/'+order_id
+        local_cancel=request.method=='POST' and request.path.rstrip('/')=='/api/orders/'+order_id+'/cancel'
+        kitchen_write=request.method=='POST' and (request.path.startswith('/api/kitchen/') or 'send-kitchen' in request.path)
+        if not (basket_edit or local_cancel or kitchen_write): return None
+        with db() as conn:
+            row=conn.execute("SELECT sales_channel FROM caisse_orders WHERE id=%s",(order_id,)).fetchone()
+        if row and row['sales_channel']=='DELIVEROO' and kitchen_write:
+            with db() as conn:
+                meta=conn.execute('SELECT confirmed,prepare_at_ms FROM deliveroo_production_meta WHERE pos_id=%s',(order_id,)).fetchone()
+            if not meta or not meta['confirmed'] or (meta['prepare_at_ms'] is not None and meta['prepare_at_ms']>int(time.time()*1000)):
+                return jsonify({'ok':False,'error':'Commande programmée : attendre sa confirmation et son heure de préparation.'}),409
+            return None
+        if row and row['sales_channel']=='DELIVEROO':
+            return jsonify({'ok':False,'error':'Cette commande est gérée et payée sur Deliveroo. Effectuez sa modification ou son annulation dans Deliveroo.'}),409
+        return None
 
     def _oauth_token():
         if not production_enabled(): raise ValueError('Production disabled')
@@ -179,10 +234,10 @@ def register_deliveroo_production_phase6(app, db):
                 _ensure_metadata(conn)
                 conn.execute('''INSERT INTO deliveroo_production_meta(pos_id,order_id,display_id,prepare_at_ms,confirmed,parent_pos_id)
                     VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(pos_id) DO UPDATE SET
-                    display_id=EXCLUDED.display_id,prepare_at_ms=EXCLUDED.prepare_at_ms,
+                    display_id=EXCLUDED.display_id,prepare_at_ms=CASE WHEN deliveroo_production_meta.confirmed AND NOT EXCLUDED.confirmed THEN deliveroo_production_meta.prepare_at_ms ELSE EXCLUDED.prepare_at_ms END,
                     parent_pos_id=COALESCE(EXCLUDED.parent_pos_id,deliveroo_production_meta.parent_pos_id),
                     confirmed=deliveroo_production_meta.confirmed OR EXCLUDED.confirmed''',
-                    (pos_id,order['id'],str(order.get('display_id') or ''),prepare,status=='confirmed' or order.get('asap') is True,parent_pos))
+                    (pos_id,order['id'],str(order.get('display_id') or ''),prepare,not requires_confirmation(order),parent_pos))
 
     def _sync_status(order_id, status='succeeded', reason=None, state='accepted'):
         # Serialize final acknowledgements and throttle per order. No blind retries.
@@ -239,11 +294,11 @@ def register_deliveroo_production_phase6(app, db):
                         (sequence_guid,event,order_id,accepted_in_status_log,payload)
                     VALUES (%s,%s,%s,%s,%s::jsonb)
                     ON CONFLICT (sequence_guid) DO UPDATE SET
-                        event=EXCLUDED.event,
-                        order_id=EXCLUDED.order_id,
-                        accepted_in_status_log=EXCLUDED.accepted_in_status_log,
-                        payload=EXCLUDED.payload,
-                        received_at=NOW()
+                        sequence_guid=EXCLUDED.sequence_guid
+                    WHERE deliveroo_production_events.order_id=EXCLUDED.order_id
+                      AND deliveroo_production_events.event=EXCLUDED.event
+                      AND deliveroo_production_events.payload=EXCLUDED.payload
+                    RETURNING sequence_guid
                 """,(
                     str(request.headers.get("X-Deliveroo-Sequence-Guid") or ""),
                     str(payload.get("event") or ""),
@@ -251,6 +306,8 @@ def register_deliveroo_production_phase6(app, db):
                     _accepted_in_status_log(payload),
                     json.dumps(payload,ensure_ascii=False),
                 ))
+                if not cur.fetchone():
+                    raise ValueError("Sequence GUID already belongs to a different event")
             conn.commit()
 
     def _rejected_in_latest_status(payload):
@@ -377,12 +434,7 @@ def register_deliveroo_production_phase6(app, db):
             modifiers = item.get("modifiers") or []
             if not isinstance(modifiers, list):
                 raise ValueError("invalid modifiers")
-            options = []
-            for modifier in modifiers:
-                if isinstance(modifier, dict):
-                    label = str(modifier.get("name") or "").strip()
-                    if label:
-                        options.append({"name": label, "plu": str(modifier.get("pos_item_id") or "")})
+            options = normalized_modifiers(modifiers)
             # unit_price has two decimal places in the POS schema. Split only
             # the rounding remainder so that qty * unit_price stays exact.
             unit_cents, extra_units = divmod(net_amounts[position], qty)
@@ -528,12 +580,21 @@ def register_deliveroo_production_phase6(app, db):
             if not _accepted_in_status_log(payload): return Response(status=503)
             # Metadata precedes the POS insert: scheduled orders cannot leak to kitchen.
             _store_metadata(payload)
-            if missing_plu_paths(payload):
-                _sync_status(order['id'],'failed','pos_item_id_not_found')
-                return Response(status=200)
-            result=_bridge_order_new(payload)
-            if result == 'terminal_event_received': return Response(status=200)
-            if result not in ('created','duplicate'): return Response(status=503)
+            import uuid
+            pos_id='deliveroo-'+uuid.uuid5(uuid.NAMESPACE_URL,order['id']).hex
+            with db() as conn:
+                prior=conn.execute('SELECT payload FROM deliveroo_production_events WHERE order_id=%s',(order['id'],)).fetchall()
+                if any(order_status_and_log(row['payload'])[0] in ('canceled','cancelled','rejected') for row in prior):
+                    return Response(status=200)
+                existing=conn.execute("SELECT id FROM caisse_orders WHERE id=%s AND sales_channel='DELIVEROO'",(pos_id,)).fetchone()
+            if not existing:
+                fail_reason,invalid_plus=check_order_plus(order,load_plu_map(db))
+                if invalid_plus:
+                    _sync_status(order['id'],'failed',fail_reason)
+                    return Response(status=200)
+                result=_bridge_order_new(payload)
+                if result == 'terminal_event_received': return Response(status=200)
+                if result not in ('created','duplicate'): return Response(status=503)
             _sync_status(order['id'],state=status)
             return Response(status=200)
         except Exception:

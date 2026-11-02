@@ -3,12 +3,17 @@ on:
   push:
     branches: [deliveroo-production-review-20261102]
     paths:
-      - 'clean_caisse/deliveroo_production_phase6.py'
+      - 'clean_caisse/deliveroo_production*.py'
       - 'clean_caisse/deliveroo_order_*'
       - 'clean_caisse/payment_transactions_phase44.py'
+      - 'clean_caisse/app.py'
+      - 'clean_caisse/order_notifications_phase33.py'
+      - 'clean_caisse/kitchen_checklist.py'
+      - 'clean_caisse/history_identity_phase44.py'
       - 'clean_caisse/static/deliveroo-notice-production.js'
       - 'tests/test_deliveroo_production*'
       - '.github/workflows/deliveroo-production-review.yml'
+      - 'tests/test_deliveroo_notice_production.js'
 permissions:
   contents: read
 jobs:
@@ -41,4 +46,6 @@ jobs:
       - name: Real PostgreSQL and HTTP contracts (synthetic orders only)
         run: python -m unittest discover -s tests -p 'test_deliveroo_production_postgres.py' -v
       - name: JavaScript syntax
-        run: node --check clean_caisse/static/deliveroo-notice-production.js
+        run: |
+          node --check clean_caisse/static/deliveroo-notice-production.js
+          node tests/test_deliveroo_notice_production.js
