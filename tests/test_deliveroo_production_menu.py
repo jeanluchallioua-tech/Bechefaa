@@ -163,6 +163,40 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(json.loads(calls[3].data),{'action':'publish_menu_to_live','params':{}})
 
 
+class AccessProbeTests(unittest.TestCase):
+    def probe(self, body, status=403, content_type='application/json', path='/menu/v1/brands/brand/menus/menu'):
+        calls=[]
+        class Opener:
+            def open(self, request, **kwargs):
+                calls.append(request)
+                raise HTTPError(request.full_url,status,'synthetic',{'Content-Type':content_type},BytesIO(body))
+        result=menu.MenuTransport(Opener()).probe(path,'synthetic-token')
+        self.assertEqual([r.get_method() for r in calls],['GET'])
+        self.assertNotIn('synthetic-token',json.dumps(result))
+        return result
+
+    def test_json_error_keeps_code_without_reflected_message(self):
+        result=self.probe(b'{"code":"ACCESS_DENIED","message":"synthetic-token"}')
+        self.assertEqual(result['http_status'],403)
+        self.assertEqual(result['provider_code'],'ACCESS_DENIED')
+        self.assertNotIn('message',result)
+
+    def test_html_denial_is_classified_without_returning_body(self):
+        result=self.probe(b'<html>Access denied synthetic-token</html>',content_type='text/html')
+        self.assertEqual(result['response_class'],'access_denied')
+        self.assertNotIn('body',result)
+
+    def test_site_brand_association_and_menu_absence_are_distinct(self):
+        with patch.dict(os.environ,{'BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID':'brand'}):
+            result=self.probe(b'{"brand_id":["brand"]}',status=200,path='/site/v1/restaurant_locations/site')
+        self.assertTrue(result['configured_brand_associated'])
+        self.assertEqual(self.probe(b'{}',status=404)['http_status'],404)
+
+    def test_probe_rejects_publish_and_auth_paths(self):
+        for path in ('/menu/v3/brands/brand/jobs','/oauth2/token'):
+            with self.assertRaises(ValueError):menu.MenuTransport().probe(path,'synthetic')
+
+
 @unittest.skipUnless(fixture.URL,'Requires disposable local deliveroo_ci database')
 class MenuPostgresTests(unittest.TestCase):
     setUpClass=classmethod(fixture.ProductionPostgresTests.setUpClass.__func__)
@@ -181,6 +215,7 @@ class MenuPostgresTests(unittest.TestCase):
             def publish(self,prepared,progress):
                 outer.sent+=1;progress('publish_job');return 'job-synthetic'
             def token(self):return 'synthetic'
+            def probe(self,path,token):return {'method':'GET','path':path,'http_status':403}
             def send(self,*args,**kwargs):return {'id':'job-synthetic','status':'success','type':'publish_menu_to_live'}
         self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']=Transport()
         with self.app.test_client() as client:self.prepared=client.get('/api/deliveroo/production-menu-preview').get_json()
@@ -193,6 +228,24 @@ class MenuPostgresTests(unittest.TestCase):
     def test_preview_has_no_publication_table_or_network_side_effect(self):
         self.assertTrue(self.prepared['ok']);self.assertEqual(self.sent,0);self.assertEqual(self.http,[])
         self.assertIsNone(self.rows("SELECT to_regclass('deliveroo_production_menu_attempts') AS name")[0]['name'])
+
+    def test_access_diagnostic_does_not_create_attempt_or_activate_orders(self):
+        with self.app.test_client() as client:result=client.get('/api/deliveroo/production-menu-access').get_json()
+        self.assertTrue(result['read_only']);self.assertFalse(result['s3_url_requested'])
+        self.assertEqual(len(result['probes']),2)
+        self.assertEqual([p['http_status'] for p in result['probes']],[403,403])
+        self.assertEqual(self.sent,0)
+        self.assertEqual(os.environ['BECHEFAA_DELIVEROO_PRODUCTION_ENABLED'],'0')
+        self.assertIsNone(self.rows("SELECT to_regclass('deliveroo_production_menu_attempts') AS name")[0]['name'])
+
+    def test_access_diagnostic_preserves_uncertain_attempt(self):
+        def timeout(prepared,progress):raise TimeoutError('synthetic')
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].publish=timeout
+        self.assertEqual(self.publish().status_code,502)
+        before=self.rows('SELECT * FROM deliveroo_production_menu_attempts')
+        with self.app.test_client() as client:self.assertEqual(client.get('/api/deliveroo/production-menu-access').status_code,200)
+        self.assertEqual(self.rows('SELECT * FROM deliveroo_production_menu_attempts'),before)
+        self.assertEqual(self.publish().status_code,409)
 
     def test_origin_and_confirmation_are_required(self):
         self.assertEqual(self.publish(origin='https://other.example').status_code,403)
@@ -235,3 +288,4 @@ class MenuPostgresTests(unittest.TestCase):
         self.assertEqual(self.sent,0)
 
 if __name__=='__main__':unittest.main()
+
