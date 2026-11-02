@@ -164,14 +164,15 @@ class PreviewTests(unittest.TestCase):
 
 
 class AccessProbeTests(unittest.TestCase):
-    def probe(self, body, status=403, content_type='application/json', path='/menu/v1/brands/brand/menus/menu'):
+    def probe(self, body, status=403, content_type='application/json', path='/menu/v1/brands/brand/menus/menu', identified_client=False):
         calls=[]
         class Opener:
             def open(self, request, **kwargs):
                 calls.append(request)
                 raise HTTPError(request.full_url,status,'synthetic',{'Content-Type':content_type},BytesIO(body))
-        result=menu.MenuTransport(Opener()).probe(path,'synthetic-token')
+        result=menu.MenuTransport(Opener()).probe(path,'synthetic-token',identified_client=identified_client)
         self.assertEqual([r.get_method() for r in calls],['GET'])
+        if identified_client:self.assertEqual(calls[0].get_header('User-agent'),menu.INTEGRATOR_USER_AGENT)
         self.assertNotIn('synthetic-token',json.dumps(result))
         return result
 
@@ -195,6 +196,14 @@ class AccessProbeTests(unittest.TestCase):
     def test_probe_rejects_publish_and_auth_paths(self):
         for path in ('/menu/v3/brands/brand/jobs','/oauth2/token'):
             with self.assertRaises(ValueError):menu.MenuTransport().probe(path,'synthetic')
+
+    def test_identified_client_keeps_get_and_redacts_cloudflare_html(self):
+        result=self.probe(b'<title>Just a moment...</title><script>synthetic-token</script>',content_type='text/html',identified_client=True)
+        self.assertEqual(result['request_profile'],'identified_integrator')
+        self.assertEqual(result['response_class'],'cloudflare_challenge')
+        result=self.probe(b'<h1>Sorry, you have been blocked</h1>Error code: 1020',content_type='text/html')
+        self.assertEqual(result['response_class'],'cloudflare_block_page')
+        self.assertEqual(result['cloudflare_error_code'],'1020')
 
 
 @unittest.skipUnless(fixture.URL,'Requires disposable local deliveroo_ci database')
@@ -246,6 +255,18 @@ class MenuPostgresTests(unittest.TestCase):
         with self.app.test_client() as client:self.assertEqual(client.get('/api/deliveroo/production-menu-access').status_code,200)
         self.assertEqual(self.rows('SELECT * FROM deliveroo_production_menu_attempts'),before)
         self.assertEqual(self.publish().status_code,409)
+
+    def test_html_denial_compares_only_get_client_identification(self):
+        calls=[]
+        def probe(path,token,identified_client=False):
+            calls.append((path,identified_client))
+            return {'method':'GET','path':path,'http_status':404 if identified_client else 403,'content_type':'application/json' if identified_client else 'text/html'}
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].probe=probe
+        with self.app.test_client() as client:result=client.get('/api/deliveroo/production-menu-access').get_json()
+        self.assertEqual(len(result['probes']),4)
+        self.assertEqual([identified for _,identified in calls],[False,True,False,True])
+        self.assertEqual(calls[0][0],calls[1][0]);self.assertEqual(calls[2][0],calls[3][0])
+        self.assertEqual(self.sent,0)
 
     def test_origin_and_confirmation_are_required(self):
         self.assertEqual(self.publish(origin='https://other.example').status_code,403)
