@@ -165,6 +165,23 @@ class PreviewTests(unittest.TestCase):
 
 
 class AccessProbeTests(unittest.TestCase):
+    def test_error_summary_redacts_secrets_and_presigned_urls(self):
+        raw=json.dumps({'message':'invalid params synthetic-token https://bucket.s3.amazonaws.com/key?signature=secret','debug':'discard','errors':[{'field':'params','message':'invalid params'}]}).encode()
+        summary=menu.provider_error_summary(raw,'synthetic-token')
+        text=json.dumps(summary)
+        self.assertNotIn('synthetic-token',text);self.assertNotIn('signature',text);self.assertNotIn('discard',text)
+        self.assertIn('invalid params',text)
+
+    def test_job_400_body_is_captured_without_retry(self):
+        calls=[]
+        class Opener:
+            def open(self,req,**kwargs):
+                calls.append(req)
+                raise HTTPError(req.full_url,400,'bad request',{},BytesIO(b'{"message":"invalid params"}'))
+        with self.assertRaises(menu.ProviderFailure) as caught:menu.MenuTransport(Opener()).publish_job(DEST,'synthetic-token')
+        self.assertEqual(caught.exception.detail['fields']['message'],'invalid params')
+        self.assertEqual(len(calls),1)
+
     def probe(self, body, status=403, content_type='application/json', path='/menu/v1/brands/brand/menus/menu', identified_client=False):
         calls=[]
         class Opener:
@@ -225,6 +242,7 @@ class MenuPostgresTests(unittest.TestCase):
             def publish(self,prepared,progress):
                 outer.sent+=1;progress('publish_job');return 'job-synthetic'
             def token(self):return 'synthetic'
+            def publish_job(self,dest,token):outer.sent+=1;return 'job-only-synthetic'
             def probe(self,path,token):return {'method':'GET','path':path,'http_status':403}
             def send(self,*args,**kwargs):return {'id':'job-synthetic','status':'success','type':'publish_menu_to_live'}
         self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']=Transport()
@@ -340,6 +358,43 @@ class MenuPostgresTests(unittest.TestCase):
         with self.app.test_client() as client:prepared=client.get('/api/deliveroo/production-menu-preview').get_json()
         self.assertEqual(self.publish({k:prepared[k] for k in ('digest','confirmation')}|{'retry_denied_s3':True}).status_code,409)
         self.assertEqual(self.sent,1)
+
+    def resume_job(self,body=None):
+        with self.app.test_client() as client:
+            return client.post('/api/deliveroo/production-menu-resume-job',json=self.body if body is None else body,headers={'Origin':'https://caisse.bechefaa.fr'})
+
+    def test_job_only_recovery_never_uploads_and_preserves_refusal(self):
+        self.denied_attempt('publish_job',400)
+        def no_upload(*args):raise AssertionError('Must not upload again')
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].publish=no_upload
+        result=self.resume_job()
+        self.assertEqual(result.status_code,200);self.assertFalse(result.get_json()['upload_performed'])
+        self.assertEqual(self.sent,2);self.assertEqual(self.resume_job().status_code,409)
+        old=self.rows('SELECT previous_attempt FROM deliveroo_production_menu_job_recoveries')[0]['previous_attempt']
+        self.assertEqual(old['stage'],'publish_job');self.assertEqual(old['http_status'],400)
+
+    def test_job_error_is_saved_and_second_resume_blocked(self):
+        self.denied_attempt('publish_job',400)
+        def deny(*args):self.sent+=1;raise menu.ProviderFailure('publish_job',400,{'fields':{'message':'invalid params'}})
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].publish_job=deny
+        self.assertEqual(self.resume_job().status_code,502)
+        self.assertEqual(self.resume_job().status_code,409);self.assertEqual(self.sent,2)
+        with self.app.test_client() as client:status=client.get('/api/deliveroo/production-menu-job').get_json()
+        self.assertFalse(status['calls_deliveroo'])
+        self.assertEqual(status['attempt']['error_detail']['fields']['message'],'invalid params')
+
+    def test_job_resume_rejects_wrong_state_and_confirmation(self):
+        self.denied_attempt('publish_job',400)
+        self.assertEqual(self.resume_job({**self.body,'confirmation':'wrong'}).status_code,409)
+        for stage,status,job in (('s3_upload',400,None),('publish_job',None,None),('publish_job',400,'existing-job')):
+            with self.connect() as conn:conn.execute('UPDATE deliveroo_production_menu_attempts SET stage=%s,http_status=%s,job_id=%s',(stage,status,job))
+            self.assertEqual(self.resume_job().status_code,409)
+        self.assertEqual(self.sent,1)
+
+    def test_concurrent_job_resume_is_serialized(self):
+        self.denied_attempt('publish_job',400)
+        with ThreadPoolExecutor(max_workers=2) as pool:statuses=list(pool.map(lambda _:self.resume_job().status_code,range(2)))
+        self.assertEqual(sorted(statuses),[200,409]);self.assertEqual(self.sent,2)
 
     def test_concurrent_publication_is_serialized(self):
         with ThreadPoolExecutor(max_workers=2) as pool:statuses=list(pool.map(lambda _:self.publish().status_code,range(2)))

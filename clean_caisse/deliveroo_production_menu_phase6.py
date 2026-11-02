@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v5-identified-client-20261102'
+REVISION = 'production-menu-v6-job-diagnostic-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -127,8 +127,28 @@ def make_preview(preview, destination):
 
 
 class ProviderFailure(Exception):
-    def __init__(self, stage, status=None):
-        self.stage, self.status = stage, status
+    def __init__(self, stage, status=None, detail=None):
+        self.stage, self.status, self.detail = stage, status, detail
+
+
+def provider_error_summary(raw, token=None):
+    """Bounded diagnostic fields only; omit raw bodies and reflected secrets."""
+    try:data=json.loads(raw)
+    except (ValueError,UnicodeError):return {'format':'non_json'}
+    secrets=[token]+[os.environ.get(k) for k in ('BECHEFAA_DELIVEROO_CLIENT_ID','BECHEFAA_DELIVEROO_CLIENT_SECRET','BECHEFAA_DELIVEROO_WEBHOOK_SECRET')]
+    def clean(value,depth=0):
+        if depth>3:return None
+        if isinstance(value,str):
+            for secret in secrets:
+                if secret:value=value.replace(secret,'[masqué]')
+            value=re.sub(r'https?://[^\s"<>]+','[URL masquée]',value)
+            value=re.sub(r'(?i)bearer\s+\S+','Bearer [masqué]',value)
+            value=re.sub(r'[A-Za-z0-9_=-]{48,}','[valeur masquée]',value)
+            return re.sub(r'[\x00-\x1f<>]',' ',value)[:240]
+        if isinstance(value,list):return [clean(v,depth+1) for v in value[:8]]
+        if isinstance(value,dict):return {k:clean(v,depth+1) for k,v in value.items() if k in ('code','error','error_code','message','detail','details','errors','field','loc','type')}
+        return value if isinstance(value,(bool,int,float)) or value is None else None
+    return {'format':'json','fields':clean(data)}
 
 
 class MenuTransport:
@@ -147,8 +167,9 @@ class MenuTransport:
                 return json.loads(raw) if json_response else None
         except urllib.error.HTTPError as exc:
             code = exc.code
-            exc.close()
-            raise ProviderFailure(stage, code) from None
+            try:detail=provider_error_summary(exc.read(16384),token)
+            finally:exc.close()
+            raise ProviderFailure(stage, code, detail) from None
 
     def token(self):
         body = urllib.parse.urlencode({'client_id': os.environ['BECHEFAA_DELIVEROO_CLIENT_ID'],
@@ -249,6 +270,10 @@ class MenuTransport:
         content = json.dumps(prepared['document'], ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
         self.send(url, 'PUT', data=content, stage='s3_upload', json_response=False)
         progress('publish_job')
+        return self.publish_job(dest,token)
+
+    def publish_job(self,dest,token):
+        brand=urllib.parse.quote(dest['brand_id'],safe='')
         result = self.send(API_HOST + '/menu/v3/brands/' + brand + '/jobs', 'POST',
                data=b'{"action":"publish_menu_to_live","params":{}}', token=token, stage='publish_job')
         job = result.get('job_id') or result.get('id') if isinstance(result, dict) else None
@@ -261,6 +286,7 @@ def ensure_table(conn):
         digest TEXT PRIMARY KEY, brand_id TEXT NOT NULL, site_id TEXT NOT NULL,
         menu_id TEXT NOT NULL, state TEXT NOT NULL, stage TEXT NOT NULL,
         job_id TEXT, http_status INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
+    conn.execute('ALTER TABLE deliveroo_production_menu_attempts ADD COLUMN IF NOT EXISTS error_detail JSONB')
 
 
 def register_deliveroo_production_menu_phase6(app, db):
@@ -347,7 +373,7 @@ def register_deliveroo_production_menu_phase6(app, db):
                             ON CONFLICT DO NOTHING RETURNING digest''',(digest,)).fetchone()
                         if not archived:
                             return jsonify(ok=False,error='Reprise unique déjà utilisée. Aucun nouvel envoi.'),409
-                        conn.execute("UPDATE deliveroo_production_menu_attempts SET state='started',stage='oauth',http_status=NULL,created_at=NOW() WHERE digest=%s",(digest,))
+                        conn.execute("UPDATE deliveroo_production_menu_attempts SET state='started',stage='oauth',http_status=NULL,error_detail=NULL,created_at=NOW() WHERE digest=%s",(digest,))
                     else:
                         conn.execute("INSERT INTO deliveroo_production_menu_attempts(digest,brand_id,site_id,menu_id,state,stage) VALUES(%s,%s,%s,%s,'started','oauth')", (digest,dest['brand_id'],dest['site_id'],dest['menu_id']))
                 def progress(stage):
@@ -358,11 +384,52 @@ def register_deliveroo_production_menu_phase6(app, db):
                     return jsonify(ok=True, published=False, submitted=True, digest=digest, job_id=job, target=dest, next='Vérifier le statut du job et le menu dans le Hub. Les commandes ne sont pas activées.')
                 except Exception as exc:
                     stage, status = getattr(exc,'stage',None), getattr(exc,'status',None)
-                    with conn.transaction(): conn.execute("UPDATE deliveroo_production_menu_attempts SET state='uncertain',stage=COALESCE(%s,stage),http_status=%s WHERE digest=%s", (stage,status,digest))
-                    return jsonify(ok=False, error='Résultat non confirmé. Ne pas renvoyer le menu.', digest=digest, stage=stage, http_status=status), 502
+                    detail=getattr(exc,'detail',None)
+                    with conn.transaction(): conn.execute("UPDATE deliveroo_production_menu_attempts SET state='uncertain',stage=COALESCE(%s,stage),http_status=%s,error_detail=%s::jsonb WHERE digest=%s", (stage,status,json.dumps(detail),digest))
+                    return jsonify(ok=False, error='Résultat non confirmé. Ne pas renvoyer le menu.', digest=digest, stage=stage, http_status=status,deliveroo_error=detail), 502
             finally:
                 conn.execute('SELECT pg_advisory_unlock(hashtext(%s))', ('deliveroo-production-menu:' + dest['brand_id'],))
                 conn.commit()
+
+    @app.post('/api/deliveroo/production-menu-resume-job')
+    def production_menu_resume_job():
+        if request.headers.get('Origin')!='https://caisse.bechefaa.fr':return jsonify(ok=False,error='Origine invalide.'),403
+        body=request.get_json(silent=True)
+        try:prepared=prepare()
+        except Exception:return jsonify(ok=False,error='Aperçu indisponible.'),409
+        if not isinstance(body,dict) or any(body.get(k)!=prepared[k] for k in ('digest','confirmation')):
+            return jsonify(ok=False,error='Vérifiez l’aperçu et la confirmation.'),409
+        dest,digest=prepared['target'],prepared['digest']
+        with db() as conn:
+            locked=conn.execute('SELECT pg_try_advisory_lock(hashtext(%s)) AS acquired',('deliveroo-production-menu:'+dest['brand_id'],)).fetchone()['acquired']
+            conn.commit()
+            if not locked:return jsonify(ok=False,error='Une publication est déjà en cours.'),409
+            try:
+                with conn.transaction():
+                    ensure_table(conn)
+                    rows=conn.execute("SELECT * FROM deliveroo_production_menu_attempts WHERE digest=%s OR (brand_id=%s AND state IN ('started','submitted','uncertain')) LIMIT 2",(digest,dest['brand_id'])).fetchall()
+                    prior=rows[0] if len(rows)==1 else None
+                    if not prior or any(prior[k]!=dest[k] for k in ('brand_id','site_id','menu_id')) or prior['digest']!=digest or prior['state']!='uncertain' or prior['stage']!='publish_job' or prior['http_status']!=400 or prior['job_id'] is not None:
+                        return jsonify(ok=False,error='Reprise job interdite pour cet état. Aucun envoi.'),409
+                    conn.execute('''CREATE TABLE IF NOT EXISTS deliveroo_production_menu_job_recoveries(
+                        digest TEXT PRIMARY KEY, previous_attempt JSONB NOT NULL,
+                        recovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
+                    claimed=conn.execute('''INSERT INTO deliveroo_production_menu_job_recoveries(digest,previous_attempt)
+                        SELECT digest,to_jsonb(a) FROM deliveroo_production_menu_attempts a WHERE digest=%s
+                        ON CONFLICT DO NOTHING RETURNING digest''',(digest,)).fetchone()
+                    if not claimed:return jsonify(ok=False,error='Reprise job unique déjà utilisée.'),409
+                    conn.execute("UPDATE deliveroo_production_menu_attempts SET state='started',stage='publish_job',http_status=NULL,error_detail=NULL,created_at=NOW() WHERE digest=%s",(digest,))
+                try:
+                    client=app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
+                    job=client.publish_job(dest,client.token())
+                    with conn.transaction():conn.execute("UPDATE deliveroo_production_menu_attempts SET state='submitted',stage='job_created',job_id=%s WHERE digest=%s",(job,digest))
+                    return jsonify(ok=True,submitted=True,job_id=job,upload_performed=False,s3_url_requested=False,order_routing_changed=False)
+                except Exception as exc:
+                    stage,status,detail=getattr(exc,'stage','publish_job'),getattr(exc,'status',None),getattr(exc,'detail',None)
+                    with conn.transaction():conn.execute("UPDATE deliveroo_production_menu_attempts SET state='uncertain',stage=%s,http_status=%s,error_detail=%s::jsonb WHERE digest=%s",(stage,status,json.dumps(detail),digest))
+                    return jsonify(ok=False,stage=stage,http_status=status,deliveroo_error=detail,error='Ne pas recommencer. Motif du refus enregistré.',upload_performed=False),502
+            finally:
+                conn.execute('SELECT pg_advisory_unlock(hashtext(%s))',('deliveroo-production-menu:'+dest['brand_id'],));conn.commit()
 
     @app.get('/api/deliveroo/production-menu-job')
     def production_menu_job():
@@ -371,7 +438,7 @@ def register_deliveroo_production_menu_phase6(app, db):
             with db() as conn:
                 exists=conn.execute("SELECT to_regclass('deliveroo_production_menu_attempts') AS name").fetchone()['name']
                 if not exists: return jsonify(ok=True, attempt=None, calls_deliveroo=False)
-                row = conn.execute('SELECT digest,state,stage,job_id,http_status FROM deliveroo_production_menu_attempts WHERE brand_id=%s AND site_id=%s AND menu_id=%s ORDER BY created_at DESC LIMIT 1', (dest['brand_id'],dest['site_id'],dest['menu_id'])).fetchone()
+                row = conn.execute("SELECT digest,state,stage,job_id,http_status,to_jsonb(a)->'error_detail' AS error_detail FROM deliveroo_production_menu_attempts a WHERE brand_id=%s AND site_id=%s AND menu_id=%s ORDER BY created_at DESC LIMIT 1", (dest['brand_id'],dest['site_id'],dest['menu_id'])).fetchone()
             if not row or not row['job_id']: return jsonify(ok=True, attempt=dict(row) if row else None, calls_deliveroo=False)
             client=app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
             data=client.send(API_HOST+'/menu/v3/brands/'+urllib.parse.quote(dest['brand_id'],safe='')+'/jobs/'+urllib.parse.quote(row['job_id'],safe=''), 'GET',token=client.token(),stage='job_status')
@@ -391,11 +458,12 @@ PAGE = '''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewp
 <button id="load">1. Préparer l’aperçu sans envoyer</button><pre id="summary">Aucun aperçu chargé.</pre><a id="document" hidden>Télécharger le menu à vérifier</a>
 <label for="confirm">Pour publier, recopiez exactement la phrase affichée dans l’aperçu :</label><input id="confirm" autocomplete="off"><button id="publish" disabled>2. Publier ce menu en production</button>
 <label style="display:block"><input id="retry" type="checkbox" style="width:auto"> Autoriser une reprise unique si la tentative précédente a été refusée avant l’envoi du menu (403 à la création de l’URL).</label>
-<button id="status">3. Lire le statut de la dernière tentative</button><pre id="result" role="status">Aucun envoi effectué depuis cet écran.</pre></main>
+<button id="resume" disabled>4. Reprendre uniquement le job après refus 400</button><br><button id="status">3. Lire le statut de la dernière tentative</button><pre id="result" role="status">Aucun envoi effectué depuis cet écran.</pre></main>
 <script>let preview=null,blobUrl=null;const el=id=>document.getElementById(id);const show=x=>el('result').textContent=JSON.stringify(x,null,2);
-el('load').onclick=async()=>{el('publish').disabled=true;el('confirm').value='';preview=null;try{let r=await fetch('/api/deliveroo/production-menu-preview',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok){show(d);return}preview=d;let {document,...summary}=d;el('summary').textContent=JSON.stringify(summary,null,2);if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=URL.createObjectURL(new Blob([JSON.stringify(document,null,2)],{type:'application/json'}));el('document').href=blobUrl;el('document').download='bechefaa-menu-production.json';el('document').textContent='Télécharger le menu à vérifier';el('document').hidden=false;}catch(e){show({error:'Aperçu indisponible.'})}};
-el('confirm').oninput=()=>{el('publish').disabled=!preview||el('confirm').value!==preview.confirmation};
-el('publish').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value,retry_denied_s3:el('retry').checked})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Consultez le statut ; ne renvoyez pas.'})}finally{preview=null;el('confirm').value='';el('retry').checked=false;el('load').disabled=false}};
+el('load').onclick=async()=>{el('resume').disabled=true;el('publish').disabled=true;el('confirm').value='';preview=null;try{let r=await fetch('/api/deliveroo/production-menu-preview',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok){show(d);return}preview=d;let {document,...summary}=d;el('summary').textContent=JSON.stringify(summary,null,2);if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=URL.createObjectURL(new Blob([JSON.stringify(document,null,2)],{type:'application/json'}));el('document').href=blobUrl;el('document').download='bechefaa-menu-production.json';el('document').textContent='Télécharger le menu à vérifier';el('document').hidden=false;}catch(e){show({error:'Aperçu indisponible.'})}};
+el('confirm').oninput=()=>{el('publish').disabled=el('resume').disabled=!preview||el('confirm').value!==preview.confirmation};
+el('publish').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('resume').disabled=true;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value,retry_denied_s3:el('retry').checked})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Consultez le statut ; ne renvoyez pas.'})}finally{preview=null;el('confirm').value='';el('retry').checked=false;el('load').disabled=false}};
+el('resume').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('resume').disabled=true;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-resume-job',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Ne pas recommencer.'})}finally{preview=null;el('confirm').value='';el('load').disabled=false}};
 el('status').onclick=async()=>{el('status').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-job',{cache:'no-store'});show(await r.json())}catch(e){show({error:'Statut indisponible.'})}finally{el('status').disabled=false}};
 </script></html>'''
 
