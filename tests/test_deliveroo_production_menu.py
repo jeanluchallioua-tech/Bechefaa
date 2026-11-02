@@ -18,6 +18,84 @@ def catalog():
 
 DEST={'brand_id':'brand-production','site_id':'site-production','menu_id':menu.MENU_ID}
 
+def recipes():
+    raw=catalog();m=raw['payload']['menu']
+    def item(key,name,kind='ITEM',price=0,groups=None):
+        return {'id':key,'plu':key.removeprefix('item_'),'name':{'fr':name},'type':kind,
+                'price_info':{'price':price,'overrides':[]},'modifier_ids':groups or []}
+    m['items']=[item('item_2','Formule Falafel','BUNDLE',1800,['bundle_2_drink']),
+        item('item_4','Formule Enfant','BUNDLE',1560,['bundle_4_main','bundle_4_drink']),
+        item('item_8','Tender Chicken Maison',price=960,groups=['type_8','count_8']),
+        item('classic','Classic Panure traditionnelle Maison','CHOICE'),
+        item('crispy','Crispy Panure extra croustillante Maison','CHOICE'),
+        item('cheesy','Cheesy cœur cheddar','CHOICE',180),item('five','5 pièces','CHOICE'),
+        item('ten','10 pièces','CHOICE',840),item('item_76','Caprisun',price=180),
+        item('item_70','Coca cola',price=360),item('item_68','Evian',price=360)]
+    for row in m['items']:
+        if row['id'] in ('item_76','item_70','item_68'):
+            row['price_info']['overrides']=[{'type':'ITEM','id':'item_2','price':100 if row['id']=='item_70' else 0}, {'type':'ITEM','id':'item_4','price':0}]
+    def mod(key,ids):return {'id':key,'item_ids':ids,'name':{'fr':key},'min_selection':1,'max_selection':1}
+    m['modifiers']=[mod('bundle_2_drink',['item_76','item_70','item_68']),
+        mod('bundle_4_main',['item_8']),mod('bundle_4_drink',['item_76','item_70','item_68']),
+        mod('type_8',['classic','crispy','cheesy']),mod('count_8',['five','ten'])]
+    m['categories'][0]['item_ids']=[x['id'] for x in m['items'] if x['type']!='CHOICE']
+    return raw
+
+class ProductionRecipeTests(unittest.TestCase):
+    def fixed(self):return menu.make_preview(recipes(),DEST)['document']['menu']
+    def test_falafel_is_eighteen_euros_and_coca_has_no_premium(self):
+        fixed=self.fixed();items={x['id']:x for x in fixed['items']}
+        self.assertEqual(items['item_2']['price_info']['price'],1800)
+        self.assertEqual(next(x['price'] for x in items['item_70']['price_info']['overrides'] if x['id']=='item_2'),0)
+
+    def test_kids_caprisun_is_included_other_drinks_use_marked_premium(self):
+        fixed=self.fixed();items={x['id']:x for x in fixed['items']};mods={x['id']:x for x in fixed['modifiers']}
+        for key in mods['bundle_4_drink']['item_ids']:
+            self.assertEqual(next(x['price'] for x in items[key]['price_info']['overrides'] if x['id']=='item_4'),0 if key=='item_76' else 180)
+
+    def test_kids_has_classic_or_crispy_without_quantity_or_cheesy(self):
+        fixed=self.fixed();items={x['id']:x for x in fixed['items']};mods={x['id']:x for x in fixed['modifiers']}
+        child=items[mods['bundle_4_main']['item_ids'][0]]
+        self.assertEqual(len(child['modifier_ids']),1)
+        self.assertEqual(mods[child['modifier_ids'][0]]['item_ids'],['classic','crispy'])
+        self.assertEqual(child['plu'],'8')
+
+    def test_standalone_tenders_and_source_are_preserved(self):
+        raw=recipes();before=copy.deepcopy(raw);fixed=menu.make_preview(raw,DEST)['document']['menu']
+        self.assertEqual(raw,before)
+        original=next(x for x in raw['payload']['menu']['items'] if x['id']=='item_8')
+        self.assertEqual(next(x for x in fixed['items'] if x['id']=='item_8'),original)
+
+    def test_future_markup_changes_affect_drink_surcharge_once(self):
+        raw=recipes();raw['markup_percentage']=10
+        fixed=menu.make_preview(raw,DEST)['document']['menu']
+        cola=next(x for x in fixed['items'] if x['id']=='item_70')
+        self.assertEqual(next(x['price'] for x in cola['price_info']['overrides'] if x['id']=='item_4'),165)
+
+    def test_unexpected_falafel_price_blocks_preview(self):
+        raw=recipes();raw['payload']['menu']['items'][0]['price_info']['price']=1900
+        with self.assertRaises(ValueError):menu.make_preview(raw,DEST)
+
+    def test_inferred_diet_labels_are_not_published_or_written_to_source(self):
+        raw=recipes();raw['payload']['menu']['items'][0]['diets']=['dairy_free','vegetarian']
+        fixed=menu.make_preview(raw,DEST)['document']['menu']
+        self.assertEqual(fixed['items'][0]['diets'],[])
+        self.assertEqual(raw['payload']['menu']['items'][0]['diets'],['dairy_free','vegetarian'])
+
+    def test_known_bundle_constituents_use_their_own_modifier_plus(self):
+        from clean_caisse.deliveroo_production_catalog_phase6 import check_order_plus
+        mapping={'4':{'name':'formule enfant','parent':None},'8':{'name':'tender chicken maison','parent':None},'opt:8:0:1':{'name':'classic','parent':'8'}}
+        order={'items':[{'pos_item_id':'4','name':'Formule Enfant','modifiers':[{'pos_item_id':'8','name':'Tender Chicken Maison','modifiers':[{'pos_item_id':'opt:8:0:1','name':'Classic'}]}]}]}
+        self.assertEqual(check_order_plus(order,mapping),(None,[]))
+        order['items'][0]['modifiers'][0]['name']='Wrong product'
+        self.assertEqual(check_order_plus(order,mapping)[0],'pos_item_id_mismatched')
+
+    def test_unrelated_product_is_not_accepted_as_bundle_child(self):
+        from clean_caisse.deliveroo_production_catalog_phase6 import check_order_plus
+        mapping={'4':{'name':'formule enfant','parent':None},'99':{'name':'autre','parent':None}}
+        order={'items':[{'pos_item_id':'4','name':'Formule Enfant','modifiers':[{'pos_item_id':'99','name':'Autre'}]}]}
+        self.assertEqual(check_order_plus(order,mapping)[0],'pos_item_id_mismatched')
+
 class PreviewTests(unittest.TestCase):
     def test_preview_is_unchanged_and_target_bound(self):
         raw=catalog();before=copy.deepcopy(raw)
