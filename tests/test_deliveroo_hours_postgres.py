@@ -83,4 +83,32 @@ class SharedHoursPostgresTests(unittest.TestCase):
   cutoff=self.now.replace(hour=15,minute=0).astimezone(timezone.utc)
   self.assertFalse(self.state(cutoff)['open'])
 
+ def test_deliveroo_hours_save_and_reset_preserve_site_settings(self):
+  client=self.app.test_client()
+  endpoint='/api/admin/religious-calendar/hours/future-candle'
+  site={'last_order':'13:00','closure_time':'13:30'}
+  specific={'last_order':'12:00','closure_time':'12:30'}
+  self.assertEqual(client.put(endpoint,json=site).status_code,200)
+  self.assertEqual(client.put(endpoint+'?channel=deliveroo',json=specific).status_code,200)
+  when=(self.now+timedelta(days=4)).replace(hour=12,minute=15)
+  self.assertFalse(self.state(when)['open'])
+  self.assertTrue(self.engine(now=when,channel='site',strict=True)['open'])
+  with self.connect() as conn:
+   rows=conn.execute('SELECT event_key,hours_json FROM caisse_religious_hours_overrides ORDER BY event_key').fetchall()
+  self.assertEqual({r['event_key']:r['hours_json'] for r in rows},{'future-candle':site,'deliveroo:future-candle':specific})
+  self.assertEqual(client.put(endpoint+'?channel=deliveroo',json={}).status_code,200)
+  self.assertTrue(self.state(when)['open'])
+  self.assertEqual(self.rows('SELECT event_key,hours_json FROM caisse_religious_hours_overrides')[0]['hours_json'],site)
+
+ def test_deliveroo_hours_refuse_reopening_before_religious_exit(self):
+  client=self.app.test_client()
+  before=(self.now+timedelta(days=5)).replace(hour=17).isoformat()
+  response=client.put('/api/admin/religious-calendar/hours/future-candle?channel=deliveroo',json={'resume_at':before})
+  self.assertEqual(response.status_code,400)
+  self.assertEqual(self.rows('SELECT event_key FROM caisse_religious_hours_overrides'),[])
+
+ def test_unknown_hours_channel_is_rejected(self):
+  response=self.app.test_client().put('/api/admin/religious-calendar/hours/future-candle?channel=unknown',json={})
+  self.assertEqual(response.status_code,400)
+
 if __name__=='__main__':unittest.main()
