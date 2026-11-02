@@ -95,7 +95,7 @@ def register_site_order_hours_phase6(app,db):
 
         # 2) Calendrier fêtes & Chabbat : exception datée prioritaire.
         calendar_fn=app.config.get("BECHEFAA_SITE_ORDER_CALENDAR_OVERRIDE")
-        calendar_override=(calendar_fn(now,strict=True) if strict else calendar_fn(now)) if callable(calendar_fn) else None
+        calendar_override=(calendar_fn(now,strict=True,channel=channel) if strict else calendar_fn(now)) if callable(calendar_fn) else None
         if strict and not callable(calendar_fn): raise ValueError("Calendrier non disponible")
         if calendar_override:
             mode=calendar_override.get("mode")
