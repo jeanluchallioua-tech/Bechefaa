@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v9-bundle-choice-20261102'
+REVISION = 'production-menu-v10-kids-options-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -69,8 +69,8 @@ def production_formulas(menu, markup):
     if tender_id in items or group_id in modifiers:
         raise ValueError('Identifiants de formule déjà utilisés.')
     tender['id'] = tender_id
-    # V3 requires the fully expanded CHOICE for a bundle-only variant.
-    # ITEM would require a category and create another standalone product.
+    # A normal composed ITEM can offer this context-only CHOICE. The active
+    # production bundle validator rejects CHOICE children under BUNDLE.
     tender['type'] = 'CHOICE'
     tender['modifier_ids'] = [group_id]
     tender['price_info']['overrides'] = [{'type': 'ITEM', 'id': 'item_4', 'price': 0}]
@@ -79,6 +79,13 @@ def production_formulas(menu, markup):
     menu['items'].append(tender)
     menu['modifiers'].append(group)
     modifiers['bundle_4_main']['item_ids'] = [tender_id]
+    child_bundle['type']='ITEM'
+    child_bundle.pop('party_size',None)
+    for modifier_id in child_bundle['modifier_ids']:
+        if modifier_id not in ('bundle_4_main','bundle_4_side','bundle_4_drink'):
+            raise ValueError('Option inattendue dans la Formule Enfant.')
+        modifiers[modifier_id]['type']=('product-variation' if modifier_id=='bundle_4_main'
+                                        else 'up-sell-existing-items')
     drinks = modifiers['bundle_2_drink']['item_ids']
     if 'item_76' not in drinks:
         raise ValueError('Capri-Sun absent du choix de boissons.')
@@ -100,6 +107,20 @@ def validate_category_assignments(menu):
             raise ValueError('Article sans catégorie : '+item['id'])
         if kind=='CHOICE' and item['id'] in categorized:
             raise ValueError('Un choix de formule/option ne doit pas figurer dans une catégorie : '+item['id'])
+
+
+def validate_bundle_structure(menu):
+    items={x['id']:x for x in menu['items']}
+    modifiers={x['id']:x for x in menu['modifiers']}
+    for item in menu['items']:
+        if item.get('type')!='BUNDLE':continue
+        for key in item.get('modifier_ids',[]):
+            group=modifiers[key]
+            if group.get('type')!='bundle-item':
+                raise ValueError('Groupe bundle invalide : '+key)
+            for child_id in group.get('item_ids',[]):
+                if items[child_id].get('type','ITEM')!='ITEM':
+                    raise ValueError('Un bundle exige un article ITEM : '+child_id)
 
 
 def make_preview(preview, destination):
@@ -127,6 +148,7 @@ def make_preview(preview, destination):
         if any(x not in item_map for x in row.get('item_ids', [])):
             raise ValueError('Référence article inconnue.')
     validate_category_assignments(menu)
+    validate_bundle_structure(menu)
     document = {'menu': menu, 'site_ids': [destination['site_id']], 'pos_name': 'BECHEFAA'}
     content = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     digest = hashlib.sha256(json.dumps(destination, sort_keys=True).encode() + b'\n' + content).hexdigest()
