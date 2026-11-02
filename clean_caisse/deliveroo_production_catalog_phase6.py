@@ -43,6 +43,10 @@ def load_plu_map(db):
 def check_order_plus(order,mapping):
     """Return (API fail reason, invalid field paths), or (None, [])."""
     errors=[];unknown=False
+    # Real products may be nested as constituents of the two exported bundles.
+    # Their own modifiers still belong to that constituent's original PLU.
+    drinks={'68','70','71','72','73','74','75','76'}
+    bundle_children={'2':{'42','63'} | drinks, '4':{'8','63'} | drinks}
     def walk(items,path,parent=None):
         nonlocal unknown
         for index,item in enumerate(items or []):
@@ -50,9 +54,12 @@ def check_order_plus(order,mapping):
             if not isinstance(item,dict): unknown=True;errors.append(current);continue
             plu=str(item.get('pos_item_id') or '').strip();expected=mapping.get(plu)
             if not expected: unknown=True;errors.append(current)
-            elif expected['parent']!=parent or expected['name']!=normalized_name(item.get('name') or item.get('operational_name')):
+            elif ((expected['parent']!=parent and not
+                   (expected['parent'] is None and plu in bundle_children.get(parent,set())))
+                  or expected['name']!=normalized_name(item.get('name') or item.get('operational_name'))):
                 errors.append(current)
-            walk(item.get('modifiers'),current+'.modifiers',plu if parent is None else parent)
+            next_parent=plu if expected and expected['parent'] is None else parent
+            walk(item.get('modifiers'),current+'.modifiers',next_parent)
     walk(order.get('items'),'items')
     return ('pos_item_id_not_found' if unknown else 'pos_item_id_mismatched',errors) if errors else (None,[])
 
@@ -69,3 +76,4 @@ def normalized_modifiers(items):
                        'quantity':qty,'plu':str(item.get('pos_item_id') or '')})
         result.extend(normalized_modifiers(item.get('modifiers')))
     return result
+

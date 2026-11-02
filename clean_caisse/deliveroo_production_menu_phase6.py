@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+from decimal import Decimal, ROUND_HALF_UP
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v1-20261102'
+REVISION = 'production-menu-v2-formulas-20261102'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
 
@@ -30,10 +31,68 @@ def target():
     return {'brand_id': brand, 'site_id': site, 'menu_id': MENU_ID}
 
 
+def production_formulas(menu, markup):
+    """Confirmed production recipes; leave certified sandbox builder unchanged."""
+    # The shared certification builder invents diet labels rather than reading
+    # verified product data. Do not publish those assertions in production.
+    for item in menu.get('items', []):
+        if 'diets' in item:
+            item['diets'] = []
+    items = {item['id']: item for item in menu.get('items', [])}
+    modifiers = {row['id']: row for row in menu.get('modifiers', [])}
+    falafel = items.get('item_2')
+    if falafel and falafel.get('type') == 'BUNDLE':
+        if falafel.get('price_info', {}).get('price') != 1800:
+            raise ValueError('La Formule Falafel Deliveroo doit rester à 18 €.')
+        # Remove the certification-only premium Coca. All bundle drinks included.
+        for item_id in modifiers['bundle_2_drink']['item_ids']:
+            for override in items[item_id]['price_info'].get('overrides', []):
+                if override.get('id') == 'item_2' and override.get('type') == 'ITEM':
+                    override['price'] = 0
+    child_bundle = items.get('item_4')
+    if not child_bundle or child_bundle.get('type') != 'BUNDLE':
+        return
+    tender = copy.deepcopy(items['item_8'])
+    original_groups = [modifiers[key] for key in tender.get('modifier_ids', [])]
+    type_group = next((group for group in original_groups
+                       if any(items[key].get('name', {}).get('fr', '').casefold().startswith('classic')
+                              for key in group['item_ids'])), None)
+    if type_group is None:
+        raise ValueError('Choix Classique/Crispy introuvable pour la Formule Enfant.')
+    selected = [key for key in type_group['item_ids']
+                if items[key].get('name', {}).get('fr', '').casefold().startswith(('classic', 'crispy'))]
+    if len(selected) != 2:
+        raise ValueError('La Formule Enfant exige uniquement Classique ou Crispy.')
+    # Context-specific copy: do not remove quantity/Cheesy options on standalone tenders.
+    tender_id, group_id = 'prod_kids_tender', 'prod_kids_tender_type'
+    if tender_id in items or group_id in modifiers:
+        raise ValueError('Identifiants de formule déjà utilisés.')
+    tender['id'] = tender_id
+    tender['modifier_ids'] = [group_id]
+    tender['price_info']['overrides'] = [{'type': 'ITEM', 'id': 'item_4', 'price': 0}]
+    group = copy.deepcopy(type_group)
+    group.update(id=group_id, item_ids=selected, min_selection=1, max_selection=1)
+    menu['items'].append(tender)
+    menu['modifiers'].append(group)
+    modifiers['bundle_4_main']['item_ids'] = [tender_id]
+    drinks = modifiers['bundle_2_drink']['item_ids']
+    if 'item_76' not in drinks:
+        raise ValueError('Capri-Sun absent du choix de boissons.')
+    premium = int((Decimal('1.50') * (1 + Decimal(str(markup)) / 100) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    modifiers['bundle_4_drink']['item_ids'] = list(drinks)
+    for item_id in drinks:
+        price_info = items[item_id]['price_info']
+        overrides = [row for row in price_info.get('overrides', [])
+                     if not (row.get('id') == 'item_4' and row.get('type') == 'ITEM')]
+        overrides.append({'type': 'ITEM', 'id': 'item_4', 'price': 0 if item_id == 'item_76' else premium})
+        price_info['overrides'] = overrides
+
+
 def make_preview(preview, destination):
     if not preview.get('ok') or preview.get('warnings') or preview.get('summary', {}).get('warnings'):
         raise ValueError('Corrigez les avertissements avant publication.')
     menu = copy.deepcopy(preview['payload']['menu'])
+    production_formulas(menu, preview.get('markup_percentage', 20))
     items, categories, modifiers = menu.get('items', []), menu.get('categories', []), menu.get('modifiers', [])
     if not items or not categories or menu.get('currency_code') != 'EUR':
         raise ValueError('Menu vide ou devise inattendue.')
@@ -56,8 +115,12 @@ def make_preview(preview, destination):
     document = {'menu': menu, 'site_ids': [destination['site_id']], 'pos_name': 'BECHEFAA'}
     content = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     digest = hashlib.sha256(json.dumps(destination, sort_keys=True).encode() + b'\n' + content).hexdigest()
+    summary = {**preview['summary'], 'main_items': sum(x.get('type') == 'ITEM' for x in items),
+               'choice_items': sum(x.get('type') == 'CHOICE' for x in items),
+               'bundles': sum(x.get('type') == 'BUNDLE' for x in items), 'modifiers': len(modifiers),
+               'required_modifiers': sum(x.get('min_selection', 0) > 0 for x in modifiers)}
     return {'ok': True, 'revision': REVISION, 'target': destination, 'digest': digest,
-            'summary': preview['summary'], 'markup_percentage': preview.get('markup_percentage'),
+            'summary': summary, 'markup_percentage': preview.get('markup_percentage'),
             'bytes': len(content), 'upload_performed': False, 'calls_deliveroo': False,
             'document': document, 'confirmation': f"PUBLIER {destination['brand_id']} / {destination['site_id']}"}
 
