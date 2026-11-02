@@ -165,6 +165,18 @@ class PreviewTests(unittest.TestCase):
 
 
 class AccessProbeTests(unittest.TestCase):
+    def test_job_outcome_keeps_nested_validation_and_redacts_sensitive_data(self):
+        data={'id':'job','status':'failed','outcome':{'errors':[{'path':'menu.items[2].price_info','message':'invalid price'}],'token':'synthetic-token','report_url':'https://bucket.s3.amazonaws.com/report?signature=secret'},'raw_menu':'not exposed'}
+        result,truncated=menu.job_result_summary(data,'synthetic-token')
+        self.assertFalse(truncated)
+        self.assertEqual(result['outcome']['errors'][0]['path'],'menu.items[2].price_info')
+        self.assertNotIn('synthetic-token',json.dumps(result));self.assertNotIn('signature',json.dumps(result))
+        self.assertNotIn('raw_menu',result)
+
+    def test_job_validation_diagnostic_is_bounded_and_marks_truncation(self):
+        result,truncated=menu.job_result_summary({'outcome':{'errors':['x'*3000]*150}},'synthetic-token')
+        self.assertTrue(truncated);self.assertEqual(len(result['outcome']['errors']),100)
+        self.assertEqual(len(result['outcome']['errors'][0]),2000)
     def test_error_summary_redacts_secrets_and_presigned_urls(self):
         raw=json.dumps({'message':'invalid params synthetic-token https://bucket.s3.amazonaws.com/key?signature=secret','debug':'discard','errors':[{'field':'params','message':'invalid params'}]}).encode()
         summary=menu.provider_error_summary(raw,'synthetic-token')
@@ -429,6 +441,19 @@ class MenuPostgresTests(unittest.TestCase):
         with self.app.test_client() as client:result=client.get('/api/deliveroo/production-menu-job').get_json()
         self.assertEqual(result['response']['status'],'success');self.assertEqual(self.sent,1)
         self.assertEqual(self.rows('SELECT state FROM deliveroo_production_menu_attempts')[0]['state'],'success')
+
+    def test_failed_job_status_exposes_outcome_without_republication(self):
+        self.assertEqual(self.publish().status_code,200)
+        calls=[]
+        def send(url,method,**kwargs):
+            calls.append((url,method))
+            return {'id':'job-synthetic','status':'failed','type':'publish_menu_to_live','details':{'validation':{'status':'failed'}},'outcome':{'errors':[{'message':'invalid item type','item_id':'item'}]}}
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].send=send
+        with self.app.test_client() as client:result=client.get('/api/deliveroo/production-menu-job').get_json()
+        self.assertEqual(result['response']['outcome']['errors'][0]['message'],'invalid item type')
+        self.assertEqual(result['attempt']['state'],'failed');self.assertEqual(self.sent,1)
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0][1],'GET')
+        self.assertFalse(result['upload_performed']);self.assertFalse(result['s3_url_requested'])
 
     def test_legacy_test_buttons_cannot_publish_from_production(self):
         with self.app.test_client() as client:

@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v7-job-menu-id-20261102'
+REVISION = 'production-menu-v8-job-outcome-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -149,6 +149,39 @@ def provider_error_summary(raw, token=None):
         if isinstance(value,dict):return {k:clean(v,depth+1) for k,v in value.items() if k in ('code','error','error_code','message','detail','details','errors','field','loc','type')}
         return value if isinstance(value,(bool,int,float)) or value is None else None
     return {'format':'json','fields':clean(data)}
+
+
+def job_result_summary(data,token):
+    """Expose validation diagnostics, bounded and redacted, without raw menu data."""
+    secrets=[token]+[os.environ.get(k) for k in ('BECHEFAA_DELIVEROO_CLIENT_ID','BECHEFAA_DELIVEROO_CLIENT_SECRET','BECHEFAA_DELIVEROO_WEBHOOK_SECRET')]
+    remaining=5000
+    truncated=False
+    def clean(value,depth=0):
+        nonlocal remaining,truncated
+        remaining-=1
+        if remaining<0 or depth>12:
+            truncated=True;return '[tronqué]'
+        if isinstance(value,str):
+            for secret in secrets:
+                if secret:value=value.replace(secret,'[masqué]')
+            value=re.sub(r'https?://[^\s"<>]+','[URL masquée]',value)
+            value=re.sub(r'(?i)bearer\s+\S+','Bearer [masqué]',value)
+            value=re.sub(r'[A-Za-z0-9_=-]{48,}','[valeur masquée]',value)
+            if len(value)>2000:truncated=True
+            return re.sub(r'[\x00-\x1f<>]',' ',value)[:2000]
+        if isinstance(value,list):
+            if len(value)>100:truncated=True
+            return [clean(v,depth+1) for v in value[:100]]
+        if isinstance(value,dict):
+            if len(value)>100:truncated=True
+            result={}
+            for k,v in list(value.items())[:100]:
+                if re.search(r'(?i)token|secret|password|authorization|cookie|headers',k):result[k[:120]]='[masqué]'
+                else:result[k[:120]]=clean(v,depth+1)
+            return result
+        return value
+    result={k:clean(data[k]) for k in ('id','status','type','details','outcome','error','errors','validation','warnings','message') if k in data}
+    return result,truncated
 
 
 class MenuTransport:
@@ -455,10 +488,13 @@ def register_deliveroo_production_menu_phase6(app, db):
                 row = conn.execute("SELECT digest,state,stage,job_id,http_status,to_jsonb(a)->'error_detail' AS error_detail FROM deliveroo_production_menu_attempts a WHERE brand_id=%s AND site_id=%s AND menu_id=%s ORDER BY created_at DESC LIMIT 1", (dest['brand_id'],dest['site_id'],dest['menu_id'])).fetchone()
             if not row or not row['job_id']: return jsonify(ok=True, attempt=dict(row) if row else None, calls_deliveroo=False)
             client=app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
-            data=client.send(API_HOST+'/menu/v3/brands/'+urllib.parse.quote(dest['brand_id'],safe='')+'/jobs/'+urllib.parse.quote(row['job_id'],safe=''), 'GET',token=client.token(),stage='job_status')
+            token=client.token()
+            data=client.send(API_HOST+'/menu/v3/brands/'+urllib.parse.quote(dest['brand_id'],safe='')+'/jobs/'+urllib.parse.quote(row['job_id'],safe=''), 'GET',token=token,stage='job_status')
             if data.get('status') in ('success','failed','failure'):
                 with db() as conn: conn.execute('UPDATE deliveroo_production_menu_attempts SET state=%s WHERE digest=%s', ('success' if data['status']=='success' else 'failed',row['digest']))
-            return jsonify(ok=True, target=dest, attempt=dict(row), response={k:data[k] for k in ('id','status','type','details') if k in data}, calls_deliveroo=True, order_routing_changed=False)
+                row['state']='success' if data['status']=='success' else 'failed'
+            response,truncated=job_result_summary(data,token)
+            return jsonify(ok=True, revision=REVISION,target=dest, attempt=dict(row), response=response,diagnostic_truncated=truncated,calls_deliveroo=True, order_routing_changed=False,upload_performed=False,s3_url_requested=False)
         except Exception: return jsonify(ok=False, error='Statut indisponible. Aucun nouvel envoi effectué.'), 502
 
     @app.get('/administration/deliveroo-production-menu')
