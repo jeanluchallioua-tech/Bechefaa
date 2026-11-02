@@ -34,7 +34,7 @@ def recipes():
     for row in m['items']:
         if row['id'] in ('item_76','item_70','item_68'):
             row['price_info']['overrides']=[{'type':'ITEM','id':'item_2','price':100 if row['id']=='item_70' else 0}, {'type':'ITEM','id':'item_4','price':0}]
-    def mod(key,ids):return {'id':key,'item_ids':ids,'name':{'fr':key},'min_selection':1,'max_selection':1}
+    def mod(key,ids):return {'id':key,'item_ids':ids,'name':{'fr':key},'min_selection':1,'max_selection':1,'type':'bundle-item' if key.startswith('bundle_') else 'product-variation'}
     m['modifiers']=[mod('bundle_2_drink',['item_76','item_70','item_68']),
         mod('bundle_4_main',['item_8']),mod('bundle_4_drink',['item_76','item_70','item_68']),
         mod('type_8',['classic','crispy','cheesy']),mod('count_8',['five','ten'])]
@@ -62,6 +62,26 @@ class ProductionRecipeTests(unittest.TestCase):
         self.assertEqual(child['type'],'CHOICE')
         self.assertNotIn('inherit_from',child)
         self.assertNotIn(child['id'],[key for category in fixed['categories'] for key in category['item_ids']])
+
+    def test_kids_is_composed_item_with_same_price_and_mandatory_choices(self):
+        fixed=self.fixed();items={x['id']:x for x in fixed['items']};mods={x['id']:x for x in fixed['modifiers']}
+        parent=items['item_4']
+        self.assertEqual(parent['type'],'ITEM');self.assertNotIn('party_size',parent)
+        self.assertEqual(parent['price_info']['price'],1560)
+        for key in parent['modifier_ids']:
+            self.assertEqual(mods[key]['min_selection'],1);self.assertEqual(mods[key]['max_selection'],1)
+            self.assertNotEqual(mods[key]['type'],'bundle-item')
+        def price(key):
+            info=items[key]['price_info']
+            return next((x['price'] for x in info['overrides'] if x['type']=='ITEM' and x['id']=='item_4'),info['price'])
+        self.assertEqual(1560+price('prod_kids_tender')+price('item_76'),1560)
+        self.assertEqual(1560+price('prod_kids_tender')+price('item_70'),1740)
+        self.assertEqual(items['item_2']['type'],'BUNDLE')
+
+    def test_choice_directly_inside_bundle_is_rejected_before_upload(self):
+        fixed=self.fixed();items={x['id']:x for x in fixed['items']};mods={x['id']:x for x in fixed['modifiers']}
+        mods['bundle_2_drink']['item_ids']=['prod_kids_tender']
+        with self.assertRaisesRegex(ValueError,'exige un article ITEM'):menu.validate_bundle_structure(fixed)
 
     def test_standalone_tenders_and_source_are_preserved(self):
         raw=recipes();before=copy.deepcopy(raw);fixed=menu.make_preview(raw,DEST)['document']['menu']
