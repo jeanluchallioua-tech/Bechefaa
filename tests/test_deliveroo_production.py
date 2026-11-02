@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock,patch
 from clean_caisse.deliveroo_production_phase6 import (PRODUCTION_APP,API_HOST,AUTH_HOST,readiness,
     signature_valid,validate_order_context,validate_paid_order,missing_plu_paths,
-    production_enabled,register_deliveroo_production_phase6)
+    production_enabled,production_line_amounts,delivery_details,register_deliveroo_production_phase6)
 
 ENV={'CC_APP_ID':PRODUCTION_APP,'BECHEFAA_DELIVEROO_PRODUCTION_ENABLED':'1',
  'BECHEFAA_DELIVEROO_API_URL':API_HOST,'BECHEFAA_DELIVEROO_AUTH_URL':AUTH_HOST,
@@ -83,6 +83,16 @@ class ProductionTests(unittest.TestCase):
    order=event()['body']['order'];order['items'][0]['quantity']=qty
    with self.assertRaises(ValueError):validate_paid_order(order)
 
+ def test_explicit_delivery_fee_reconciles_without_double_count(self):
+  order=event()['body']['order'];order['delivery']={'delivery_fee':{'fractional':200,'currency_code':'EUR'}}
+  order['total_price']['fractional']=1300
+  amounts,fees=production_line_amounts(order)
+  self.assertEqual(sum(amounts),1100);self.assertEqual(sum(fee[2] for fee in fees),200)
+  validate_paid_order(order)
+  order['total_price']['fractional']=1100
+  amounts,fees=production_line_amounts(order)
+  self.assertEqual(sum(amounts),1100);self.assertEqual(fees,[])
+
  def bridge(self):
   tree=ast.parse(Path('clean_caisse/deliveroo_production_phase6.py').read_text())
   register=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='register_deliveroo_production_phase6')
@@ -97,10 +107,12 @@ class ProductionTests(unittest.TestCase):
   self.record=Mock()
   self.modules=patch.dict(sys.modules,{'clean_caisse.app':SimpleNamespace(ensure_order_schema=Mock()),
    'clean_caisse.payment_core_phase41':SimpleNamespace(_ensure_payment_schema=Mock()),
-   'clean_caisse.payment_transactions_phase44':SimpleNamespace(record_payment_transaction=self.record)})
+   'clean_caisse.payment_transactions_phase44':SimpleNamespace(record_payment_transaction=self.record),
+   'clean_caisse.order_tax_snapshot_phase31':SimpleNamespace(_ensure_tax_columns=Mock(),_fiscal_from_ttc=lambda total:(total,total*0,total),TAX_RATE=10),
+   'clean_caisse.fiscal_ticket_phase44':SimpleNamespace(allocate_fiscal_ticket_number=Mock())})
   self.modules.start();self.addCleanup(self.modules.stop)
   namespace={'os':os,'json':json,'db':lambda:nullcontext(self.conn),'production_enabled':production_enabled,
-    'validate_paid_order':validate_paid_order,'missing_plu_paths':missing_plu_paths,
+    'validate_paid_order':validate_paid_order,'missing_plu_paths':missing_plu_paths,'delivery_details':delivery_details,'production_line_amounts':production_line_amounts,
     'net_item_cents':__import__('clean_caisse.deliveroo_order_pricing_phase6',fromlist=['net_item_cents']).net_item_cents,
     'datetime':datetime,'timezone':timezone,
     'order_status_and_log':__import__('clean_caisse.deliveroo_order_status_phase6',fromlist=['order_status_and_log']).order_status_and_log}

@@ -16,7 +16,7 @@ from .deliveroo_order_pricing_phase6 import cents, net_item_cents
 from .deliveroo_order_status_phase6 import cancellation_ready, order_status_and_log
 
 PRODUCTION_APP = 'app_5361da4b-062c-4185-99a5-0fbccc1c4cd4'
-REVISION = 'deliveroo-production-draft-v1-20261102'
+REVISION = 'deliveroo-production-review-v2-20261102'
 API_HOST = 'https://api.developers.deliveroo.com'
 AUTH_HOST = 'https://auth.developers.deliveroo.com'
 
@@ -63,6 +63,25 @@ def validate_order_context(payload):
     return order
 
 
+def production_line_amounts(order):
+    """Reconcile only explicit fees, without adding fees already included in line totals."""
+    try:
+        return net_item_cents(order), []
+    except ValueError as original:
+        delivery=order.get('delivery') if isinstance(order.get('delivery'),dict) else {}
+        fees=[]
+        for key,value,label in (
+            ('delivery',delivery.get('delivery_fee'),'Frais de livraison Deliveroo'),
+            ('bag',order.get('bag_fee'),'Frais de sac Deliveroo')):
+            amount=cents(value,default=0)
+            if amount: fees.append((key,label,amount))
+        expected=cents(order.get('total_price'))
+        fee_total=sum(fee[2] for fee in fees)
+        if not fees or expected is None or fee_total>expected: raise original
+        adjusted=dict(order,total_price={'fractional':expected-fee_total,'currency_code':'EUR'})
+        return net_item_cents(adjusted), fees
+
+
 def validate_paid_order(order):
     # Never turn a missing/unknown payment value into a paid order.
     if cents(order.get('cash_due')) != 0:
@@ -72,7 +91,8 @@ def validate_paid_order(order):
     expected = cents(order.get('total_price'))
     if expected is None:
         raise ValueError('Missing order total')
-    if sum(net_item_cents(order)) != expected:
+    amounts,fees=production_line_amounts(order)
+    if sum(amounts)+sum(fee[2] for fee in fees) != expected:
         raise ValueError('Line totals do not reconcile')
     for item in order['items']:
         if not isinstance(item.get('quantity'), int) or isinstance(item['quantity'], bool) or item['quantity'] <= 0:
@@ -89,6 +109,24 @@ def missing_plu_paths(payload):
             for j, modifier in enumerate(item.get('modifiers') or []):
                 if not isinstance(modifier, dict) or not str(modifier.get('pos_item_id') or '').strip(): paths.append('items[%s].modifiers[%s]' % (i,j))
     return paths
+
+
+def delivery_details(order):
+    delivery=order.get('delivery') if isinstance(order.get('delivery'),dict) else {}
+    address=delivery.get('address') if isinstance(delivery.get('address'),dict) else {}
+    details={}
+    for key in ('door_intercom','door_code','intercom','building','entrance','floor','apartment'):
+        value=delivery.get(key) or address.get(key)
+        if isinstance(value,(str,int)) and not isinstance(value,bool): details[key]=str(value).strip()
+    instructions=delivery.get('delivery_notes') or delivery.get('instructions') or delivery.get('note')
+    if isinstance(instructions,str) and instructions.strip(): details['instructions']=instructions.strip()
+    notes=[order.get('order_notes'),order.get('cutlery_notes')]
+    details['notes']=' • '.join(value.strip() for value in notes if isinstance(value,str) and value.strip())
+    customer=order.get('customer') if isinstance(order.get('customer'),dict) else {}
+    code=delivery.get('contact_access_code') or customer.get('contact_access_code')
+    if isinstance(code,str) and code.strip():
+        details['notes']=' • '.join(filter(None,[details['notes'],"Code d’accès téléphone Deliveroo : "+code.strip()]))
+    return details
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -180,28 +218,10 @@ def register_deliveroo_production_phase6(app, db):
         return ""
 
     def _accepted_in_status_log(payload):
-        # Deliveroo may nest the status log differently between sandbox event
-        # payloads. Only consider an accepted status on a status-update event.
-        if not isinstance(payload,dict) or str(payload.get("event") or "").strip().lower()!="order.status_update":
-            return False
-
-        def _walk(value):
-            if isinstance(value,dict):
-                for key,item in value.items():
-                    k=str(key or "").strip().lower()
-                    if k in {"status","order_status","state"} and str(item or "").strip().lower()=="accepted":
-                        return True
-                    if _walk(item):
-                        return True
-            elif isinstance(value,list):
-                for item in value:
-                    if _walk(item):
-                        return True
-            elif isinstance(value,str) and value.strip().lower()=="accepted":
-                return True
-            return False
-
-        return _walk(payload)
+        if not isinstance(payload,dict): return False
+        order=(payload.get('body') or {}).get('order') or {}
+        log=order.get('status_log') or (payload.get('body') or {}).get('status_log') or []
+        return isinstance(log,list) and any(isinstance(entry,dict) and entry.get('status')=='accepted' for entry in log)
 
     def _persist_order_event(payload):
         with db() as conn:
@@ -341,7 +361,7 @@ def register_deliveroo_production_phase6(app, db):
         from clean_caisse.app import ensure_order_schema
         normalized = []
         total = Decimal("0")
-        net_amounts = net_item_cents(order)
+        net_amounts,fees = production_line_amounts(order)
         for position, item in enumerate(items):
             if not isinstance(item, dict):
                 raise ValueError("invalid order item")
@@ -373,6 +393,9 @@ def register_deliveroo_production_phase6(app, db):
                 normalized.append((str(item.get("pos_item_id") or ""), name, extra_units,
                                    Decimal(unit_cents + 1) / 100, options, position))
             total += amount
+        for fee_key,fee_label,fee_amount in fees:
+            normalized.append(('deliveroo:fee:'+fee_key,fee_label,1,Decimal(fee_amount)/100,[],len(normalized)))
+            total+=Decimal(fee_amount)/100
         # Deliveroo schedules are UTC timestamps. Invalid scheduled data must not
         # silently turn a scheduled order into an immediate kitchen ticket.
         asap = order.get("asap")
@@ -395,6 +418,9 @@ def register_deliveroo_production_phase6(app, db):
                 from clean_caisse.payment_core_phase41 import _ensure_payment_schema
                 _ensure_payment_schema(conn, ensure_order_schema)
                 conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'RESTO'")
+                conn.execute("ALTER TABLE caisse_orders ADD COLUMN IF NOT EXISTS delivery_details JSONB NULL")
+                from clean_caisse.order_tax_snapshot_phase31 import _ensure_tax_columns, _fiscal_from_ttc, TAX_RATE
+                _ensure_tax_columns(conn)
                 conn.execute("""CREATE TABLE IF NOT EXISTS deliveroo_kitchen_schedule (
                     order_id TEXT PRIMARY KEY,
                     start_preparing_at_ms BIGINT NOT NULL
@@ -434,8 +460,9 @@ def register_deliveroo_production_phase6(app, db):
                 phone = str(delivery.get("contact_number") or customer.get("contact_number")
                             or customer.get("phone") or delivery.get("phone") or "").strip()
                 # A geolocation object is not a postal address: never stringify it.
-                address = str(address_data.get("address_line_1") or address_data.get("line_1")
-                              or address_data.get("street_address") or "").strip()
+                address = " ".join(str(value).strip() for value in (
+                    delivery.get("line1") or address_data.get("address_line_1") or address_data.get("line_1") or address_data.get("street_address"),
+                    delivery.get("line2") or address_data.get("line_2")) if isinstance(value,str) and value.strip())
                 postal_code = str(delivery.get("postcode") or address_data.get("postcode")
                                   or address_data.get("postal_code") or "").strip()
                 city = str(delivery.get("city") or address_data.get("city") or "").strip()
@@ -443,11 +470,19 @@ def register_deliveroo_production_phase6(app, db):
                     (id,num,customer_name,phone,address,postal_code,city,source,sales_channel,payment,status,total,created_at,updated_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'DELIVEROO','PAYÉ DELIVEROO','À préparer',%s,%s,%s)""",
                     (pos_id,num,customer_name,phone,address,postal_code,city,pos_source,total,now,now))
+                # Use existing tax/fiscal conventions and keep delivery instructions for unchanged receipt renderers.
+                details=delivery_details(order)
+                conn.execute("UPDATE caisse_orders SET delivery_details=%s::jsonb WHERE id=%s",(json.dumps(details,ensure_ascii=False),pos_id))
+                ht,tax,ttc=_fiscal_from_ttc(total)
+                conn.execute("UPDATE caisse_orders SET total_ht=%s,tax_rate=%s,tax_amount=%s,total_ttc=%s WHERE id=%s",(ht,TAX_RATE,tax,ttc,pos_id))
+                from clean_caisse.fiscal_ticket_phase44 import allocate_fiscal_ticket_number
+                allocate_fiscal_ticket_number(conn,ensure_order_schema,pos_id,now)
                 # External payment is recorded as DELIVEROO, never as local cash/CB.
                 conn.execute("UPDATE caisse_orders SET payment_status='PAYÉE',payment_method='DELIVEROO',paid_amount=%s,paid_at=%s WHERE id=%s", (total,now,pos_id))
                 if total > 0:
                     from clean_caisse.payment_transactions_phase44 import record_payment_transaction
-                    record_payment_transaction(conn,pos_id,'DELIVEROO',total,provider='DELIVEROO',external_reference=external_id,created_by='deliveroo-production-webhook')
+                    tx_id=record_payment_transaction(conn,pos_id,'DELIVEROO',total,provider='DELIVEROO',external_reference=external_id,created_by='deliveroo-production-webhook')
+                    conn.execute("UPDATE caisse_payment_transactions SET metadata=%s::jsonb WHERE id=%s",(json.dumps({'meal_cards':order.get('meal_cards') or [],'partner_order_total':order.get('partner_order_total'),'source':'DELIVEROO'},ensure_ascii=False),tx_id))
                 if scheduled_start_ms is not None:
                     conn.execute(
                         "INSERT INTO deliveroo_kitchen_schedule (order_id, start_preparing_at_ms) VALUES (%s, %s)",
@@ -455,10 +490,10 @@ def register_deliveroo_production_phase6(app, db):
                 for position, (plu,name,qty,unit,options,_) in enumerate(normalized):
                     conn.execute("""INSERT INTO caisse_order_items
                         (order_id,line_id,product_id,name,qty,unit_price,options_json,options_text,prepared,position)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,FALSE,%s)""",
+                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)""",
                         (pos_id,str(position),plu or None,name,qty,unit,
                          json.dumps(options,ensure_ascii=False),
-                         " • ".join(o["name"] for o in options),position))
+                         " • ".join(o["name"] for o in options),plu.startswith("deliveroo:fee:"),position))
         return "created"
     def receive(kind):
         if not production_enabled(): return Response(status=503)
@@ -547,7 +582,7 @@ def register_deliveroo_production_phase6(app, db):
         if not ids: return response
         try:
             with db() as conn:
-                rows=conn.execute('''SELECT m.*,o.phone,o.address,o.postal_code,o.city,o.payment_status,o.paid_amount
+                rows=conn.execute('''SELECT m.*,o.phone,o.address,o.postal_code,o.city,o.delivery_details,o.payment_status,o.paid_amount
                     FROM deliveroo_production_meta m JOIN caisse_orders o ON o.id=m.pos_id
                     WHERE m.pos_id=ANY(%s)''',(ids,)).fetchall()
             by_id={r['pos_id']:r for r in rows}
@@ -561,7 +596,7 @@ def register_deliveroo_production_phase6(app, db):
                     order.update(sales_channel='DELIVEROO',platform='Deliveroo',source='LIVRAISON',ticket_type='Livraison',
                         service_mode='Livraison',platform_reference=row['display_id'],payment='PAYÉ DELIVEROO',
                         payment_label='PAYÉ DELIVEROO',payment_status=row['payment_status'],paid_amount=float(row['paid_amount']),
-                        phone=row['phone'],address=row['address'],postal_code=row['postal_code'],city=row['city'])
+                        phone=row['phone'],address=row['address'],postal_code=row['postal_code'],city=row['city'],delivery_details=row['delivery_details'] or {})
                     if waiting and order.get('status') in ('À préparer','En préparation'):
                         order['status']='Programmée'
                 visible.append(order)
