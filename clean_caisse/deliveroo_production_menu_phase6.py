@@ -13,7 +13,8 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v3-access-20261102'
+REVISION = 'production-menu-v4-http-diagnostic-20261102'
+INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
 
@@ -163,13 +164,14 @@ class MenuTransport:
         if not isinstance(token, str) or not token: raise ProviderFailure('oauth')
         return token
 
-    def probe(self, path, token):
+    def probe(self, path, token, identified_client=False):
         """Allowlisted read-only API probes. Never returns provider bodies/secrets."""
         if not (path.startswith('/site/v1/restaurant_locations/') or
                 re.fullmatch(r'/menu/v1/brands/[^/]+/menus/[^/]+', path)):
             raise ValueError('Diagnostic path not permitted')
-        req=urllib.request.Request(API_HOST+path, headers={'Accept':'application/json',
-                                   'Authorization':'Bearer '+token}, method='GET')
+        request_headers={'Accept':'application/json','Authorization':'Bearer '+token}
+        if identified_client:request_headers['User-Agent']=INTEGRATOR_USER_AGENT
+        req=urllib.request.Request(API_HOST+path, headers=request_headers, method='GET')
         try:
             response=self.opener.open(req,timeout=15)
         except urllib.error.HTTPError as exc:
@@ -180,6 +182,7 @@ class MenuTransport:
             headers=response.headers
             content_type=headers.get('Content-Type','').split(';')[0][:100]
             result={'method':'GET','path':path,'http_status':status,'content_type':content_type}
+            result['request_profile']='identified_integrator' if identified_client else 'python_default'
             for header in ('X-Request-Id','X-Correlation-Id','CF-Ray','Server'):
                 value=headers.get(header)
                 if value and re.fullmatch(r'[A-Za-z0-9._:/ -]{1,160}',value):
@@ -199,8 +202,17 @@ class MenuTransport:
                     result['configured_brand_associated']=os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID') in brands if isinstance(brands,list) else None
             else:
                 result['response_format']='non_json'
-                lower=raw[:10000].lower()
+                lower=raw[:100000].lower()
                 result['response_class']='access_denied' if b'access denied' in lower else 'forbidden' if b'forbidden' in lower else 'other'
+                # Return only fixed classifications, never arbitrary HTML/text.
+                if headers.get('cf-mitigated','').lower()=='challenge' or b'cf-chl-' in lower or b'just a moment' in lower:
+                    result['response_class']='cloudflare_challenge'
+                elif b'sorry, you have been blocked' in lower:
+                    result['response_class']='cloudflare_block_page'
+                for code in ('1006','1007','1008','1010','1015','1020'):
+                    if re.search(rb'(?:error\s*(?:code)?\s*:?\s*|error-code[^>]*>\s*)'+code.encode()+rb'\b',lower):
+                        result['cloudflare_error_code']=code
+                        break
             return result
         finally:
             response.close()
@@ -279,7 +291,11 @@ def register_deliveroo_production_menu_phase6(app, db):
             menu_path='/menu/v1/brands/'+urllib.parse.quote(dest['brand_id'],safe='')+'/menus/'+urllib.parse.quote(dest['menu_id'],safe='')
             probes=[]
             for path in (site_path,menu_path):
-                try: probes.append(client.probe(path,token))
+                try:
+                    first=client.probe(path,token)
+                    probes.append(first)
+                    if first.get('http_status')==403 and first.get('content_type')=='text/html':
+                        probes.append(client.probe(path,token,identified_client=True))
                 except Exception: probes.append({'method':'GET','path':path,'error':'lecture_non_confirmee'})
             return jsonify(ok=True,revision=REVISION,target=dest,oauth_token_obtained=True,
                 probes=probes,read_only=True,writes_database=False,
