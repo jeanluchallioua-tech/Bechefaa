@@ -28,7 +28,7 @@ class SharedHoursPostgresTests(unittest.TestCase):
    namespace['ensure_tables'](conn)
    conn.execute('CREATE TABLE caisse_site_order_hours(id SMALLINT PRIMARY KEY,config_json JSONB NOT NULL,updated_at TIMESTAMPTZ DEFAULT NOW())')
    conn.execute('INSERT INTO caisse_site_order_hours(id,config_json) VALUES(1,%s::jsonb)',(json.dumps(self.cfg),))
-   for label,day,kind,hour in [('past-candle',-3,'candles',17),('past-exit',-2,'havdalah',18),('future-candle',4,'candles',17),('future-exit',5,'havdalah',18)]:
+   for label,day,kind,hour in [('past-candle',-3,'candles',17),('past-exit',-2,'havdalah',18),('future-candle',4,'candles',17),('future-exit',5,'havdalah',18),('following-candle',11,'candles',17),('following-exit',12,'havdalah',18)]:
     stamp=(self.now+timedelta(days=day)).replace(hour=hour)
     conn.execute('INSERT INTO caisse_hebrew_calendar_events(event_key,hebrew_year,title,category,starts_at,raw_json) VALUES(%s,5859,%s,%s,%s,%s::jsonb)',(label,kind,kind,stamp,'{}'))
   self.engine=self.app.config['BECHEFAA_ORDER_HOURS_STATE']
