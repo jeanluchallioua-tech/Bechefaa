@@ -30,13 +30,19 @@ No secret values belong in this document or in chat.
 - BECHEFAA_DELIVEROO_AUTH_URL=https://auth.developers.deliveroo.com
 - Production values for BECHEFAA_DELIVEROO_CLIENT_ID, BECHEFAA_DELIVEROO_CLIENT_SECRET, BECHEFAA_DELIVEROO_WEBHOOK_SECRET (set directly in hosting environment).
 - BECHEFAA_DELIVEROO_PRODUCTION_SITE_ID and BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID.
-- Acceptance mode: this draft requires BECHEFAA_DELIVEROO_ACCEPTANCE_MODE=deliveroo_tablet and is_tabletless=false. Tabletless/automatic acceptance, including opening hours and religious-calendar policy, remains unimplemented and must not be enabled implicitly.
+- Requested acceptance policy: BECHEFAA_DELIVEROO_ACCEPTANCE_MODE=auto_hours, with BECHEFAA_DELIVEROO_CONFIRM_WORKER_ENABLED=1. The persistent worker uses existing saved hours, Deliveroo closures, and the religious calendar. Missing calendar coverage blocks decisions rather than guessing. Future scheduled orders may be accepted while currently closed when their future preparation slot is open; confirmation waits for confirm_at and kitchen visibility waits for start_preparing_at.
+- Durable jobs record each PATCH attempt before transmission. Ambiguous outcomes await signed webhook evidence; local import repair after HTTP 204 does not resend acceptance. Retryable provider errors use delayed retries.
+- Actual production catalog PLUs, modifier ownership, and names are checked before automatic acceptance; sandbox menu fixtures are not used.
 - BECHEFAA_DELIVEROO_PRODUCTION_ENABLED remains unset/0 until reviewed and explicitly approved.
 
 ## Validation and outstanding review
 
-18 mocked/local tests verify default-off configuration, sandbox isolation, HMAC, context checks, prepaid amounts, discounts, external payment label/provider, duplicate/terminal protection, schedules, cancellation, and acknowledgement throttle/deduplication. Python compilation and JavaScript syntax checks pass. No production webhook POST or real order has been sent.
+The isolated validation suite contains 69 Python tests: 20 production unit tests, 6 automatic-hours policy tests, 34 real PostgreSQL order/automation tests, and 9 tests of the shared hours/calendar engine. A separate Node suite checks 12 notification behaviors. GitHub Actions uses a disposable PostgreSQL database and synthetic payloads; outbound Deliveroo requests are mocked. No production database, real order, webhook POST, charge, or refund is used.
 
-This is NOT a production go-live signoff. Before deployment/activation: review code against current production head; verify actual catalog PLUs and modifiers rather than fixture names; verify site/tablet acceptance mode; exercise PostgreSQL transactions and concurrent/retried webhooks on isolated data; verify future/confirmed/remake display, cashier sound, meal-card accounting, VAT/fiscal exports, delivery instructions and history/preview on the current production UI. Source templates, font sizes and receipt layouts are not changed in this draft. Initial implementation covers backend drafts and requires these integration checks.
+The first automation run passed the first 60 Python tests but failed one of the 9 shared-calendar tests because its synthetic calendar omitted the following week. The fixture was extended without weakening calendar validation; the corrected run 41432707557 passed all checks on commit 7a2a6f94f097a5016d99169c9ffd16c73d74f273.
+
+This is preparation for review, not production go-live signoff. Remaining live checks require production IDs and credentials installed directly in hosting, current calendar coverage and hours, actual production HMAC/API authorization, and device-level sound/display checks. Existing tax/fiscal conventions are reused; meal-card and partner payment metadata do not cause another local collection. Source templates, font sizes and receipt layouts are unchanged.
+
+Portal Orders test mode routes real orders to the test endpoint. The merchant is currently inactive; coordinate that setting with activation and do not treat saved URLs as proof that live processing is enabled.
 
 Deploying this branch with feature enabled, changing production secrets/hosts, and enabling live orders require explicit user authorization. Never change phase4-encaissement merely to publish this review draft.
