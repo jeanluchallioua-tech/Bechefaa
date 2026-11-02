@@ -174,7 +174,7 @@ class AccessProbeTests(unittest.TestCase):
         self.assertNotIn('raw_menu',result)
 
     def test_job_validation_diagnostic_is_bounded_and_marks_truncation(self):
-        result,truncated=menu.job_result_summary({'outcome':{'errors':['x'*3000]*150}},'synthetic-token')
+        result,truncated=menu.job_result_summary({'outcome':{'errors':['invalid item value '*200]*150}},'synthetic-token')
         self.assertTrue(truncated);self.assertEqual(len(result['outcome']['errors']),100)
         self.assertEqual(len(result['outcome']['errors'][0]),2000)
     def test_error_summary_redacts_secrets_and_presigned_urls(self):
