@@ -7,6 +7,9 @@ on:
       - 'clean_caisse/deliveroo_order_*'
       - 'clean_caisse/payment_transactions_phase44.py'
       - 'clean_caisse/app.py'
+      - 'clean_caisse/table_core_phase36.py'
+      - 'tests/test_table_occupancy.py'
+      - 'tests/test_table_release_postgres.py'
       - 'clean_caisse/order_notifications_phase33.py'
       - 'clean_caisse/kitchen_checklist.py'
       - 'clean_caisse/history_identity_phase44.py'
@@ -49,12 +52,15 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_deliveroo_production.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_auto_hours.py' -v
+          python -m unittest discover -s tests -p 'test_table_occupancy.py' -v
       - name: Real PostgreSQL and HTTP contracts (synthetic orders only)
         run: |
           python -m unittest discover -s tests -p 'test_deliveroo_production_postgres.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_hours_postgres.py' -v
           python -m unittest discover -s tests -p 'test_deliveroo_production_menu.py' -v
+          python -m unittest discover -s tests -p 'test_table_release_postgres.py' -v
       - name: JavaScript syntax
         run: |
           node --check clean_caisse/static/deliveroo-notice-production.js
           node tests/test_deliveroo_notice_production.js
+
