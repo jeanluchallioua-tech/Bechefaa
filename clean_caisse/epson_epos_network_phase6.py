@@ -232,16 +232,20 @@ def _expense_note_xml(order, identity=None, persons=1):
 
 
 def _assistant_launch_html(xml, title="Epson"):
+    return_to=request.args.get('return_to','/pos')
+    if return_to not in ('/pos','/historique-modification'):return_to='/pos'
     assistant_url = (
         "tmprintassistant://tmprintassistant.epson.com/print?"
         "ver=1"
         "&data-type=eposprintxml"
         "&data=" + quote(xml, safe="")
         + "&timeout=30000"
-        + "&success=" + quote(request.url_root.rstrip("/") + "/pos?epson=success", safe="")
-        + "&error=" + quote(request.url_root.rstrip("/") + "/pos?epson=error", safe="")
+        + "&success=" + quote(request.url_root.rstrip("/") + return_to + "?epson=success", safe="")
+        + "&error=" + quote(request.url_root.rstrip("/") + return_to + "?epson=error", safe="")
         + "&error-dialog=yes"
     )
+    if 'Android' in request.headers.get('User-Agent',''):
+        assistant_url='intent://'+assistant_url.split('://',1)[1]+'#Intent;scheme=tmprintassistant;package=com.epson.tmassistant;end'
     safe_url = assistant_url.replace("\\", "\\\\").replace("'", "\\'")
     html = f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>{title}</title>
@@ -252,12 +256,12 @@ button{{padding:12px 18px;border:0;border-radius:9px;font-weight:800}}</style>
 </head><body><div class="box"><h2>{title}</h2><p>Ouverture de TM Print Assistant…</p>
 <button onclick="launch()">Ouvrir Epson</button><p><a href="/pos" style="color:white">Revenir à la caisse</a></p></div>
 <script>
-let launchedAt=0;
+let launchedAt=0,leftForAssistant=false;
 function launch(){{launchedAt=Date.now();window.location.href='{safe_url}';}}
-function returnToPos(){{if(launchedAt&&Date.now()-launchedAt>1500)window.location.replace('/pos');}}
+function returnToPos(){{if(launchedAt&&leftForAssistant&&!document.hidden)window.location.replace('{return_to}');}}
 window.addEventListener('focus',returnToPos);
-document.addEventListener('visibilitychange',()=>{{if(!document.hidden)returnToPos();}});
-window.addEventListener('load',()=>setTimeout(launch,80));
+document.addEventListener('visibilitychange',()=>{{if(document.hidden&&launchedAt)leftForAssistant=true;else returnToPos();}});
+window.addEventListener('load',launch);
 </script></body></html>"""
     return Response(html, content_type="text/html; charset=utf-8")
 
@@ -641,6 +645,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function printClient(orderId){
    if(!orderId)return true;
+   if(/Android/i.test(navigator.userAgent||''))return printNavigation('client',orderId);
    status('work','Epson : préparation du ticket client…');
    const xr=await nativeFetch('/api/epson/client-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket client introuvable');
@@ -652,6 +657,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function printOrderPack(orderId){
    if(!orderId)return true;
+   if(/Android/i.test(navigator.userAgent||''))return printNavigation('order-pack',orderId);
    status('work','Epson : préparation cuisine + client…');
    const xr=await nativeFetch('/api/epson/order-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Tickets cuisine/client introuvables');
@@ -684,6 +690,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
 
  async function printKitchen(orderId){
    if(!orderId)return true;
+   if(/Android/i.test(navigator.userAgent||''))return printNavigation('kitchen',orderId);
    status('work','Epson : préparation du ticket…');
    const xr=await nativeFetch('/api/epson/kitchen-xml/'+encodeURIComponent(orderId),{cache:'no-store'});
    if(!xr.ok)throw new Error('Ticket cuisine introuvable');
@@ -724,6 +731,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  async function printExpenseNote(orderId,persons){
    if(!orderId)return true;
    const n=Math.max(1,Math.min(99,parseInt(persons||1,10)||1));
+   if(/Android/i.test(navigator.userAgent||''))return printNavigation('expense-note',orderId,n);
    status('work','Epson : préparation de la note de frais…');
    const xr=await nativeFetch('/api/epson/expense-note-xml/'+encodeURIComponent(orderId)+'?persons='+encodeURIComponent(n),{cache:'no-store'});
    if(!xr.ok){
@@ -744,6 +752,16 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
    }
  }
 
+ function printNavigation(kind,orderId,persons){
+   const returnTo=window.location.pathname==='/historique-modification'?'/historique-modification':'/pos';
+   let path='/epson/print-'+kind+'/'+encodeURIComponent(orderId)+'?return_to='+encodeURIComponent(returnTo);
+   if(persons)path+='&persons='+encodeURIComponent(persons);
+   status('work','Epson : ouverture de l’impression…');
+   epsonDiag('print-navigation-'+kind);
+   window.location.href=path;
+   return true;
+ }
+
  window.fetch=async function(input,init){
    const url=typeof input==='string'?input:(input&&input.url)||'';
    const method=String((init&&init.method)||'GET').toUpperCase();
@@ -752,7 +770,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
      try{
        const d=await res.clone().json();
        if(res.ok && d && d.ok!==false && d.id){
-         setTimeout(()=>printOrderPack(d.id).catch(e=>status('err','Epson : '+(e.message||'impression impossible'))),50);
+         printOrderPack(d.id).catch(e=>status('err','Epson : '+(e.message||'impression impossible')));
        }
      }catch(e){}
    }
@@ -786,6 +804,7 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
 
 
 

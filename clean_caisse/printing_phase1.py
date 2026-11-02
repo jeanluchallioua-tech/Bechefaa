@@ -1,5 +1,6 @@
 """Phase 1 / Phase 3.3 — impression 80 mm BÉCHÉFAA."""
 import re
+import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
@@ -94,8 +95,16 @@ def register_printing_phase1(app, db, ensure_order_schema, order_payload):
         preview = request.args.get("preview") == "1"
         auto = request.args.get("auto") == "1" and not preview
         url = "/apercu/image-ticket/" + kind + "/" + quote(str(order_id), safe="")
-        action = '<div class="actions"><button onclick="window.print()">Imprimer</button></div>' if not preview else ''
-        script = '<script>document.getElementById("paper").addEventListener("load",()=>window.print());</script>' if auto else ''
+        android='Android' in request.headers.get('User-Agent','')
+        route='/epson/print-'+kind+'/'+quote(str(order_id),safe='')+'?return_to=%2Fhistorique-modification'
+        # Use the existing Epson navigation route on Android, never the browser
+        # print dialog or a delayed XML fetch from the preview button.
+        if android:
+            action='<div class="actions"><button onclick="location.href=\''+escape(route,quote=True)+'\'">Imprimer</button></div>'
+            script='<script>location.replace('+json.dumps(route)+');</script>' if auto else ''
+        else:
+            action = '<div class="actions"><button onclick="window.print()">Imprimer</button></div>' if not preview else ''
+            script = '<script>document.getElementById("paper").addEventListener("load",()=>window.print());</script>' if auto else ''
         return Response(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ticket</title>{_base_css()}<style>#paper{{width:72mm;height:auto;display:block;margin:auto}}</style></head><body><img id="paper" alt="Ticket" src="{url}">{action}{script}</body></html>', content_type="text/html; charset=utf-8")
 
     @app.get("/impression/client/<order_id>")
