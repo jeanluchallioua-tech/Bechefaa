@@ -59,6 +59,9 @@ class ProductionRecipeTests(unittest.TestCase):
         self.assertEqual(len(child['modifier_ids']),1)
         self.assertEqual(mods[child['modifier_ids'][0]]['item_ids'],['classic','crispy'])
         self.assertEqual(child['plu'],'8')
+        self.assertEqual(child['type'],'CHOICE')
+        self.assertNotIn('inherit_from',child)
+        self.assertNotIn(child['id'],[key for category in fixed['categories'] for key in category['item_ids']])
 
     def test_standalone_tenders_and_source_are_preserved(self):
         raw=recipes();before=copy.deepcopy(raw);fixed=menu.make_preview(raw,DEST)['document']['menu']
@@ -97,6 +100,14 @@ class ProductionRecipeTests(unittest.TestCase):
         self.assertEqual(check_order_plus(order,mapping)[0],'pos_item_id_mismatched')
 
 class PreviewTests(unittest.TestCase):
+    def test_uncategorized_standalone_item_is_blocked_before_upload(self):
+        raw=catalog();raw['payload']['menu']['categories'][0]['item_ids']=[]
+        with self.assertRaisesRegex(ValueError,'Article sans catégorie'):menu.make_preview(raw,DEST)
+
+    def test_choice_cannot_be_exposed_as_standalone_category_entry(self):
+        raw=catalog();raw['payload']['menu']['items'][0]['type']='CHOICE'
+        with self.assertRaisesRegex(ValueError,'ne doit pas figurer'):menu.make_preview(raw,DEST)
+
     def test_preview_is_unchanged_and_target_bound(self):
         raw=catalog();before=copy.deepcopy(raw)
         result=menu.make_preview(raw,DEST)
