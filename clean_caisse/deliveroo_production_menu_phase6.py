@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v8-job-outcome-20261102'
+REVISION = 'production-menu-v9-bundle-choice-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -69,6 +69,9 @@ def production_formulas(menu, markup):
     if tender_id in items or group_id in modifiers:
         raise ValueError('Identifiants de formule déjà utilisés.')
     tender['id'] = tender_id
+    # V3 requires the fully expanded CHOICE for a bundle-only variant.
+    # ITEM would require a category and create another standalone product.
+    tender['type'] = 'CHOICE'
     tender['modifier_ids'] = [group_id]
     tender['price_info']['overrides'] = [{'type': 'ITEM', 'id': 'item_4', 'price': 0}]
     group = copy.deepcopy(type_group)
@@ -87,6 +90,16 @@ def production_formulas(menu, markup):
                      if not (row.get('id') == 'item_4' and row.get('type') == 'ITEM')]
         overrides.append({'type': 'ITEM', 'id': 'item_4', 'price': 0 if item_id == 'item_76' else premium})
         price_info['overrides'] = overrides
+
+
+def validate_category_assignments(menu):
+    categorized={key for row in menu.get('categories',[]) for key in row.get('item_ids',[])}
+    for item in menu.get('items',[]):
+        kind=item.get('type','ITEM')
+        if kind in ('ITEM','BUNDLE') and item['id'] not in categorized:
+            raise ValueError('Article sans catégorie : '+item['id'])
+        if kind=='CHOICE' and item['id'] in categorized:
+            raise ValueError('Un choix de formule/option ne doit pas figurer dans une catégorie : '+item['id'])
 
 
 def make_preview(preview, destination):
@@ -113,6 +126,7 @@ def make_preview(preview, destination):
     for row in categories + modifiers:
         if any(x not in item_map for x in row.get('item_ids', [])):
             raise ValueError('Référence article inconnue.')
+    validate_category_assignments(menu)
     document = {'menu': menu, 'site_ids': [destination['site_id']], 'pos_name': 'BECHEFAA'}
     content = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     digest = hashlib.sha256(json.dumps(destination, sort_keys=True).encode() + b'\n' + content).hexdigest()
