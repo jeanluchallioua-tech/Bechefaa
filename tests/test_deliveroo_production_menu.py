@@ -161,7 +161,7 @@ class PreviewTests(unittest.TestCase):
         for request in calls[1:]:self.assertEqual(request.get_header('User-agent'),menu.INTEGRATOR_USER_AGENT)
         self.assertIsNone(calls[2].get_header('Authorization'))
         self.assertEqual(json.loads(calls[2].data)['menu'],catalog()['payload']['menu'])
-        self.assertEqual(json.loads(calls[3].data),{'action':'publish_menu_to_live','params':{}})
+        self.assertEqual(json.loads(calls[3].data),{'action':'publish_menu_to_live','params':{'menu_id':DEST['menu_id']}})
 
 
 class AccessProbeTests(unittest.TestCase):
@@ -382,6 +382,30 @@ class MenuPostgresTests(unittest.TestCase):
         with self.app.test_client() as client:status=client.get('/api/deliveroo/production-menu-job').get_json()
         self.assertFalse(status['calls_deliveroo'])
         self.assertEqual(status['attempt']['error_detail']['fields']['message'],'invalid params')
+
+    def test_missing_menu_id_allows_one_corrected_job_without_upload(self):
+        self.denied_attempt('publish_job',400)
+        transport=self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
+        original=transport.publish_job
+        detail={'format':'json','fields':{'error':{'code':'bad_request','message':'menu_id is required'}}}
+        def deny(*args):self.sent+=1;raise menu.ProviderFailure('publish_job',400,detail)
+        transport.publish_job=deny
+        self.assertEqual(self.resume_job().status_code,502)
+        transport.publish_job=original
+        self.assertEqual(self.resume_job().status_code,200)
+        self.assertEqual(self.resume_job().status_code,409)
+        self.assertEqual(len(self.rows('SELECT * FROM deliveroo_production_menu_job_recoveries')),1)
+        archived=self.rows('SELECT previous_attempt FROM deliveroo_production_menu_job_param_repairs')[0]['previous_attempt']
+        self.assertEqual(archived['error_detail'],detail);self.assertEqual(self.sent,3)
+
+    def test_same_missing_menu_id_error_cannot_repeat_corrected_job(self):
+        self.denied_attempt('publish_job',400)
+        detail={'fields':{'error':{'code':'bad_request','message':'menu_id is required'}}}
+        with self.connect() as conn:conn.execute('UPDATE deliveroo_production_menu_attempts SET error_detail=%s::jsonb',(json.dumps(detail),))
+        def deny(*args):self.sent+=1;raise menu.ProviderFailure('publish_job',400,detail)
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].publish_job=deny
+        self.assertEqual(self.resume_job().status_code,502)
+        self.assertEqual(self.resume_job().status_code,409);self.assertEqual(self.sent,2)
 
     def test_job_resume_rejects_wrong_state_and_confirmation(self):
         self.denied_attempt('publish_job',400)
