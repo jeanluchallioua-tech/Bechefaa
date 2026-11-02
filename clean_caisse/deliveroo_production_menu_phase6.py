@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v2-formulas-20261102'
+REVISION = 'production-menu-v3-access-20261102'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
 
@@ -163,6 +163,48 @@ class MenuTransport:
         if not isinstance(token, str) or not token: raise ProviderFailure('oauth')
         return token
 
+    def probe(self, path, token):
+        """Allowlisted read-only API probes. Never returns provider bodies/secrets."""
+        if not (path.startswith('/site/v1/restaurant_locations/') or
+                re.fullmatch(r'/menu/v1/brands/[^/]+/menus/[^/]+', path)):
+            raise ValueError('Diagnostic path not permitted')
+        req=urllib.request.Request(API_HOST+path, headers={'Accept':'application/json',
+                                   'Authorization':'Bearer '+token}, method='GET')
+        try:
+            response=self.opener.open(req,timeout=15)
+        except urllib.error.HTTPError as exc:
+            response=exc
+        try:
+            status=getattr(response,'status',None) or response.code
+            raw=response.read(2_000_000)
+            headers=response.headers
+            content_type=headers.get('Content-Type','').split(';')[0][:100]
+            result={'method':'GET','path':path,'http_status':status,'content_type':content_type}
+            for header in ('X-Request-Id','X-Correlation-Id','CF-Ray','Server'):
+                value=headers.get(header)
+                if value and re.fullmatch(r'[A-Za-z0-9._:/ -]{1,160}',value):
+                    result[header.lower()]=value
+            try: data=json.loads(raw)
+            except (ValueError,UnicodeError):data=None
+            if isinstance(data,dict):
+                result['response_format']='json'
+                # Codes only; arbitrary error messages can contain reflected credentials.
+                for key in ('code','error_code','error'):
+                    value=data.get(key)
+                    if isinstance(value,str) and re.fullmatch(r'[A-Z][A-Z0-9_.-]{0,79}|[a-z_]{1,60}',value):
+                        result['provider_'+key]=value
+                if path.startswith('/site/') and 200<=status<300:
+                    brands=data.get('brand_id') or data.get('brand_ids') or []
+                    if isinstance(brands,str):brands=[brands]
+                    result['configured_brand_associated']=os.environ.get('BECHEFAA_DELIVEROO_PRODUCTION_BRAND_ID') in brands if isinstance(brands,list) else None
+            else:
+                result['response_format']='non_json'
+                lower=raw[:10000].lower()
+                result['response_class']='access_denied' if b'access denied' in lower else 'forbidden' if b'forbidden' in lower else 'other'
+            return result
+        finally:
+            response.close()
+
     @staticmethod
     def upload_url(data):
         if isinstance(data, dict):
@@ -226,6 +268,27 @@ def register_deliveroo_production_menu_phase6(app, db):
         try: return jsonify(prepare())
         except ValueError as exc: return jsonify(ok=False, error=str(exc), upload_performed=False), 409
         except Exception: return jsonify(ok=False, error='Aperçu production indisponible.', upload_performed=False), 503
+
+    @app.get('/api/deliveroo/production-menu-access')
+    def production_menu_access():
+        try:
+            dest=target()
+            client=app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
+            token=client.token()
+            site_path='/site/v1/restaurant_locations/'+urllib.parse.quote(dest['site_id'],safe='')
+            menu_path='/menu/v1/brands/'+urllib.parse.quote(dest['brand_id'],safe='')+'/menus/'+urllib.parse.quote(dest['menu_id'],safe='')
+            probes=[]
+            for path in (site_path,menu_path):
+                try: probes.append(client.probe(path,token))
+                except Exception: probes.append({'method':'GET','path':path,'error':'lecture_non_confirmee'})
+            return jsonify(ok=True,revision=REVISION,target=dest,oauth_token_obtained=True,
+                probes=probes,read_only=True,writes_database=False,
+                s3_url_requested=False,upload_performed=False,order_routing_changed=False,
+                note='Un menu absent peut répondre 404 avant son premier envoi. Un jeton valide ne prouve pas les droits sur la marque ni sur V3.')
+        except ProviderFailure as exc:
+            return jsonify(ok=False,stage=exc.stage,http_status=exc.status,upload_performed=False),502
+        except Exception:
+            return jsonify(ok=False,error='Diagnostic indisponible. Aucun envoi effectué.',upload_performed=False),503
 
     @app.post('/api/deliveroo/production-menu-publish')
     def production_menu_publish():
@@ -298,3 +361,4 @@ el('confirm').oninput=()=>{el('publish').disabled=!preview||el('confirm').value!
 el('publish').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Consultez le statut ; ne renvoyez pas.'})}finally{preview=null;el('confirm').value='';el('load').disabled=false}};
 el('status').onclick=async()=>{el('status').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-job',{cache:'no-store'});show(await r.json())}catch(e){show({error:'Statut indisponible.'})}finally{el('status').disabled=false}};
 </script></html>'''
+
