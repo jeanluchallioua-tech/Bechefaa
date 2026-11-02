@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v6-job-diagnostic-20261102'
+REVISION = 'production-menu-v7-job-menu-id-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -275,7 +275,7 @@ class MenuTransport:
     def publish_job(self,dest,token):
         brand=urllib.parse.quote(dest['brand_id'],safe='')
         result = self.send(API_HOST + '/menu/v3/brands/' + brand + '/jobs', 'POST',
-               data=b'{"action":"publish_menu_to_live","params":{}}', token=token, stage='publish_job')
+               data=json.dumps({'action':'publish_menu_to_live','params':{'menu_id':dest['menu_id']}},separators=(',',':')).encode(), token=token, stage='publish_job')
         job = result.get('job_id') or result.get('id') if isinstance(result, dict) else None
         if not isinstance(job, str) or not job: raise ProviderFailure('publish_job')
         return job
@@ -411,10 +411,24 @@ def register_deliveroo_production_menu_phase6(app, db):
                     prior=rows[0] if len(rows)==1 else None
                     if not prior or any(prior[k]!=dest[k] for k in ('brand_id','site_id','menu_id')) or prior['digest']!=digest or prior['state']!='uncertain' or prior['stage']!='publish_job' or prior['http_status']!=400 or prior['job_id'] is not None:
                         return jsonify(ok=False,error='Reprise job interdite pour cet état. Aucun envoi.'),409
-                    conn.execute('''CREATE TABLE IF NOT EXISTS deliveroo_production_menu_job_recoveries(
+                    detail=prior['error_detail']
+                    fields=detail.get('fields') if isinstance(detail,dict) else None
+                    error=fields.get('error') if isinstance(fields,dict) else None
+                    missing_menu_id=(isinstance(error,dict) and error.get('code')=='bad_request'
+                        and error.get('message')=='menu_id is required')
+                    conn.execute('''CREATE TABLE IF NOT EXISTS deliveroo_production_menu_job_param_repairs(
                         digest TEXT PRIMARY KEY, previous_attempt JSONB NOT NULL,
                         recovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
-                    claimed=conn.execute('''INSERT INTO deliveroo_production_menu_job_recoveries(digest,previous_attempt)
+                    if conn.execute('SELECT digest FROM deliveroo_production_menu_job_param_repairs WHERE digest=%s',(digest,)).fetchone():
+                        return jsonify(ok=False,error='Correction menu_id déjà tentée. Aucun nouvel envoi.'),409
+                    # Separate, one-time correction only for the recorded explicit
+                    # missing-menu-id rejection. Preserve the previous recovery audit.
+                    audit_table=('deliveroo_production_menu_job_param_repairs' if missing_menu_id
+                                 else 'deliveroo_production_menu_job_recoveries')
+                    conn.execute(f'''CREATE TABLE IF NOT EXISTS {audit_table}(
+                        digest TEXT PRIMARY KEY, previous_attempt JSONB NOT NULL,
+                        recovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
+                    claimed=conn.execute(f'''INSERT INTO {audit_table}(digest,previous_attempt)
                         SELECT digest,to_jsonb(a) FROM deliveroo_production_menu_attempts a WHERE digest=%s
                         ON CONFLICT DO NOTHING RETURNING digest''',(digest,)).fetchone()
                     if not claimed:return jsonify(ok=False,error='Reprise job unique déjà utilisée.'),409
