@@ -428,7 +428,7 @@ def register_religious_calendar_phase6(app, db):
         ]
         return periods
 
-    def automatic_site_order_override(now=None, strict=False, channel="site"):
+    def automatic_site_order_override(now=None, strict=False, channel="site", service_mode="delivery"):
         """Décision automatique du calendrier pour la prise de commandes du site.
 
         - ferme plus tôt avant Chabbat / fête à partir de la dernière commande calculée ;
@@ -454,14 +454,17 @@ def register_religious_calendar_phase6(app, db):
             periods = _operational_periods(events,strict=strict,reference_date=now.date() if strict else None,channel=channel)
             cfg = _site_hours_config() or {}
             if strict and not cfg: raise ValueError("Horaires du calendrier absents")
-            cutoff = int(cfg.get("cutoff_minutes", 30))
+            cutoff = int(cfg.get("cutoff_minutes", 30)) if channel == "site" and service_mode != "pickup" else 0
 
             for p in periods:
                 entry = datetime.fromisoformat(p["entry_at"]).astimezone(TZ)
                 resume = datetime.fromisoformat(p["resume_at"]).astimezone(TZ) if p.get("resume_at") else None
 
-                if p.get("last_order"):
-                    hh, mm = map(int, p["last_order"].split(":"))
+                # Pickup remains available until the restaurant closes; explicit
+                # Deliveroo calendar last-order overrides retain their priority.
+                stop_time = p.get("closure_time") if channel == "site" and service_mode == "pickup" else p.get("last_order")
+                if stop_time:
+                    hh, mm = map(int, stop_time.split(":"))
                     order_stop = entry.replace(hour=hh, minute=mm, second=0, microsecond=0)
                 else:
                     order_stop = entry
@@ -728,6 +731,7 @@ async function saveHours(button,reset){
 async function load(){let y=$('year').value;let r=await fetch('/api/admin/religious-calendar?hebrew_year='+encodeURIComponent(y),{cache:'no-store'}),d=await r.json();$('periods').innerHTML=(d.periods||[]).map(x=>{let type=x.type==='shabbat'?'CHABBAT':'FÊTE';let typeClass=x.type==='shabbat'?'shabbat':'holiday';let close=(x.closure_time&&x.last_order)?('<div class="time-big">'+x.closure_time+'</div><div class="time-sub">Fermeture BÉCHÉFAA</div><div style="margin-top:14px"><div class="time-big" style="font-size:24px">'+x.last_order+'</div><div class="time-sub">Dernière commande</div></div>'):'Selon horaires enregistrés';let resume=(x.resume_date&&x.resume_time)?((x.restaurant_reopen_time?('<div class="time-big">'+x.restaurant_reopen_time+'</div><div class="time-sub">Réouverture restaurant</div><div style="margin-top:14px">'):'')+'<div class="time-big" style="font-size:24px">'+x.resume_time+'</div><div class="time-sub">Reprise des commandes</div>'+(x.restaurant_reopen_time?'</div>':'')+(x.service_end_time?('<div style="margin-top:14px"><b>Fin service :</b> '+x.service_end_time+'</div>'):'')):'À définir';return '<div class="planning-row"><div class="planning-cell"><span class="type-badge '+typeClass+'">'+type+'</span><div class="planning-title">'+x.name+'</div><div class="date-line"><b>Entrée :</b> '+x.entry_date+' à <b>'+x.entry_time+'</b></div><div class="date-line"><b>Sortie :</b> '+x.exit_date+' à <b>'+x.exit_time+'</b></div><span class="badge">Deliveroo : '+x.deliveroo_rule+'</span></div><div class="planning-cell">'+close+'</div><div class="planning-cell">'+resume+'</div>'+hoursEditor(x)+hoursEditor(x,'deliveroo')+'</div>'}).join('')||'Aucune période à afficher.';$('closures').innerHTML=(d.closures||[]).map(x=>'<div class="row"><b>'+x.name+'</b><br>'+x.starts_at+' → '+x.ends_at+'<br><span class="muted">Site '+x.site_enabled+' • Deliveroo '+x.deliveroo_enabled+' • actif '+x.active+'</span></div>').join('')||'Aucune fermeture validée.'}
 async function imp(){$('msg').textContent='Import…';let r=await fetch('/api/admin/religious-calendar/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hebrew_year:Number($('year').value)})}),d=await r.json();$('msg').textContent=d.ok?('Importé : '+d.events_imported+' événements'):'Erreur : '+d.error;if(d.ok)load()}load();
 </script></body></html>""", content_type="text/html; charset=utf-8")
+
 
 
 

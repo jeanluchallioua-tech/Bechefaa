@@ -37,7 +37,8 @@ class SharedHoursPostgresTests(unittest.TestCase):
  def test_weekday_open_and_cutoff_follow_saved_site_configuration(self):
   self.assertTrue(self.state()['open'])
   self.assertTrue(self.state(self.now.replace(hour=14,minute=59))['open'])
-  self.assertFalse(self.state(self.now.replace(hour=15,minute=0))['open'])
+  self.assertTrue(self.state(self.now.replace(hour=15,minute=0))['open'])
+  self.assertFalse(self.state(self.now.replace(hour=15,minute=30))['open'])
 
  def test_manual_deliveroo_closure_does_not_close_site_when_site_flag_false(self):
   with self.connect() as conn:
@@ -80,7 +81,7 @@ class SharedHoursPostgresTests(unittest.TestCase):
 
  def test_utc_input_uses_paris_service_time(self):
   self.assertTrue(self.state(self.now.astimezone(timezone.utc))['open'])
-  cutoff=self.now.replace(hour=15,minute=0).astimezone(timezone.utc)
+  cutoff=self.now.replace(hour=15,minute=30).astimezone(timezone.utc)
   self.assertFalse(self.state(cutoff)['open'])
 
  def test_deliveroo_hours_save_and_reset_preserve_site_settings(self):
@@ -111,4 +112,46 @@ class SharedHoursPostgresTests(unittest.TestCase):
   response=self.app.test_client().put('/api/admin/religious-calendar/hours/future-candle?channel=unknown',json={})
   self.assertEqual(response.status_code,400)
 
+ def test_weekday_delivery_cutoff_differs_from_pickup_and_marketplaces(self):
+  for hour,minute in [(15,0),(15,29),(22,0),(22,29)]:
+   when=self.now.replace(hour=hour,minute=minute,second=59)
+   self.assertFalse(self.engine(now=when,channel='site',service_mode='delivery',strict=True)['open'])
+   self.assertTrue(self.engine(now=when,channel='site',service_mode='pickup',strict=True)['open'])
+   for channel in ('deliveroo','uber'):
+    result=self.engine(now=when,channel=channel,strict=True)
+    self.assertTrue(result['open']);self.assertEqual(result['cutoff_minutes'],0)
+  for hour,minute in [(15,30),(22,30)]:
+   when=self.now.replace(hour=hour,minute=minute)
+   for channel,mode in [('site','delivery'),('site','pickup'),('deliveroo','delivery'),('uber','delivery')]:
+    self.assertFalse(self.engine(now=when,channel=channel,service_mode=mode,strict=True)['open'])
+
+ def test_checkout_guard_reads_authoritative_mode_on_all_payment_routes(self):
+  from unittest.mock import patch
+  class Frozen(datetime):
+   @classmethod
+   def now(cls,tz=None):return self.now.replace(hour=15,minute=15)
+  from clean_caisse.site_order_hours_phase6 import ORDER_PATHS
+  with patch('clean_caisse.site_order_hours_phase6.datetime',Frozen):
+   for path in ORDER_PATHS:
+    for mode,closed in [('LIVRAISON',True),('DELIVERY',True),('À EMPORTER',False)]:
+     with self.app.test_request_context(path,method='POST',json={'mode':mode}):
+      result=self.app.preprocess_request()
+      self.assertEqual(result is not None,closed,(path,mode))
+      if closed:self.assertEqual(result[1],409)
+
+ def test_holiday_closure_still_blocks_pickup_and_marketplaces(self):
+  when=self.now+timedelta(days=5)
+  for channel,mode in [('site','pickup'),('deliveroo','delivery'),('uber','delivery')]:
+   result=self.engine(now=when,channel=channel,service_mode=mode,strict=True)
+   self.assertFalse(result['open']);self.assertEqual(result['calendar_override']['source'],'RELIGIOUS_CALENDAR')
+
+ def test_calendar_pickup_uses_restaurant_closure_not_delivery_last_order(self):
+  with self.connect() as conn:
+   conn.execute('INSERT INTO caisse_religious_hours_overrides(event_key,hours_json) VALUES(%s,%s::jsonb)',('future-candle',json.dumps({'last_order':'12:00','closure_time':'12:30'})))
+  when=(self.now+timedelta(days=4)).replace(hour=12,minute=15)
+  self.assertFalse(self.engine(now=when,service_mode='delivery',strict=True)['open'])
+  self.assertTrue(self.engine(now=when,service_mode='pickup',strict=True)['open'])
+  self.assertFalse(self.engine(now=when.replace(minute=30),service_mode='pickup',strict=True)['open'])
+
 if __name__=='__main__':unittest.main()
+

@@ -48,13 +48,13 @@ def register_site_order_hours_phase6(app,db):
                 r=conn.execute("SELECT config_json FROM caisse_site_order_hours WHERE id=1").fetchone()
                 if not r: raise ValueError("Horaires non configurés")
                 return r["config_json"] if isinstance(r["config_json"],dict) else json.loads(r["config_json"])
-    def state(cfg=None, now=None, channel="site", strict=False):
+    def state(cfg=None, now=None, channel="site", strict=False, service_mode="delivery"):
         cfg=cfg or read(strict=strict)
         now=(now or datetime.now(TZ)).astimezone(TZ)
         day=DAYS[now.weekday()]
         cur=now.hour*60+now.minute
         d=cfg["days"].get(day,{"enabled":False,"slots":[]})
-        cutoff=int(cfg.get("cutoff_minutes",30))
+        cutoff=int(cfg.get("cutoff_minutes",30)) if channel == "site" and service_mode != "pickup" else 0
 
         # 1) Base hebdomadaire : horaires habituels du restaurant.
         open_now=False
@@ -95,7 +95,7 @@ def register_site_order_hours_phase6(app,db):
 
         # 2) Calendrier fêtes & Chabbat : exception datée prioritaire.
         calendar_fn=app.config.get("BECHEFAA_SITE_ORDER_CALENDAR_OVERRIDE")
-        calendar_override=(calendar_fn(now,strict=True,channel=channel) if strict else calendar_fn(now)) if callable(calendar_fn) else None
+        calendar_override=(calendar_fn(now,strict=strict,channel=channel,service_mode=service_mode)) if callable(calendar_fn) else None
         if strict and not callable(calendar_fn): raise ValueError("Calendrier non disponible")
         if calendar_override:
             mode=calendar_override.get("mode")
@@ -115,7 +115,7 @@ def register_site_order_hours_phase6(app,db):
 
         # 3) Fermeture exceptionnelle manuelle : priorité absolue.
         closure_fn=app.config.get("BECHEFAA_ACTIVE_SITE_CLOSURE")
-        closure=(closure_fn(now,channel=channel,strict=True) if strict else closure_fn(now)) if callable(closure_fn) else None
+        closure=(closure_fn(now,channel=channel,strict=strict)) if callable(closure_fn) else None
         if strict and not callable(closure_fn): raise ValueError("Fermetures non disponibles")
         if closure:
             open_now=False
@@ -129,6 +129,8 @@ def register_site_order_hours_phase6(app,db):
             "day_label":LABELS[day],
             "now":now.strftime("%H:%M"),
             "cutoff_minutes":cutoff,
+            "channel":channel,
+            "service_mode":service_mode,
             "closing_time":next_close,
             "next_open_day":next_open_day,
             "next_open_time":next_open_time,
@@ -138,7 +140,9 @@ def register_site_order_hours_phase6(app,db):
 
     @app.get("/api/public/order-hours")
     def public_hours():
-        cfg=read(); return jsonify({"ok":True,"config":cfg,"state":state(cfg)})
+        cfg=read()
+        states={mode:state(cfg,service_mode=mode) for mode in ("delivery","pickup")}
+        return jsonify({"ok":True,"config":cfg,"state":states["delivery"],"states":states})
     @app.get("/api/admin/order-hours")
     def admin_hours_get():
         cfg=read(); return jsonify({"ok":True,"config":cfg,"state":state(cfg)})
@@ -156,7 +160,11 @@ def register_site_order_hours_phase6(app,db):
         except Exception:
             return jsonify({"ok":False,"error":"Date/heure invalide."}),400
         cfg=read()
-        return jsonify({"ok":True,"simulated_at":sim.isoformat(),"state":state(cfg,sim)})
+        selected=str(body.get("profile") or "delivery")
+        profiles={"delivery":("site","delivery"),"pickup":("site","pickup"),"deliveroo":("deliveroo","delivery"),"uber":("uber","delivery")}
+        if selected not in profiles:return jsonify(ok=False,error="Mode inconnu."),400
+        channel,mode=profiles[selected]
+        return jsonify({"ok":True,"simulated_at":sim.isoformat(),"state":state(cfg,sim,channel=channel,service_mode=mode)})
 
     @app.post("/api/admin/order-hours")
     def admin_hours_post():
@@ -169,17 +177,21 @@ def register_site_order_hours_phase6(app,db):
     @app.before_request
     def guard_site_hours():
         if request.method!="POST" or request.path not in ORDER_PATHS: return None
-        st=state()
+        payload=request.get_json(silent=True) or {}
+        # Match the checkout payload mapper: mode is the authoritative service field.
+        mode="delivery" if str(payload.get("mode") or "").strip().upper() in ("LIVRAISON","DELIVERY") else "pickup"
+        st=state(service_mode=mode)
         if st["open"]: return None
         return jsonify({"ok":False,"error":"Les commandes en ligne sont actuellement fermées.","code":"SITE_ORDERING_CLOSED","state":st}),409
     @app.get("/administration/horaires-commandes")
     def order_hours_page():
-        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Horaires habituels</title><style>*{box-sizing:border-box}body{margin:0;background:#f4f5f7;font-family:Arial;color:#111827}.top{background:#111827;color:white;padding:15px 22px;display:flex;gap:12px;align-items:center}.top a{margin-left:auto;color:white;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:800}.wrap{max-width:980px;margin:28px auto;padding:18px}.box{background:white;border-radius:16px;padding:22px;box-shadow:0 5px 20px #0001;margin-bottom:18px}.sim{border:2px solid #d7deea}.sim-grid{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.sim-result{margin-top:14px;padding:14px;border-radius:10px;background:#f6f8fb;font-weight:800}.sim-result.open{background:#ecfdf3;color:#166534}.sim-result.closed{background:#fff1f2;color:#9f1239}.day{display:grid;grid-template-columns:120px 90px 1fr 1fr;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #eee}.slot{display:flex;gap:6px;align-items:center}input[type=time],input[type=number],input[type=datetime-local]{min-height:42px;border:1px solid #ccd2da;border-radius:8px;padding:7px}.save{margin-top:18px;width:100%;min-height:48px;border:0;border-radius:10px;background:#111827;color:white;font-weight:900}.muted{color:#667085}.status{margin-top:12px;font-weight:800}@media(max-width:760px){.day{grid-template-columns:1fr}.slot{flex-wrap:wrap}}</style></head><body><header class="top"><b>BÉCHÉFAA • Horaires habituels</b><a href="/administration">Administration</a></header><main class="wrap"><div class="box"><h1>Horaires habituels du restaurant</h1><p class="muted">Définissez les horaires normaux de service. Le calendrier Fêtes & Chabbat peut les raccourcir ou créer une ouverture exceptionnelle. Le site bloque les commandes selon le délai ci-dessous.</p><label><b>Arrêt des commandes avant fermeture :</b> <input id="cutoff" type="number" min="0" max="180" value="30"> minutes</label><div id="days"></div><button class="save" onclick="save()">Enregistrer</button><div id="msg" class="status"></div></div><div class="box sim"><h2>Simulateur horaires</h2><p class="muted">Choisissez une date et une heure fictives. Le simulateur ne modifie aucun horaire réel.</p><div class="sim-grid"><label><b>Date et heure</b><br><input id="simdt" type="datetime-local"></label><button onclick="simulate()">Tester</button></div><div id="simres" class="sim-result">Aucun test lancé.</div></div></main><script>
+        return Response(r'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Horaires habituels</title><style>*{box-sizing:border-box}body{margin:0;background:#f4f5f7;font-family:Arial;color:#111827}.top{background:#111827;color:white;padding:15px 22px;display:flex;gap:12px;align-items:center}.top a{margin-left:auto;color:white;text-decoration:none;background:#263244;padding:9px 12px;border-radius:8px;font-weight:800}.wrap{max-width:980px;margin:28px auto;padding:18px}.box{background:white;border-radius:16px;padding:22px;box-shadow:0 5px 20px #0001;margin-bottom:18px}.sim{border:2px solid #d7deea}.sim-grid{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.sim-result{margin-top:14px;padding:14px;border-radius:10px;background:#f6f8fb;font-weight:800}.sim-result.open{background:#ecfdf3;color:#166534}.sim-result.closed{background:#fff1f2;color:#9f1239}.day{display:grid;grid-template-columns:120px 90px 1fr 1fr;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #eee}.slot{display:flex;gap:6px;align-items:center}input[type=time],input[type=number],input[type=datetime-local]{min-height:42px;border:1px solid #ccd2da;border-radius:8px;padding:7px}.save{margin-top:18px;width:100%;min-height:48px;border:0;border-radius:10px;background:#111827;color:white;font-weight:900}.muted{color:#667085}.status{margin-top:12px;font-weight:800}@media(max-width:760px){.day{grid-template-columns:1fr}.slot{flex-wrap:wrap}}</style></head><body><header class="top"><b>BÉCHÉFAA • Horaires habituels</b><a href="/administration">Administration</a></header><main class="wrap"><div class="box"><h1>Horaires habituels du restaurant</h1><p class="muted">Définissez les horaires normaux de service. Le calendrier Fêtes & Chabbat peut les raccourcir ou créer une ouverture exceptionnelle. Livraison du site : arrêt anticipé selon le délai ci-dessous. À emporter, Deliveroo et futur Uber Eats : commandes jusqu’à la fermeture. Les fermetures Fêtes &amp; Chabbat restent prioritaires.</p><label><b>Livraison du site — arrêt avant fermeture :</b> <input id="cutoff" type="number" min="0" max="180" value="30"> minutes</label><div id="days"></div><button class="save" onclick="save()">Enregistrer</button><div id="msg" class="status"></div></div><div class="box sim"><h2>Simulateur horaires</h2><p class="muted">Choisissez une date et une heure fictives. Le simulateur ne modifie aucun horaire réel.</p><div class="sim-grid"><label><b>Mode de commande</b><br><select id="simprofile"><option value="delivery">Site — Livraison</option><option value="pickup">Site — À emporter</option><option value="deliveroo">Deliveroo</option><option value="uber">Uber Eats (préparation)</option></select></label><label><b>Date et heure</b><br><input id="simdt" type="datetime-local"></label><button onclick="simulate()">Tester</button></div><div id="simres" class="sim-result">Aucun test lancé.</div></div></main><script>
 const names={monday:'Lundi',tuesday:'Mardi',wednesday:'Mercredi',thursday:'Jeudi',friday:'Vendredi',saturday:'Samedi',sunday:'Dimanche'},order=Object.keys(names),$=x=>document.getElementById(x);let cfg=null;
 function draw(){days.innerHTML=order.map(d=>{let x=cfg.days[d]||{enabled:false,slots:[]},s=[...(x.slots||[])];while(s.length<2)s.push(['','']);return '<div class="day" data-day="'+d+'"><b>'+names[d]+'</b><label><input class="en" type="checkbox" '+(x.enabled?'checked':'')+'> Ouvert</label><div class="slot"><input class="a1" type="time" value="'+s[0][0]+'"> à <input class="b1" type="time" value="'+s[0][1]+'"></div><div class="slot"><input class="a2" type="time" value="'+s[1][0]+'"> à <input class="b2" type="time" value="'+s[1][1]+'"></div></div>'}).join('');cutoff.value=cfg.cutoff_minutes}
 async function load(){let r=await fetch('/api/admin/order-hours',{cache:'no-store'}),d=await r.json();cfg=d.config;draw()}
-async function save(){let daysCfg={};document.querySelectorAll('.day').forEach(row=>{let slots=[];for(let i=1;i<=2;i++){let a=row.querySelector('.a'+i).value,b=row.querySelector('.b'+i).value;if(a&&b)slots.push([a,b])}daysCfg[row.dataset.day]={enabled:row.querySelector('.en').checked,slots}});let body={config:{cutoff_minutes:Number(cutoff.value||30),days:daysCfg}};msg.textContent='Enregistrement…';let r=await fetch('/api/admin/order-hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();msg.textContent=d.ok?'Horaires enregistrés.':('Erreur : '+d.error);if(d.ok){cfg=d.config;draw()}}
-async function simulate(){let v=$('simdt').value,res=$('simres');if(!v){res.className='sim-result closed';res.textContent='Choisissez une date et une heure.';return}res.className='sim-result';res.textContent='Test en cours…';let r=await fetch('/api/admin/order-hours/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datetime:v})}),d=await r.json();if(!d.ok){res.className='sim-result closed';res.textContent='Erreur : '+d.error;return}let s=d.state||{},o=s.calendar_override||{},status=s.open?'OUVERT AUX COMMANDES':'FERMÉ AUX COMMANDES';let details=[];details.push(s.day_label+' '+v.replace('T',' '));if(o&&o.source==='RELIGIOUS_CALENDAR'){details.push('Règle calendrier : '+(o.name||o.type||'Fêtes & Chabbat'));if(o.last_order)details.push('Dernière commande : '+o.last_order);if(o.restaurant_closes)details.push('Fermeture restaurant : '+o.restaurant_closes);if(o.resume_time)details.push('Reprise commandes : '+o.resume_time);if(o.service_end_time)details.push('Fin service : '+o.service_end_time)}else{details.push('Règle : horaires habituels')}if(s.exceptional_closure)details.push('Fermeture manuelle active : '+s.exceptional_closure.name);res.className='sim-result '+(s.open?'open':'closed');res.innerHTML='<div style="font-size:20px">'+status+'</div><div style="margin-top:6px">'+details.join(' • ')+'</div>'}
+async function save(){let daysCfg={};document.querySelectorAll('.day').forEach(row=>{let slots=[];for(let i=1;i<=2;i++){let a=row.querySelector('.a'+i).value,b=row.querySelector('.b'+i).value;if(a&&b)slots.push([a,b])}daysCfg[row.dataset.day]={enabled:row.querySelector('.en').checked,slots}});let body={config:{cutoff_minutes:Number(cutoff.value===''?30:cutoff.value),days:daysCfg}};msg.textContent='Enregistrement…';let r=await fetch('/api/admin/order-hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();msg.textContent=d.ok?'Horaires enregistrés.':('Erreur : '+d.error);if(d.ok){cfg=d.config;draw()}}
+async function simulate(){let v=$('simdt').value,res=$('simres');if(!v){res.className='sim-result closed';res.textContent='Choisissez une date et une heure.';return}res.className='sim-result';res.textContent='Test en cours…';let r=await fetch('/api/admin/order-hours/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datetime:v,profile:$('simprofile').value})}),d=await r.json();if(!d.ok){res.className='sim-result closed';res.textContent='Erreur : '+d.error;return}let s=d.state||{},o=s.calendar_override||{},status=s.open?'OUVERT AUX COMMANDES':'FERMÉ AUX COMMANDES';let details=[];details.push(s.day_label+' '+v.replace('T',' '));if(o&&o.source==='RELIGIOUS_CALENDAR'){details.push('Règle calendrier : '+(o.name||o.type||'Fêtes & Chabbat'));if(o.last_order)details.push('Dernière commande : '+o.last_order);if(o.restaurant_closes)details.push('Fermeture restaurant : '+o.restaurant_closes);if(o.resume_time)details.push('Reprise commandes : '+o.resume_time);if(o.service_end_time)details.push('Fin service : '+o.service_end_time)}else{details.push('Règle : horaires habituels')}if(s.exceptional_closure)details.push('Fermeture manuelle active : '+s.exceptional_closure.name);res.className='sim-result '+(s.open?'open':'closed');res.innerHTML='<div style="font-size:20px">'+status+'</div><div style="margin-top:6px">'+details.join(' • ')+'</div>'}
 let n=new Date(),pad=x=>String(x).padStart(2,'0');$('simdt').value=n.getFullYear()+'-'+pad(n.getMonth()+1)+'-'+pad(n.getDate())+'T'+pad(n.getHours())+':'+pad(n.getMinutes());load();
 </script></body></html>''',content_type="text/html; charset=utf-8")
+
 
