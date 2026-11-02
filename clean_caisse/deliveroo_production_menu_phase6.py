@@ -13,7 +13,7 @@ from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
 from .deliveroo_production_phase6 import API_HOST, AUTH_HOST, PRODUCTION_APP, NoRedirect
 
 MENU_ID = 'bechefaa-menu-01'
-REVISION = 'production-menu-v4-http-diagnostic-20261102'
+REVISION = 'production-menu-v5-identified-client-20261102'
 INTEGRATOR_USER_AGENT = 'BECHEFAA-POS/1.0 (+https://caisse.bechefaa.fr)'
 LEGACY_WRITES = {'/api/deliveroo/menu-upload-phase6'}
 
@@ -136,7 +136,7 @@ class MenuTransport:
         self.opener = opener or urllib.request.build_opener(NoRedirect())
 
     def send(self, url, method, data=None, token=None, stage='provider', json_response=True):
-        headers = {'Accept': 'application/json'}
+        headers = {'Accept': 'application/json', 'User-Agent': INTEGRATOR_USER_AGENT}
         if data is not None: headers['Content-Type'] = 'application/json'
         if token: headers['Authorization'] = 'Bearer ' + token
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -327,9 +327,29 @@ def register_deliveroo_production_menu_phase6(app, db):
             try:
                 with conn.transaction():
                     ensure_table(conn)
-                    prior = conn.execute("SELECT digest,state,job_id FROM deliveroo_production_menu_attempts WHERE digest=%s OR (brand_id=%s AND state IN ('started','submitted','uncertain')) ORDER BY created_at DESC LIMIT 1", (digest, dest['brand_id'])).fetchone()
-                    if prior: return jsonify(ok=False, error='Tentative déjà enregistrée. Consultez son statut avant tout nouvel envoi.', attempt=dict(prior)), 409
-                    conn.execute("INSERT INTO deliveroo_production_menu_attempts(digest,brand_id,site_id,menu_id,state,stage) VALUES(%s,%s,%s,%s,'started','oauth')", (digest,dest['brand_id'],dest['site_id'],dest['menu_id']))
+                    prior_rows = conn.execute("SELECT * FROM deliveroo_production_menu_attempts WHERE digest=%s OR (brand_id=%s AND state IN ('started','submitted','uncertain')) ORDER BY created_at DESC LIMIT 2", (digest, dest['brand_id'])).fetchall()
+                    prior = prior_rows[0] if prior_rows else None
+                    retry = (len(prior_rows)==1 and body.get('retry_denied_s3') is True
+                        and prior['digest']==digest and prior['brand_id']==dest['brand_id']
+                        and prior['site_id']==dest['site_id'] and prior['menu_id']==dest['menu_id']
+                        and prior['state']=='uncertain' and prior['stage']=='generate_s3'
+                        and prior['http_status']==403 and prior['job_id'] is None)
+                    if prior and not retry:
+                        return jsonify(ok=False, error='Tentative déjà enregistrée. Consultez son statut avant tout nouvel envoi.', attempt={k:prior[k] for k in ('digest','state','stage','job_id','http_status')}), 409
+                    if retry:
+                        # Preserve the refused pre-upload attempt; allow one explicitly
+                        # confirmed recovery only. Never recover upload/job ambiguity.
+                        conn.execute('''CREATE TABLE IF NOT EXISTS deliveroo_production_menu_recoveries(
+                            digest TEXT PRIMARY KEY, previous_attempt JSONB NOT NULL,
+                            recovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
+                        archived=conn.execute('''INSERT INTO deliveroo_production_menu_recoveries(digest,previous_attempt)
+                            SELECT digest,to_jsonb(a) FROM deliveroo_production_menu_attempts a WHERE digest=%s
+                            ON CONFLICT DO NOTHING RETURNING digest''',(digest,)).fetchone()
+                        if not archived:
+                            return jsonify(ok=False,error='Reprise unique déjà utilisée. Aucun nouvel envoi.'),409
+                        conn.execute("UPDATE deliveroo_production_menu_attempts SET state='started',stage='oauth',http_status=NULL,created_at=NOW() WHERE digest=%s",(digest,))
+                    else:
+                        conn.execute("INSERT INTO deliveroo_production_menu_attempts(digest,brand_id,site_id,menu_id,state,stage) VALUES(%s,%s,%s,%s,'started','oauth')", (digest,dest['brand_id'],dest['site_id'],dest['menu_id']))
                 def progress(stage):
                     with conn.transaction(): conn.execute('UPDATE deliveroo_production_menu_attempts SET stage=%s WHERE digest=%s', (stage,digest))
                 try:
@@ -370,11 +390,12 @@ PAGE = '''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewp
 <main><h1>Menu Deliveroo — Production</h1><p>Vérifiez la cible, les prix, les options, les formules, les photos et les horaires avant publication. Ce menu remplacera celui des établissements ciblés. La connexion des commandes reste une étape distincte dans le Partner Hub.</p>
 <button id="load">1. Préparer l’aperçu sans envoyer</button><pre id="summary">Aucun aperçu chargé.</pre><a id="document" hidden>Télécharger le menu à vérifier</a>
 <label for="confirm">Pour publier, recopiez exactement la phrase affichée dans l’aperçu :</label><input id="confirm" autocomplete="off"><button id="publish" disabled>2. Publier ce menu en production</button>
+<label style="display:block"><input id="retry" type="checkbox" style="width:auto"> Autoriser une reprise unique si la tentative précédente a été refusée avant l’envoi du menu (403 à la création de l’URL).</label>
 <button id="status">3. Lire le statut de la dernière tentative</button><pre id="result" role="status">Aucun envoi effectué depuis cet écran.</pre></main>
 <script>let preview=null,blobUrl=null;const el=id=>document.getElementById(id);const show=x=>el('result').textContent=JSON.stringify(x,null,2);
 el('load').onclick=async()=>{el('publish').disabled=true;el('confirm').value='';preview=null;try{let r=await fetch('/api/deliveroo/production-menu-preview',{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok){show(d);return}preview=d;let {document,...summary}=d;el('summary').textContent=JSON.stringify(summary,null,2);if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=URL.createObjectURL(new Blob([JSON.stringify(document,null,2)],{type:'application/json'}));el('document').href=blobUrl;el('document').download='bechefaa-menu-production.json';el('document').textContent='Télécharger le menu à vérifier';el('document').hidden=false;}catch(e){show({error:'Aperçu indisponible.'})}};
 el('confirm').oninput=()=>{el('publish').disabled=!preview||el('confirm').value!==preview.confirmation};
-el('publish').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Consultez le statut ; ne renvoyez pas.'})}finally{preview=null;el('confirm').value='';el('load').disabled=false}};
+el('publish').onclick=async()=>{if(!preview||el('confirm').value!==preview.confirmation)return;el('publish').disabled=true;el('load').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({digest:preview.digest,confirmation:el('confirm').value,retry_denied_s3:el('retry').checked})});show(await r.json())}catch(e){show({error:'Réponse interrompue. Consultez le statut ; ne renvoyez pas.'})}finally{preview=null;el('confirm').value='';el('retry').checked=false;el('load').disabled=false}};
 el('status').onclick=async()=>{el('status').disabled=true;try{let r=await fetch('/api/deliveroo/production-menu-job',{cache:'no-store'});show(await r.json())}catch(e){show({error:'Statut indisponible.'})}finally{el('status').disabled=false}};
 </script></html>'''
 

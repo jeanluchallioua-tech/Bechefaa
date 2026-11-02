@@ -158,6 +158,7 @@ class PreviewTests(unittest.TestCase):
             stages=[];job=menu.MenuTransport(Opener()).publish(menu.make_preview(catalog(),DEST),stages.append)
         self.assertEqual(job,'job-synthetic');self.assertEqual(stages,['generate_s3','s3_upload','publish_job'])
         self.assertEqual([x.get_method() for x in calls],['POST','PUT','PUT','POST'])
+        for request in calls[1:]:self.assertEqual(request.get_header('User-agent'),menu.INTEGRATOR_USER_AGENT)
         self.assertIsNone(calls[2].get_header('Authorization'))
         self.assertEqual(json.loads(calls[2].data)['menu'],catalog()['payload']['menu'])
         self.assertEqual(json.loads(calls[3].data),{'action':'publish_menu_to_live','params':{}})
@@ -291,6 +292,54 @@ class MenuPostgresTests(unittest.TestCase):
         self.assertEqual(self.publish().status_code,502)
         self.assertEqual(self.publish().status_code,409);self.assertEqual(self.sent,1)
         self.assertEqual(self.rows('SELECT state FROM deliveroo_production_menu_attempts')[0]['state'],'uncertain')
+
+    def denied_attempt(self,stage='generate_s3',status=403):
+        transport=self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
+        original=transport.publish
+        def deny(prepared,progress):
+            self.sent+=1;progress(stage);raise menu.ProviderFailure(stage,status)
+        transport.publish=deny
+        self.assertEqual(self.publish().status_code,502)
+        transport.publish=original
+
+    def test_refused_s3_requires_explicit_recovery_and_preserves_original(self):
+        self.denied_attempt()
+        self.assertEqual(self.publish().status_code,409)
+        self.assertEqual(self.publish({**self.body,'retry_denied_s3':True}).status_code,200)
+        original=self.rows('SELECT previous_attempt FROM deliveroo_production_menu_recoveries')[0]['previous_attempt']
+        self.assertEqual(original['http_status'],403);self.assertEqual(original['stage'],'generate_s3')
+        self.assertEqual(self.rows('SELECT state FROM deliveroo_production_menu_attempts')[0]['state'],'submitted')
+        self.assertEqual(self.publish({**self.body,'retry_denied_s3':True}).status_code,409)
+        self.assertEqual(self.sent,2)
+
+    def test_recovery_never_repeats_after_a_second_denial(self):
+        self.denied_attempt()
+        def deny(prepared,progress):self.sent+=1;raise menu.ProviderFailure('generate_s3',403)
+        self.app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT'].publish=deny
+        body={**self.body,'retry_denied_s3':True}
+        self.assertEqual(self.publish(body).status_code,502)
+        self.assertEqual(self.publish(body).status_code,409);self.assertEqual(self.sent,2)
+
+    def test_recovery_blocks_s3_upload_and_job_uncertainty(self):
+        self.denied_attempt()
+        for stage,status,job in (('s3_upload',403,None),('publish_job',403,None),('generate_s3',None,None),('generate_s3',403,'existing-job')):
+            with self.connect() as conn:conn.execute('UPDATE deliveroo_production_menu_attempts SET stage=%s,http_status=%s,job_id=%s',(stage,status,job))
+            self.assertEqual(self.publish({**self.body,'retry_denied_s3':True}).status_code,409)
+        self.assertEqual(self.sent,1)
+
+    def test_concurrent_recovery_publishes_once(self):
+        self.denied_attempt()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses=list(pool.map(lambda _:self.publish({**self.body,'retry_denied_s3':True}).status_code,range(2)))
+        self.assertEqual(sorted(statuses),[200,409]);self.assertEqual(self.sent,2)
+
+    def test_changed_catalog_cannot_recover_old_digest(self):
+        self.denied_attempt()
+        changed=catalog();changed['payload']['menu']['items'][0]['price_info']['price']=1300
+        self.builder.return_value=changed
+        with self.app.test_client() as client:prepared=client.get('/api/deliveroo/production-menu-preview').get_json()
+        self.assertEqual(self.publish({k:prepared[k] for k in ('digest','confirmation')}|{'retry_denied_s3':True}).status_code,409)
+        self.assertEqual(self.sent,1)
 
     def test_concurrent_publication_is_serialized(self):
         with ThreadPoolExecutor(max_workers=2) as pool:statuses=list(pool.map(lambda _:self.publish().status_code,range(2)))
