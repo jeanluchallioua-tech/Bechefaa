@@ -1,5 +1,7 @@
 """Export comptable mensuel BÉCHÉFAA — lecture seule.
 
+Les commandes Deliveroo sont exclues uniquement de cet export, y compris
+les montants et transactions associés. Les statistiques restent inchangées.
 Le module ne modifie ni commandes, ni paiements, ni Z. Il consolide les
 snapshots fiscaux existants et le journal des transactions pour fournir un
 aperçu mensuel et un PDF téléchargeable.
@@ -59,6 +61,7 @@ def _summary(conn, start_ms, end_ms):
         FROM caisse_orders
         WHERE created_at >= %s AND created_at < %s
           AND COALESCE(cancellation_hidden,FALSE)=FALSE
+          AND UPPER(COALESCE(sales_channel,'RESTO')) <> 'DELIVEROO'
     """, (start_ms, end_ms)).fetchone()
 
     cashflow = conn.execute("""
@@ -66,6 +69,12 @@ def _summary(conn, start_ms, end_ms):
                COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS refunds
         FROM caisse_payment_transactions
         WHERE created_at >= %s AND created_at < %s
+          AND NOT EXISTS (
+              SELECT 1 FROM caisse_orders AS o
+              WHERE o.id = caisse_payment_transactions.order_id
+                AND UPPER(COALESCE(o.sales_channel,'RESTO')) = 'DELIVEROO'
+          )
+          AND UPPER(COALESCE(provider,'')) <> 'DELIVEROO'
     """, (start_ms, end_ms)).fetchone()
 
     method_rows = conn.execute("""
@@ -76,6 +85,12 @@ def _summary(conn, start_ms, end_ms):
                  ELSE 0 END),0) AS net
         FROM caisse_payment_transactions
         WHERE created_at >= %s AND created_at < %s
+          AND NOT EXISTS (
+              SELECT 1 FROM caisse_orders AS o
+              WHERE o.id = caisse_payment_transactions.order_id
+                AND UPPER(COALESCE(o.sales_channel,'RESTO')) = 'DELIVEROO'
+          )
+          AND UPPER(COALESCE(provider,'')) <> 'DELIVEROO'
         GROUP BY 1 ORDER BY net DESC, method
     """, (start_ms, end_ms)).fetchall()
     methods = []
@@ -96,6 +111,7 @@ def _summary(conn, start_ms, end_ms):
         FROM caisse_orders
         WHERE created_at >= %s AND created_at < %s
           AND COALESCE(cancellation_hidden,FALSE)=FALSE
+          AND UPPER(COALESCE(sales_channel,'RESTO')) <> 'DELIVEROO'
         GROUP BY 1 ORDER BY total DESC, source
     """, (start_ms, end_ms)).fetchall()
 
@@ -106,6 +122,7 @@ def _summary(conn, start_ms, end_ms):
         FROM caisse_orders
         WHERE created_at >= %s AND created_at < %s
           AND COALESCE(cancellation_hidden,FALSE)=FALSE
+          AND UPPER(COALESCE(sales_channel,'RESTO')) <> 'DELIVEROO'
         GROUP BY 1 ORDER BY 1
     """, (start_ms, end_ms)).fetchall()
 
@@ -115,6 +132,12 @@ def _summary(conn, start_ms, end_ms):
                COALESCE(SUM(CASE WHEN transaction_type='REFUND' AND status='SUCCEEDED' THEN amount ELSE 0 END),0) AS refunds
         FROM caisse_payment_transactions
         WHERE created_at >= %s AND created_at < %s
+          AND NOT EXISTS (
+              SELECT 1 FROM caisse_orders AS o
+              WHERE o.id = caisse_payment_transactions.order_id
+                AND UPPER(COALESCE(o.sales_channel,'RESTO')) = 'DELIVEROO'
+          )
+          AND UPPER(COALESCE(provider,'')) <> 'DELIVEROO'
         GROUP BY 1 ORDER BY 1
     """, (start_ms, end_ms)).fetchall()
 
