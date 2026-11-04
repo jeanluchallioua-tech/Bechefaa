@@ -107,7 +107,7 @@ class Paper:
         return result
 
 
-def _order_time(order):
+def _order_datetime(order, fmt='%H:%M'):
     """Local order creation time, never the print/reprint time."""
     try:
         value = order.get('created_at')
@@ -116,7 +116,7 @@ def _order_time(order):
         timestamp = float(value)
         if timestamp > 100000000000:
             timestamp /= 1000
-        return datetime.fromtimestamp(timestamp, tz=ZoneInfo('Europe/Paris')).strftime('%H:%M')
+        return datetime.fromtimestamp(timestamp, tz=ZoneInfo('Europe/Paris')).strftime(fmt)
     except (TypeError, ValueError, OverflowError, OSError):
         return None
 
@@ -126,7 +126,8 @@ def render_receipt(order, kind, identity=None):
     identity = identity or {}
     p = Paper(columns=34,text_height=34,row_height=40) if kind=='kitchen' else Paper()
     mode = _service_label(order)
-    order_time = _order_time(order)
+    order_time = _order_datetime(order)
+    order_date_time = _order_datetime(order, '%d/%m/%Y %H:%M')
     p.gap(12)
     if kind == 'kitchen':
         p.text('BECHEFAA', columns=24, center=True, height=2)
@@ -162,8 +163,8 @@ def render_receipt(order, kind, identity=None):
             if identity.get('vat_number'): p.text('TVA : ' + str(identity['vat_number']), center=True)
         p.rule()
         p.text(mode, columns=24, center=True, bold=True)
-        if order_time:
-            p.text('Heure commande : ' + order_time, center=True, bold=True)
+        if order_date_time:
+            p.text('Commande : ' + order_date_time, center=True, bold=True)
         if order.get('table_number'): p.text('Table ' + str(order['table_number']), center=True)
         if order.get('customer_name'): p.text(order['customer_name'], center=True)
         if mode == 'LIVRAISON':
