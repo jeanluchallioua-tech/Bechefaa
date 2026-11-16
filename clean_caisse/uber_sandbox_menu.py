@@ -9,6 +9,7 @@ from flask import Response, redirect, render_template_string, request, session
 from .uber_sandbox_link import STORE_ID, API, UberFailure, call_uber, get_token
 
 MENU_API = 'https://test-api.uber.com/v2/eats/stores/' + STORE_ID + '/menus'
+PREPROD_ORIGIN = 'https://app-fad0809f-954d-47e7-983d-afb7c3867cd0.cleverapps.io'
 DAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
 
 
@@ -39,7 +40,7 @@ def fingerprint(payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
 
 
-def build_menu(data, markup):
+def build_menu(data, markup, photo_origin=PREPROD_ORIGIN):
     """Pure conversion; never alter the POS catalogue or create orders."""
     markup = money(markup)
     if markup > 100:
@@ -122,7 +123,8 @@ def build_menu(data, markup):
             item['description'] = text(description)
         photo = str(product.get('photo') or '')
         if photo.startswith('data:') or '/api/public/catalog/photo/' in photo:
-            photo = 'https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/uber/' + quote(pid, safe='')
+            version = hashlib.sha256(photo.encode('utf-8')).hexdigest()[:24]
+            photo = photo_origin.rstrip('/') + '/api/public/catalog/photo-marketplace/uber/' + quote(pid, safe='') + '?v=' + version
         if photo.startswith('https://'):
             item['image_url'] = photo
         sold_out = product.get('channelSoldout', {}).get('ubereats', False) or product.get('availability') in ('unavailable', 'soldout', 'sold_out')
@@ -130,7 +132,7 @@ def build_menu(data, markup):
             item['suspension_info'] = {'suspension': {'suspend_until': 4102444800, 'reason': 'Indisponible dans le catalogue'}}
         items.append(item)
         category['entities'].append({'id': item_id, 'type': 'ITEM'})
-        rows.append({'name': name, 'price': cost / 100, 'category': str(product.get('category')), 'photo': item.get('image_url'), 'groups': row_groups, 'sold_out': bool(sold_out)})
+        rows.append({'name': name, 'price': cost / 100, 'category': str(product.get('category')), 'photo': item.get('image_url'), 'id': item_id, 'groups': row_groups, 'sold_out': bool(sold_out)})
     categories = [cat for cat in categories if cat['entities']]
     if not rows or not categories:
         raise ValueError('Aucun article activé pour Uber Eats. Aucun menu vide ne sera envoyé.')
@@ -208,6 +210,31 @@ def verified_menu(expected, actual):
     return not menu_differences(expected, actual)
 
 
+def photo_report(expected, actual):
+    """The API may replace source URLs with CDN URLs; never claim visual equality."""
+    found = {item.get('id'): item for item in (actual.get('items') or []) if isinstance(item, dict)}
+    rows = []
+    for item in expected['items']:
+        source = item.get('image_url')
+        if not source:
+            continue
+        received = found.get(item['id'], {}).get('image_url')
+        if not isinstance(received, str) or not received.startswith('https://'):
+            received = None
+        state = 'missing' if not received else 'same_source' if received == source else 'different_url'
+        rows.append({'id': item['id'], 'name': next(iter(item['title']['translations'].values())),
+                     'source_url': source, 'uber_url': received, 'state': state})
+    return rows
+
+
+def photo_summary(rows):
+    missing = sum(row['state'] == 'missing' for row in rows)
+    different = sum(row['state'] == 'different_url' for row in rows)
+    return ('Photos : ' + str(len(rows)) + ' attendues ; ' + str(missing) + ' sans image dans la réponse Uber ; ' +
+            str(different) + ' avec une adresse différente (ancienne photo ou adresse transformée par Uber). '
+            'Comparez les deux images ci-dessous : une adresse identique ne garantit pas que la nouvelle photo est déjà affichée sur Uber Eats.')
+
+
 def register_uber_sandbox_menu(app):
     def authorized(post=False):
         import hmac
@@ -216,17 +243,23 @@ def register_uber_sandbox_menu(app):
         expected = session.get('uber_sandbox_csrf', '')
         return not post or bool(expected and hmac.compare_digest(expected, request.form.get('csrf', '')))
 
-    def page(message='', status=200):
+    def local_menu(data, markup):
+        return build_menu(data, markup, photo_origin='https://' + request.host)
+
+    def page(message='', status=200, photos=None):
         try:
             data, markup = read_source()
-            payload, rows = build_menu(data, markup)
+            payload, rows = local_menu(data, markup)
         except Exception:
             return Response('Le catalogue ou les réglages Uber sont indisponibles. Aucun envoi effectué.', status=503)
+        photo_by_id = {photo['id']: photo for photo in (photos or [])}
+        for row in rows:
+            row['uber_photo'] = photo_by_id.get(row['id'], {}).get('uber_url')
         nonce = secrets.token_urlsafe(32)
         session['uber_menu_preview'] = {'digest': fingerprint(payload), 'nonce': nonce}
         session.setdefault('uber_sandbox_csrf', secrets.token_urlsafe(32))
         html = render_template_string('''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Carte Uber Eats — test</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;color:#17212b}button{font-size:18px;padding:16px;margin:8px 0;cursor:pointer}.result{background:#fff4ce;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}article{border-bottom:1px solid #ddd;padding:16px 0}img{width:120px;height:90px;object-fit:contain;float:right}summary{cursor:pointer}li{margin:6px 0}</style>
+        <title>Carte Uber Eats — test</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;color:#17212b}button{font-size:18px;padding:16px;margin:8px 0;cursor:pointer}.result{background:#fff4ce;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}article{border-bottom:1px solid #ddd;padding:16px 0}img{width:120px;height:90px;object-fit:contain;display:block}figure{display:inline-block;vertical-align:top;margin:0 16px 12px 0}figcaption{font-size:13px;margin-top:6px;max-width:160px}summary{cursor:pointer}li{margin:6px 0}</style>
         <h1>Carte Uber Eats — restaurant de test</h1><p>BÉCHÉFAA Test Store · {{ count }} articles · {{ group_count }} groupes d’options<br>Majoration Uber enregistrée : {{ markup }} %.</p>
         <p>Pour les essais, cette carte de test est disponible tous les jours de 00 h 00 à 23 h 59. Les horaires du restaurant réel restent indépendants.</p>
         {% if message %}<p class="result">{{ message }}</p>{% endif %}
@@ -234,9 +267,9 @@ def register_uber_sandbox_menu(app):
         <p>L’envoi remplace la carte actuellement présente dans ce restaurant de test.</p>
         <form method="post" action="/administration/uber-sandbox/menu/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Vérifier la carte chez Uber</button></form>
         <a href="/administration/uber-sandbox">Retour à la liaison Uber</a>
-        {% for row in rows %}<article>{% if row.photo %}<img src="{{ row.photo }}" loading="lazy" alt="{{ row.name }}">{% endif %}<b>{{ row.name }} — {{ '%.2f'|format(row.price) }} €</b><p>{{ row.category }}{% if row.sold_out %} · Indisponible{% endif %}</p>
+        {% for row in rows %}<article>{% if row.photo %}<figure><img src="{{ row.photo }}" loading="lazy" alt="Photo BÉCHÉFAA : {{ row.name }}"><figcaption>Photo BÉCHÉFAA à envoyer</figcaption></figure>{% endif %}{% if photos is not none %}<figure>{% if row.uber_photo %}<img src="{{ row.uber_photo }}" loading="lazy" alt="Photo lue chez Uber : {{ row.name }}">{% else %}<p>Image absente de la réponse Uber</p>{% endif %}<figcaption>Photo lue chez Uber — à comparer</figcaption></figure>{% endif %}<b>{{ row.name }} — {{ '%.2f'|format(row.price) }} €</b><p>{{ row.category }}{% if row.sold_out %} · Indisponible{% endif %}</p>
         {% if row.groups %}<details><summary>Voir les options</summary>{% for group in row.groups %}<p><b>{{ group.name }}</b> · {{ group.minimum }} à {{ group.maximum }} choix</p><ul>{% for choice in group.choices %}<li>{{ choice.name }}{% if choice.price %} (+{{ '%.2f'|format(choice.price) }} €){% endif %}</li>{% endfor %}</ul>{% endfor %}</details>{% endif %}</article>{% endfor %}</html>''',
-            count=len(rows), group_count=len(payload['modifier_groups']), rows=rows, markup=markup, message=message, csrf=session['uber_sandbox_csrf'], nonce=nonce)
+            count=len(rows), group_count=len(payload['modifier_groups']), rows=rows, markup=markup, message=message, csrf=session['uber_sandbox_csrf'], nonce=nonce, photos=photos)
         response = Response(html, status=status, content_type='text/html; charset=utf-8')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
@@ -257,7 +290,7 @@ def register_uber_sandbox_menu(app):
             return page('Envoi déjà effectué ou aperçu expiré. Vérifiez l’aperçu avant de réessayer.', 409)
         try:
             data, markup = read_source()
-            payload, _rows = build_menu(data, markup)
+            payload, _rows = local_menu(data, markup)
             if fingerprint(payload) != preview['digest']:
                 return page('La carte ou les prix ont changé. Consultez le nouvel aperçu avant de l’envoyer.', 409)
             token = get_token('client_credentials', scope='eats.store')
@@ -277,13 +310,15 @@ def register_uber_sandbox_menu(app):
             return Response('Accès refusé.', status=403)
         try:
             data, markup = read_source()
-            payload, _rows = build_menu(data, markup)
+            payload, _rows = local_menu(data, markup)
             token = get_token('client_credentials', scope='eats.store')
             actual = call_uber(MENU_API, token=token, response_limit=4 * 1024 * 1024)
             differences = menu_differences(payload, actual)
-            message = 'Carte confirmée chez Uber : articles, prix et options correspondent à l’aperçu.' if not differences else 'Différences relevées lors de la lecture du menu Uber (aucun nouvel envoi) :\n' + '\n'.join(differences)
-            return page(message)
+            message = 'Articles, prix et options confirmés chez Uber.' if not differences else 'Différences relevées lors de la lecture du menu Uber (aucun nouvel envoi) :\n' + '\n'.join(differences)
+            photos = photo_report(payload, actual)
+            return page(message + '\n\n' + photo_summary(photos), photos=photos)
         except (UberFailure, ValueError) as error:
             return page('Vérification non aboutie. ' + str(error), 502)
         except Exception:
             return page('Le catalogue est indisponible. Vérification non effectuée.', 503)
+

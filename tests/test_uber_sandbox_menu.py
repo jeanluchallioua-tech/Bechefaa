@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 from flask import Flask
 from clean_caisse.uber_sandbox_link import register_uber_sandbox_link, STORE_ID, API, UberFailure
-from clean_caisse.uber_sandbox_menu import build_menu, verified_menu, menu_differences, MENU_API
+from clean_caisse.uber_sandbox_menu import build_menu, verified_menu, menu_differences, photo_report, photo_summary, PREPROD_ORIGIN, MENU_API
 
 
 def catalogue():
@@ -20,6 +20,7 @@ class UberMenuTests(unittest.TestCase):
         self.data = catalogue()
         self.app = Flask(__name__)
         self.app.secret_key = 'unit-only'
+        self.app.config['SERVER_NAME'] = PREPROD_ORIGIN.split('//')[1]
         register_uber_sandbox_link(self.app)
         self.client = self.app.test_client()
         self.source = patch('clean_caisse.uber_sandbox_menu.read_source', side_effect=lambda: (copy.deepcopy(self.data), 15))
@@ -44,7 +45,7 @@ class UberMenuTests(unittest.TestCase):
         self.assertEqual(rows[0]['groups'][1]['choices'][0]['price'], 4.60)
         self.assertEqual(payload['modifier_groups'][0]['quantity_info']['quantity'], {'min_permitted': 1, 'max_permitted': 1})
         self.assertEqual(payload['modifier_groups'][1]['quantity_info']['quantity'], {'min_permitted': 0, 'max_permitted': 2})
-        self.assertEqual(rows[0]['photo'], 'https://caisse.bechefaa.fr/api/public/catalog/photo-marketplace/uber/bacon')
+        self.assertTrue(rows[0]['photo'].startswith(PREPROD_ORIGIN + '/api/public/catalog/photo-marketplace/uber/bacon?v='))
         self.assertEqual(len(payload['menus'][0]['service_availability']), 7)
         self.assertEqual(payload, build_menu(self.data, 15)[0])
         self.assertEqual(len({x['id'] for x in payload['items']}), len(payload['items']))
@@ -95,6 +96,46 @@ class UberMenuTests(unittest.TestCase):
             self.assertIn('Différences relevées', response.text)
             self.assertIn('prix en centimes', response.text)
             self.assertNotIn('must-never-display', response.text)
+            self.assertEqual(network.call_args.args, (MENU_API,))
+            self.assertNotIn('body', network.call_args.kwargs)
+
+    def test_photo_version_changes_only_when_photo_changes(self):
+        original, _ = build_menu(self.data, 15)
+        renamed = copy.deepcopy(self.data)
+        renamed['products'][0]['name'] = 'Nouveau nom'
+        self.assertEqual(original['items'][-1]['image_url'], build_menu(renamed, 15)[0]['items'][-1]['image_url'])
+        updated = copy.deepcopy(self.data)
+        updated['products'][0]['photo'] = 'data:image/jpeg;base64,NEWPHOTO'
+        changed, _ = build_menu(updated, 15)
+        self.assertNotEqual(original['items'][-1]['image_url'], changed['items'][-1]['image_url'])
+        original['items'][-1].pop('image_url'); changed['items'][-1].pop('image_url')
+        self.assertEqual(original, changed)
+
+    def test_photo_report_never_confuses_cdn_url_with_visual_confirmation(self):
+        expected = build_menu(self.data, 15)[0]
+        actual = copy.deepcopy(expected)
+        self.assertEqual(photo_report(expected, actual)[0]['state'], 'same_source')
+        actual['items'][-1]['image_url'] = 'https://images.uber.com/processed-or-old.jpg'
+        report = photo_report(expected, actual)
+        self.assertEqual(report[0]['state'], 'different_url')
+        self.assertIn('1 avec une adresse différente', photo_summary(report))
+        actual['items'][-1].pop('image_url')
+        self.assertEqual(photo_report(expected, actual)[0]['state'], 'missing')
+        actual['items'][-1]['image_url'] = 'javascript:alert(1)'
+        self.assertIsNone(photo_report(expected, actual)[0]['uber_url'])
+
+    def test_readonly_verification_shows_both_photos_and_a_separate_result(self):
+        payload = build_menu(self.data, 15)[0]
+        payload['items'][-1]['image_url'] = 'https://images.uber.com/older.jpg'
+        with patch('clean_caisse.uber_sandbox_menu.get_token', return_value='token'), patch('clean_caisse.uber_sandbox_menu.call_uber', return_value=payload) as network:
+            result = self.client.post('/administration/uber-sandbox/menu/verify', data={'csrf':'csrf'})
+            self.assertEqual(result.status_code, 200)
+            self.assertIn('Articles, prix et options confirmés', result.text)
+            self.assertIn('Photo BÉCHÉFAA à envoyer', result.text)
+            self.assertIn('Photo lue chez Uber — à comparer', result.text)
+            self.assertIn('https://images.uber.com/older.jpg', result.text)
+            self.assertIn(PREPROD_ORIGIN + '/api/public/catalog/photo-marketplace/uber/', result.text)
+            self.assertNotIn('Carte confirmée chez Uber', result.text)
             self.assertEqual(network.call_args.args, (MENU_API,))
             self.assertNotIn('body', network.call_args.kwargs)
 
@@ -163,9 +204,10 @@ class UberMenuTests(unittest.TestCase):
         with patch('clean_caisse.uber_sandbox_menu.get_token', return_value='token'), patch('clean_caisse.uber_sandbox_menu.call_uber', return_value=payload) as network:
             response = self.client.post('/administration/uber-sandbox/menu/verify', data={'csrf':'csrf'})
             self.assertEqual(response.status_code, 200)
-            self.assertIn('Carte confirmée', response.text)
+            self.assertIn('Articles, prix et options confirmés', response.text)
             self.assertEqual(network.call_args.args, (MENU_API,))
             self.assertNotIn('body', network.call_args.kwargs)
 
 
 if __name__ == '__main__': unittest.main()
+
