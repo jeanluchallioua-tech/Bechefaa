@@ -4,7 +4,7 @@ import hmac
 import json
 import os
 
-from flask import Response, jsonify, request
+from flask import Response, jsonify, request, session
 
 
 def register_uber_webhook_phase6(app, db):
@@ -53,6 +53,41 @@ def register_uber_webhook_phase6(app, db):
             return jsonify(ok=False, error='storage_unavailable'), 503
         return Response('', status=200)
 
+    @app.get('/api/uber/sandbox/events')
+    def uber_sandbox_events():
+        from .uber_sandbox_link import STORE_ID
+        if session.get('caisse_auth') is not True:
+            return jsonify(ok=False, error='caisse_session_required'), 403
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('uber_webhook_inbox') IS NOT NULL AS inbox_exists")
+                    row = cur.fetchone()
+                    exists = row['inbox_exists'] if hasattr(row, 'keys') else row[0]
+                    rows = []
+                    if exists:
+                        cur.execute("""SELECT event_key, received_at, event_type,
+                            processing_status, payload #>> '{meta,resource_id}' AS resource_id
+                            FROM uber_webhook_inbox
+                            WHERE %s IN (payload #>> '{meta,user_id}',
+                                payload #>> '{meta,store_id}', payload ->> 'store_id')
+                            ORDER BY received_at DESC, event_key DESC LIMIT 20""", (STORE_ID,))
+                        columns = ('event_key', 'received_at', 'event_type', 'processing_status', 'resource_id')
+                        rows = [dict(row) if hasattr(row, 'keys') else dict(zip(columns, row)) for row in cur.fetchall()]
+            for row in rows:
+                value = row['received_at']
+                row['received_at'] = value.isoformat() if hasattr(value, 'isoformat') else str(value)
+            result = jsonify(ok=True, read_only=True, store_id=STORE_ID,
+                order_processing_enabled=False, inbox_exists=bool(exists),
+                recent_events=rows, recent_events_count=len(rows),
+                message='Événements reçus pour le restaurant de test.' if rows else 'Aucun événement reçu pour ce restaurant de test pour le moment.')
+        except Exception:
+            result = jsonify(ok=False, read_only=True, error='inbox_read_unavailable',
+                message='Lecture des événements indisponible. Aucune commande créée.')
+            result.status_code = 503
+        result.headers['Cache-Control'] = 'no-store'
+        return result
+
     @app.get('/api/uber/status-phase6')
     def uber_status_phase6():
         return jsonify(
@@ -61,3 +96,4 @@ def register_uber_webhook_phase6(app, db):
             webhook_path='/api/uber/webhook',
             order_processing_enabled=False,
         )
+
