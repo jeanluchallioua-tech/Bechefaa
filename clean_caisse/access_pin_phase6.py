@@ -1,6 +1,6 @@
 """Protection d'accès de la caisse BÉCHÉFAA par code PIN.
 
-- L'écran racine demande toujours le PIN (pratique pour le raccourci tablette).
+- L'écran racine demande le PIN si la session mémorisée n'est plus valide.
 - Les écrans et API internes exigent une session authentifiée.
 - Les API publiques du site, Mollie et Edenred restent accessibles.
 - Toutes les réponses de la caisse demandent aux moteurs de ne pas indexer.
@@ -39,6 +39,7 @@ _PUBLIC_EXACT = {
     "/caisse-icon-512.svg",
     "/caisse-icon-512.png",
     "/caisse-sw.js",
+    "/offline-sw.js",
 }
 
 _FAILS = defaultdict(deque)
@@ -113,7 +114,7 @@ small{{display:block;margin-top:18px;color:#777}}
 <script>
 if ("serviceWorker" in navigator) {{
   window.addEventListener("load", () => {{
-    navigator.serviceWorker.register("/caisse-sw.js", {{scope:"/"}}).catch(() => {{}});
+    navigator.serviceWorker.register("/caisse-sw.js", {{scope:"/",updateViaCache:"none"}}).catch(() => {{}});
   }});
 }}
 let bechefaaInstallPrompt=null;
@@ -174,6 +175,8 @@ def register_access_pin_phase6(app):
     def _noindex(response):
         response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         response.headers.setdefault("Cache-Control", "no-store")
+        if request.path in ("/", "/pos") and session.get("caisse_auth") is not True:
+            response.headers["X-BECHEFAA-Auth"] = "required"
         return response
 
     @app.get("/robots.txt")
@@ -299,3 +302,4 @@ small{display:block;margin-top:18px;color:#777}
             return jsonify({"ok": False, "error": "Accès caisse verrouillé"}), 401
 
         return redirect("/", code=303)
+

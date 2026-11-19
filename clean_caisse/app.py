@@ -118,7 +118,7 @@ def caisse_service_worker():
     # Worker PWA unique : la logique complète hors connexion est centralisée dans
     # /offline-sw.js. Garder une seule URL de worker évite deux workers concurrents
     # sur le même scope "/".
-    js = r'''importScripts('/offline-sw.js?v=5');'''
+    js = r'''importScripts('/offline-sw.js?v=6');'''
     response = Response(js, content_type="application/javascript; charset=utf-8")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Service-Worker-Allowed"] = "/"
@@ -813,7 +813,7 @@ function render(){let items=DATA.items.filter(p=>!current||p.category===current)
 document.querySelector('.ticket-choice').onclick=e=>{let b=e.target.closest('[data-ticket]');if(!b)return;TICKET_TYPE=b.dataset.ticket;document.querySelectorAll('[data-ticket]').forEach(x=>x.classList.toggle('active',x===b));renderOrder()};
 fetch('/api/catalog/summary').then(r=>r.json()).then(d=>{DATA=d;document.getElementById('status').textContent=d.products+' produits • PostgreSQL';let cats=['',...d.categoryNames];document.getElementById('cats').innerHTML=cats.map(c=>`<button class="cat" data-cat="${esc(c)}">${esc(c||'Tous les produits')}</button>`).join('');document.getElementById('cats').onclick=e=>{let b=e.target.closest('.cat');if(!b)return;current=b.dataset.cat||null;render()};document.getElementById('grid').onclick=e=>{let p=e.target.closest('.product');if(!p)return;showOptions(p.dataset.id,p.dataset.name)};document.querySelector('.cart').onclick=e=>{let b=e.target.closest('[data-action]');if(!b)return;let action=b.dataset.action;if(action==='add-current')addCurrent();else if(action==='remove-line'){ORDER.splice(Number(b.dataset.index),1);renderOrder()}else if(action==='save-order')saveOrder();else if(action==='send-kitchen')sendKitchen(b.dataset.orderId,b.dataset.orderNum);let opt=e.target.closest('.opt-value');if(opt)toggleOption(Number(opt.dataset.gi),Number(opt.dataset.vi))};document.getElementById('options').onclick=e=>{let b=e.target.closest('.opt-value');if(!b)return;toggleOption(Number(b.dataset.gi),Number(b.dataset.vi))};render();renderOrder()}).catch(()=>{document.getElementById('status').textContent='Erreur catalogue';document.getElementById('grid').innerHTML='<p>Impossible de charger le catalogue.</p>'});
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).catch(()=>{}));
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/caisse-sw.js',{scope:'/',updateViaCache:'none'}).catch(()=>{}));
 }
 </script>
 <script id="bechefaa-screen-awake-v1">
@@ -910,6 +910,7 @@ fetch('/api/orders/history',{cache:'no-store'}).then(async r=>{let d=await r.jso
 @app.get("/")
 def root():
     return "BÉCHÉFAA-Caisse clean backend", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
 
 
 

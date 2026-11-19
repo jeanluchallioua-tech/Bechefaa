@@ -8,7 +8,7 @@
 from flask import Response
 
 SW_JS = r"""
-const CACHE='bechefaa-pos-offline-v4-discount-percent1';
+const CACHE='bechefaa-pos-offline-v5-startup';
 const DB='bechefaa-offline-v1';
 const STORE='orders';
 
@@ -36,30 +36,95 @@ function ticketType(body){
 }
 function offlineId(){return 'offline-'+Date.now()+'-'+Math.random().toString(36).slice(2,10)}
 
+// GET timeouts never apply to order writes: an uncertain POST must not be retried.
+const STARTUP_TIMEOUT_MS=8000;
+async function networkGet(req){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),STARTUP_TIMEOUT_MS);
+  try{return await fetch(req,{cache:'no-store',signal:controller.signal})}
+  finally{clearTimeout(timer)}
+}
+function isShell(response){
+  return response && response.ok && response.headers.get('X-BECHEFAA-POS-Shell')==='1';
+}
+async function saveShell(response){
+  if(!isShell(response))return;
+  try{await (await caches.open(CACHE)).put('/pos',response.clone())}catch(_){}
+}
+async function revokeShells(){
+  for(const name of await caches.keys()){
+    if(!name.startsWith('bechefaa-pos-offline-'))continue;
+    const cache=await caches.open(name);
+    for(const key of await cache.keys()){
+      if(['/', '/pos'].includes(new URL(key.url).pathname))await cache.delete(key);
+    }
+  }
+}
+async function cachedShell(){
+  const names=await caches.keys();
+  for(const name of [CACHE,...names.filter(n=>n!==CACHE&&n.startsWith('bechefaa-pos-offline-')).reverse()]){
+    const cache=await caches.open(name),hit=await cache.match('/pos');
+    if(!hit || !hit.ok)continue;
+    if(isShell(hit))return hit;
+    // Previous versions did not mark responses. Accept the actual empty POS shell,
+    // never a PIN form accidentally cached after an authentication redirect.
+    const text=await hit.clone().text();
+    if(text.includes('function renderOrder(')&&text.includes('id="order"'))return hit;
+  }
+  return null;
+}
+function recoveryPage(){
+  return new Response('<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BÉCHÉFAA • Connexion</title><body style="font:18px Arial;background:#111827;color:white;margin:0;padding:32px"><h1>BÉCHÉFAA Caisse</h1><p>La caisse ne peut pas encore se charger. Vérifiez la connexion puis réessayez.</p><p>Les commandes déjà enregistrées localement sont conservées.</p><a href="/" style="display:inline-block;padding:16px;background:#d7b35a;color:#111;border-radius:10px">Réessayer l’ouverture</a></body></html>',{status:503,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+}
+async function navigationResponse(req){
+  try{
+    const net=await networkGet(req);
+    if(net.headers.get('X-BECHEFAA-Auth')==='required'||net.status===401||net.status===403){
+      try{await revokeShells()}catch(_){}return net;
+    }
+    if(net.ok){await saveShell(net);return net}
+    if(net.status<500)return net;
+  }catch(_){}
+  try{return (await cachedShell())||recoveryPage()}catch(_){return recoveryPage()}
+}
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
-    const c=await caches.open(CACHE);
-    await Promise.allSettled([c.add('/pos'),c.add('/api/catalog/summary')]);
-    await self.skipWaiting();
+    // Installation remains possible before PIN entry. Do not cache login HTML.
+    await Promise.allSettled([
+      networkGet('/pos').then(saveShell),
+      cachedGet(new Request(new URL('/api/catalog/summary',location.origin))),
+      cachedGet(new Request(new URL('/static/pos-pending-edit.js',location.origin)))
+    ]);
+    // No skipWaiting: never replace the worker underneath a running service.
   })());
 });
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
-  const keys=await caches.keys();
-  await Promise.all(keys.filter(k=>k.startsWith('bechefaa-pos-offline-')&&k!==CACHE).map(k=>caches.delete(k)));
+  // Keep one previous version as a rescue copy; keep all old versions when the
+  // new version has not acquired an authenticated POS shell yet.
+  const current=await caches.open(CACHE),shell=await current.match('/pos');
+  if(isShell(shell)){
+    const old=(await caches.keys()).filter(k=>k.startsWith('bechefaa-pos-offline-')&&k!==CACHE);
+    await Promise.all(old.slice(0,-1).map(k=>caches.delete(k)));
+  }
   await self.clients.claim();
 })()));
 
 async function cachedGet(req){
-  const c=await caches.open(CACHE);
+  let c=null;try{c=await caches.open(CACHE)}catch(_){}
   try{
-    const net=await fetch(req,{cache:'no-store'});
-    if(net.ok)await c.put(req,net.clone());
-    return net;
-  }catch(e){
-    const hit=await c.match(req);
+    const net=await networkGet(req);
+    if(net.status===401||net.status===403||net.headers.get('X-BECHEFAA-Auth')==='required')return net;
+    const isScript=new URL(req.url,location.origin).pathname.endsWith('.js');
+    const correctType=!isScript||/javascript/.test(net.headers.get('Content-Type')||'');
+    if(net.ok&&!net.redirected&&correctType){try{if(c)await c.put(req,net.clone())}catch(_){}return net}
+    if(net.status<500)return net;
+  }catch(_){}
+  const names=await caches.keys();
+  for(const name of [CACHE,...names.filter(n=>n!==CACHE&&n.startsWith('bechefaa-pos-offline-')).reverse()]){
+    const hit=await (await caches.open(name)).match(req,{ignoreSearch:new URL(req.url,location.origin).pathname.endsWith('.js')});
     if(hit)return hit;
-    throw e;
   }
+  return json({ok:false,error:'Connexion indisponible et ressource absente du cache.'},503);
 }
 
 async function syncOrders(){
@@ -103,24 +168,16 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(url.origin!==location.origin)return;
 
-  if(event.request.method==='GET' && url.pathname==='/pos'){
-    event.respondWith((async()=>{
-      const c=await caches.open(CACHE);
-      try{
-        const net=await fetch(event.request.clone(),{cache:'no-store'});
-        if(net.ok)await c.put(event.request,net.clone());
-        return net;
-      }catch(e){
-        const hit=await c.match(event.request);
-        if(hit)return hit;
-        throw e;
-      }
-    })());
-    return;
+  if(event.request.method==='GET' && ['/', '/pos'].includes(url.pathname)){
+    event.respondWith(navigationResponse(event.request));return;
+  }
+  if(event.request.method==='GET' && url.pathname==='/auth/logout'){
+    event.respondWith((async()=>{const net=await fetch(event.request);if(net.ok){try{await revokeShells()}catch(_){}}return net})());return;
   }
 
   if(event.request.method==='GET' && (
       url.pathname==='/api/catalog/summary' ||
+      url.pathname==='/static/pos-pending-edit.js' ||
       url.pathname.startsWith('/api/catalog/product/')
   )){
     event.respondWith(cachedGet(event.request));
@@ -188,7 +245,17 @@ UI = r"""
  function count(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-count'})}
  function sync(){if(navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'offline-sync'})}
  if('serviceWorker' in navigator){
-   navigator.serviceWorker.register('/caisse-sw.js?v=5',{scope:'/'}).then(async reg=>{
+   navigator.serviceWorker.register('/caisse-sw.js',{scope:'/',updateViaCache:'none'}).then(async reg=>{
+     function waitingNotice(){
+       if(!reg.waiting||document.getElementById('bechefaa-update-note'))return;
+       const note=document.createElement('div');note.id='bechefaa-update-note';
+       note.style.cssText='position:fixed;right:12px;bottom:52px;max-width:360px;padding:10px 14px;border:1px solid #d7b35a;border-radius:10px;background:#111827;color:white;font:14px Arial;z-index:99990';
+       note.textContent='Mise à jour prête. Après le service, fermez les écrans de caisse puis rouvrez l’application pour l’activer.';
+       document.body.appendChild(note);
+     }
+     waitingNotice();
+     reg.addEventListener('updatefound',()=>{const worker=reg.installing;if(worker)worker.addEventListener('statechange',waitingNotice)});
+
      await navigator.serviceWorker.ready;
      count();
      if(navigator.onLine)sync();
@@ -243,6 +310,8 @@ def register_offline_mode_phase6(app):
     def inject_offline_ui_phase6(response):
         if request_path_is_pos(response):
             html = response.get_data(as_text=True)
+            if 'function renderOrder(' in html:
+                response.headers['X-BECHEFAA-POS-Shell'] = '1'
             if 'id="bechefaa-offline-ui"' not in html:
                 html = html.replace("</body>", UI + "</body>")
                 response.set_data(html)
@@ -253,5 +322,6 @@ def register_offline_mode_phase6(app):
 def request_path_is_pos(response):
     from flask import request
     return request.path == "/pos" and response.status_code == 200 and response.mimetype == "text/html"
+
 
 
