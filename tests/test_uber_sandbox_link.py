@@ -104,6 +104,32 @@ class UberSandboxLinkTests(unittest.TestCase):
                 self.assertIn(expected, refreshed.text)
                 self.assertNotIn('private-token', refreshed.text)
 
+    def test_previous_restaurant_account_cannot_activate_replacement_store(self):
+        previous_store = '874dc6f0-80a8-4a22-a66a-28b693e59522'
+        with patch('clean_caisse.uber_sandbox_link.call_uber', side_effect=[{'access_token':'private-token'}, {'stores':[{'store_id':previous_store}]}]) as network:
+            response = self.callback()
+            self.assertEqual(response.status_code, 502)
+            self.assertEqual(network.call_count, 2)
+            self.assertFalse(any(call.args[0].endswith('/pos_data') for call in network.call_args_list))
+
+    def test_previous_authorization_flow_cannot_be_reused_for_replacement_store(self):
+        with self.client.session_transaction() as session:
+            session['uber_sandbox_oauth'] = {'state':'previous-flow', 'created':time.time(), 'store_id':'874dc6f0-80a8-4a22-a66a-28b693e59522'}
+        with patch('clean_caisse.uber_sandbox_link.call_uber') as network:
+            self.assertEqual(self.callback('previous-flow').status_code, 400)
+            network.assert_not_called()
+
+    def test_previous_confirmation_is_not_displayed_for_replacement_store(self):
+        with self.client.session_transaction() as session:
+            session['uber_sandbox_last_result'] = 'ancienne confirmation'
+            session['uber_sandbox_last_result_874dc6f0-80a8-4a22-a66a-28b693e59522'] = 'autre ancienne confirmation'
+        response = self.client.get('/administration/uber-sandbox')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('ancienne confirmation', response.text)
+        self.assertIn(STORE_ID, response.text)
+        self.assertIn('bechefaa+test+store1@gmail.com', response.text)
+        self.assertEqual(urlsplit(CALLBACK).netloc, 'app-fad0809f-954d-47e7-983d-afb7c3867cd0.cleverapps.io')
+
     def test_activation_diagnostic_identifies_failed_stage(self):
         cases = [
             ([{'access_token':'private-token'}, UberFailure('HTTP 403')], 'recherche des restaurants'),
@@ -118,3 +144,4 @@ class UberSandboxLinkTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

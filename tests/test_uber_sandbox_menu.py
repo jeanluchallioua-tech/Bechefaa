@@ -172,6 +172,17 @@ class UberMenuTests(unittest.TestCase):
             self.assertEqual(self.client.post('/administration/uber-sandbox/menu/upload', data=form).status_code, 409)
             self.assertEqual(network.call_count, 2)
 
+    def test_preview_for_previous_store_cannot_upload_to_replacement(self):
+        form = self.preview()
+        with self.client.session_transaction() as session:
+            pending = session['uber_menu_preview']
+            pending['store_id'] = '874dc6f0-80a8-4a22-a66a-28b693e59522'
+            session['uber_menu_preview'] = pending
+        with patch('clean_caisse.uber_sandbox_menu.call_uber') as network, patch('clean_caisse.uber_sandbox_menu.get_token') as token:
+            self.assertEqual(self.client.post('/administration/uber-sandbox/menu/upload', data=form).status_code, 409)
+            network.assert_not_called()
+            token.assert_not_called()
+
     def test_changed_catalogue_and_wrong_link_block_put(self):
         form = self.preview(); self.data['products'][0]['price'] = 18
         with patch('clean_caisse.uber_sandbox_menu.call_uber') as network:

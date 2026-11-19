@@ -256,11 +256,11 @@ def register_uber_sandbox_menu(app):
         for row in rows:
             row['uber_photo'] = photo_by_id.get(row['id'], {}).get('uber_url')
         nonce = secrets.token_urlsafe(32)
-        session['uber_menu_preview'] = {'digest': fingerprint(payload), 'nonce': nonce}
+        session['uber_menu_preview'] = {'digest': fingerprint(payload), 'nonce': nonce, 'store_id': STORE_ID}
         session.setdefault('uber_sandbox_csrf', secrets.token_urlsafe(32))
         html = render_template_string('''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Carte Uber Eats — test</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;color:#17212b}button{font-size:18px;padding:16px;margin:8px 0;cursor:pointer}.result{background:#fff4ce;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}article{border-bottom:1px solid #ddd;padding:16px 0}img{width:120px;height:90px;object-fit:contain;display:block}figure{display:inline-block;vertical-align:top;margin:0 16px 12px 0}figcaption{font-size:13px;margin-top:6px;max-width:160px}summary{cursor:pointer}li{margin:6px 0}</style>
-        <h1>Carte Uber Eats — restaurant de test</h1><p>BÉCHÉFAA Test Store · {{ count }} articles · {{ group_count }} groupes d’options<br>Majoration Uber enregistrée : {{ markup }} %.</p>
+        <h1>Carte Uber Eats — restaurant de test</h1><p>Store ID : <code>{{ store }}</code></p><p>BÉCHÉFAA Test Store · {{ count }} articles · {{ group_count }} groupes d’options<br>Majoration Uber enregistrée : {{ markup }} %.</p>
         <p>Pour les essais, cette carte de test est disponible tous les jours de 00 h 00 à 23 h 59. Les horaires du restaurant réel restent indépendants.</p>
         {% if message %}<p class="result">{{ message }}</p>{% endif %}
         <form method="post" action="/administration/uber-sandbox/menu/upload"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="nonce" value="{{ nonce }}"><button>Envoyer la carte au restaurant de test</button></form>
@@ -269,7 +269,7 @@ def register_uber_sandbox_menu(app):
         <a href="/administration/uber-sandbox">Retour à la liaison Uber</a>
         {% for row in rows %}<article>{% if row.photo %}<figure><img src="{{ row.photo }}" loading="lazy" alt="Photo BÉCHÉFAA : {{ row.name }}"><figcaption>Photo BÉCHÉFAA à envoyer</figcaption></figure>{% endif %}{% if photos is not none %}<figure>{% if row.uber_photo %}<img src="{{ row.uber_photo }}" loading="lazy" alt="Photo lue chez Uber : {{ row.name }}">{% else %}<p>Image absente de la réponse Uber</p>{% endif %}<figcaption>Photo lue chez Uber — à comparer</figcaption></figure>{% endif %}<b>{{ row.name }} — {{ '%.2f'|format(row.price) }} €</b><p>{{ row.category }}{% if row.sold_out %} · Indisponible{% endif %}</p>
         {% if row.groups %}<details><summary>Voir les options</summary>{% for group in row.groups %}<p><b>{{ group.name }}</b> · {{ group.minimum }} à {{ group.maximum }} choix</p><ul>{% for choice in group.choices %}<li>{{ choice.name }}{% if choice.price %} (+{{ '%.2f'|format(choice.price) }} €){% endif %}</li>{% endfor %}</ul>{% endfor %}</details>{% endif %}</article>{% endfor %}</html>''',
-            count=len(rows), group_count=len(payload['modifier_groups']), rows=rows, markup=markup, message=message, csrf=session['uber_sandbox_csrf'], nonce=nonce, photos=photos)
+            store=STORE_ID, count=len(rows), group_count=len(payload['modifier_groups']), rows=rows, markup=markup, message=message, csrf=session['uber_sandbox_csrf'], nonce=nonce, photos=photos)
         response = Response(html, status=status, content_type='text/html; charset=utf-8')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
@@ -286,7 +286,7 @@ def register_uber_sandbox_menu(app):
         if not authorized(True):
             return Response('Accès refusé.', status=403)
         preview = session.pop('uber_menu_preview', None)
-        if not preview or not secrets.compare_digest(preview['nonce'], request.form.get('nonce', '')):
+        if not preview or preview.get('store_id') != STORE_ID or not secrets.compare_digest(preview['nonce'], request.form.get('nonce', '')):
             return page('Envoi déjà effectué ou aperçu expiré. Vérifiez l’aperçu avant de réessayer.', 409)
         try:
             data, markup = read_source()

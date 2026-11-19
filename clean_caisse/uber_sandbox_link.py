@@ -11,8 +11,8 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from flask import Response, redirect, render_template_string, request, session
 
 CLIENT_ID = 'FCLBMak8LUkGK4SH9L6nbECkhta1Hq9p'
-STORE_ID = '874dc6f0-80a8-4a22-a66a-28b693e59522'
-CALLBACK = 'https://caisse.bechefaa.fr/api/uber/sandbox/callback'
+STORE_ID = '4837396d-f73f-4e36-af62-edc5a7bac7c9'
+CALLBACK = 'https://app-fad0809f-954d-47e7-983d-afb7c3867cd0.cleverapps.io/api/uber/sandbox/callback'
 AUTH = 'https://sandbox-login.uber.com/oauth/v2'
 API = 'https://test-api.uber.com/v1/eats/stores/' + STORE_ID
 
@@ -72,10 +72,11 @@ def register_uber_sandbox_link(app):
     from .uber_sandbox_menu import register_uber_sandbox_menu
     register_uber_sandbox_menu(app)
     def page(message=None, status=200):
+        result_key = 'uber_sandbox_last_result_' + STORE_ID
         if message is not None:
-            session['uber_sandbox_last_result'] = message
+            session[result_key] = message
         else:
-            message = session.get('uber_sandbox_last_result', '')
+            message = session.get(result_key, '')
         if not session.get('uber_sandbox_csrf'):
             session['uber_sandbox_csrf'] = secrets.token_urlsafe(32)
         html = render_template_string('''<!doctype html><html lang="fr"><meta charset="utf-8">
@@ -86,7 +87,7 @@ def register_uber_sandbox_link(app):
         {% if message %}<p class="result">{{ message }}</p>{% endif %}
         <form method="post" action="/administration/uber-sandbox/check"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Vérifier la liaison du restaurant</button></form>
         <form method="post" action="/administration/uber-sandbox/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Autoriser la liaison sur Uber</button></form>
-        <p>Connectez-vous avec le compte du restaurant de test fourni par Uber. La liaison concerne exclusivement ce restaurant de test.</p>
+        <p>Connectez-vous avec le nouveau compte restaurant fourni par Uber : <b>bechefaa+test+store1@gmail.com</b>. La liaison concerne exclusivement ce nouveau restaurant de test.</p>
         <p>La réception des webhooks est disponible. La récupération et l’acceptation des commandes sont encore en développement. Aucun test effectué ici ne crée de vente dans la caisse.</p>
         <p><a href="/administration/uber-sandbox/menu">Préparer et envoyer la carte de test</a></p>
         <a href="/pos">Retour à la caisse</a></html>''', store=STORE_ID, callback=CALLBACK,
@@ -135,7 +136,7 @@ def register_uber_sandbox_link(app):
         if not os.environ.get('BECHEFAA_UBER_CLIENT_SECRET'):
             return page('La clé Uber est absente de la configuration serveur.', 503)
         state = secrets.token_urlsafe(32)
-        session['uber_sandbox_oauth'] = {'state': state, 'created': time.time()}
+        session['uber_sandbox_oauth'] = {'state': state, 'created': time.time(), 'store_id': STORE_ID}
         return redirect(AUTH + '/authorize?' + urlencode({
             'client_id': CLIENT_ID, 'response_type': 'code', 'redirect_uri': CALLBACK,
             'scope': 'eats.pos_provisioning', 'state': state,
@@ -147,7 +148,7 @@ def register_uber_sandbox_link(app):
             return Response('Session caisse absente. Ouvrez la caisse et recommencez la liaison.', status=403)
         pending = session.pop('uber_sandbox_oauth', None)
         state = request.args.get('state', '')
-        if not pending or not state or not hmac.compare_digest(str(pending.get('state', '')), state) or time.time() - pending.get('created', 0) > 600:
+        if not pending or pending.get('store_id') != STORE_ID or not state or not hmac.compare_digest(str(pending.get('state', '')), state) or time.time() - pending.get('created', 0) > 600:
             return page('Autorisation expirée ou invalide. Recommencez depuis cette page.', 400)
         code = request.args.get('code', '')
         if request.args.get('error') or not code:
@@ -169,3 +170,4 @@ def register_uber_sandbox_link(app):
             return page('Uber a accepté la demande de liaison du restaurant de test. Cliquez sur « Vérifier la liaison du restaurant » pour confirmer son état.')
         except UberFailure as error:
             return page(str(error), 502)
+
