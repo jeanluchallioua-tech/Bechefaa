@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-from flask import Response, redirect, render_template_string, request, session
+from flask import Response, jsonify, redirect, render_template_string, request, session
 
 CLIENT_ID = 'FCLBMak8LUkGK4SH9L6nbECkhta1Hq9p'
 STORE_ID = '4837396d-f73f-4e36-af62-edc5a7bac7c9'
@@ -90,6 +90,7 @@ def register_uber_sandbox_link(app):
         <p>Connectez-vous avec le nouveau compte restaurant fourni par Uber : <b>bechefaa+test+store1@gmail.com</b>. La liaison concerne exclusivement ce nouveau restaurant de test.</p>
         <p>La réception des webhooks est disponible. La récupération et l’acceptation des commandes sont encore en développement. Aucun test effectué ici ne crée de vente dans la caisse.</p>
         <p><a href="/administration/uber-sandbox/menu">Préparer et envoyer la carte de test</a></p>
+        <p><a href="/api/uber/sandbox/store-diagnostic">Diagnostic de l’accès à la boutique test</a></p>
         <a href="/pos">Retour à la caisse</a></html>''', store=STORE_ID, callback=CALLBACK,
             message=message, csrf=session['uber_sandbox_csrf'])
         response = Response(html, status=status, content_type='text/html; charset=utf-8')
@@ -128,6 +129,39 @@ def register_uber_sandbox_link(app):
             return page(message)
         except UberFailure as error:
             return page(str(error), 502)
+
+    @app.get('/api/uber/sandbox/store-diagnostic')
+    def uber_sandbox_store_diagnostic():
+        if not allowed():
+            return jsonify(ok=False, read_only=True, error='caisse_session_required'), 403
+        try:
+            token = get_token('client_credentials', scope='eats.store')
+            details = call_uber(API, token=token)
+            if details.get('store_id') != STORE_ID:
+                raise UberFailure('Uber n’a pas confirmé l’identifiant du restaurant de test attendu.')
+        except UberFailure as error:
+            result = jsonify(ok=False, read_only=True, store_id=STORE_ID, error=str(error))
+            result.status_code = 502
+            result.headers['Cache-Control'] = 'no-store'
+            return result
+        location = details.get('location') if isinstance(details.get('location'), dict) else {}
+        report = dict(ok=True, read_only=True, store_id=STORE_ID,
+            name=details.get('name'), operational_status=details.get('status'),
+            timezone=details.get('timezone'), customer_url=details.get('web_url'),
+            location={key: location.get(key) for key in ('address', 'address_2', 'city', 'postal_code', 'country', 'latitude', 'longitude')},
+            online_status=None, offline_reason=None)
+        try:
+            # This legacy read endpoint uses singular /store/, as documented by Uber.
+            state = call_uber('https://test-api.uber.com/v1/eats/store/' + STORE_ID + '/status', token=token)
+            report['online_status'] = state.get('status')
+            report['offline_reason'] = state.get('offlineReason')
+            if not report['online_status']:
+                report.update(ok=False, status_error='Uber n’a pas renvoyé le statut d’ouverture.')
+        except UberFailure as error:
+            report.update(ok=False, status_error=str(error))
+        result = jsonify(report)
+        result.headers['Cache-Control'] = 'no-store'
+        return result
 
     @app.post('/administration/uber-sandbox/start')
     def uber_sandbox_start():
