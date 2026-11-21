@@ -9,7 +9,9 @@ from flask import Response, jsonify, request, session
 
 def register_uber_webhook_phase6(app, db):
     from .uber_sandbox_link import register_uber_sandbox_link
+    from .uber_sandbox_order_read import register_uber_sandbox_order_read
     register_uber_sandbox_link(app)
+    register_uber_sandbox_order_read(app, db)
 
     @app.post('/api/uber/webhook')
     def uber_webhook_phase6():
