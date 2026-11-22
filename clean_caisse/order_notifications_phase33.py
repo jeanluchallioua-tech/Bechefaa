@@ -169,11 +169,26 @@ def register_order_notifications_phase33(app):
 
  const SITE_PRINT_KEY='bechefaa_site_prints_v2';
  let printing=false,printTimer=null;
+ const DEFERRED_KEY='bechefaa_site_deferred_prints_v1';
+ const deferredSitePrints=new Set();
+ try{for(const id of JSON.parse(sessionStorage.getItem(DEFERRED_KEY)||'[]'))deferredSitePrints.add(id)}catch(_){}
+ function saveDeferredPrints(){try{sessionStorage.setItem(DEFERRED_KEY,JSON.stringify([...deferredSitePrints]))}catch(_){}}
+ function cashierBusy(){
+   return (typeof ORDER!=='undefined'&&Array.isArray(ORDER)&&ORDER.length>0)
+     || (typeof SAVE_IN_FLIGHT!=='undefined'&&!!SAVE_IN_FLIGHT)
+     || (typeof LAST_SAVED_ORDER!=='undefined'&&!!LAST_SAVED_ORDER?.id)
+     || !!window.bechefaaPendingEdit?.isEditing()
+     || !!document.querySelector('.pos-final-options-overlay.open');
+ }
  function autoPrintSiteOrder(order){
    if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
    let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
    if(printed[order.id])return;
    if(typeof window.bechefaaPrintOrderPack!=='function')return;
+   // Android printing navigates away from the POS. Check at launch, not
+   // when scheduling: the cashier can start a basket in the meantime.
+   if(document.hidden||cashierBusy()){deferredSitePrints.add(order.id);saveDeferredPrints();return;}
+   if(deferredSitePrints.delete(order.id))saveDeferredPrints();
    printing=true;
    // Reserve this launch before leaving the page for Epson; other orders remain pending.
    printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
@@ -205,8 +220,10 @@ def register_order_notifications_phase33(app):
    if(PRINT_ENABLED&&!simulation){
      // Retry unlaunched recent orders on return from Epson, not merely the newest order.
      const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
-       const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
+       const ts=Number(o.updated_at||o.created_at||0);return deferredSitePrints.has(o.id)||(ts>0&&Date.now()-ts<10*60*1000);
      }).sort((a,b)=>Number(a.num)-Number(b.num));
+     const eligibleIds=new Set(toPrint.map(o=>o.id));
+     for(const id of deferredSitePrints)if(!eligibleIds.has(id)){deferredSitePrints.delete(id);saveDeferredPrints();}
      if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}},1200);
    }
    return fresh.length;
@@ -253,4 +270,5 @@ def register_order_notifications_phase33(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
 
