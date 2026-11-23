@@ -30,7 +30,8 @@ PAGE = '''<!doctype html><html lang="fr"><meta charset="utf-8">
 {% if order %}<article><h2>Commande {{ order.display_id }}</h2><p>État chez Uber : <b>{{ order.current_state }}</b></p><ul>{% for item in order['items'] %}{{ itemline(item) }}{% endfor %}</ul>
 {% if order.charges.total %}<p>Total restaurant transmis par Uber : <b>{{ amount(order.charges.total) }}</b></p>{% endif %}
 <p>{{ order.amounts_note }}</p>
-{% if can_accept %}<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="nonce" value="{{ nonce }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Accepter cette commande test chez Uber</button></form>{% else %}<p>Aucune acceptation disponible pour cette commande.</p>{% endif %}</article>{% endif %}
+{% if can_accept %}<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="nonce" value="{{ nonce }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Accepter cette commande test chez Uber</button></form>{% else %}<p>Aucune acceptation disponible pour cette commande.</p>{% endif %}
+{% if order.current_state in ('ACCEPTED', 'FINISHED') %}<form method="post" action="/administration/uber-sandbox/pos-display/import"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Afficher cette commande dans la caisse de test</button></form><p>Affichage dans le bloc Uber Eats — TEST, hors ventes et statistiques.</p>{% endif %}</article>{% endif %}
 {% if orders %}<h2>Notifications reçues</h2><ul>{% for id in orders %}<li><a href="?order_id={{ id }}">Commande {{ id[-5:] }}</a></li>{% endfor %}</ul>{% else %}<p>Aucune notification de commande reçue pour ce restaurant test.</p>{% endif %}
 <p><a href="/administration/uber-sandbox">Retour à la configuration Uber</a></p></html>'''
 
