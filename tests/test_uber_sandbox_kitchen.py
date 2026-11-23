@@ -125,6 +125,7 @@ class SandboxKitchenTests(unittest.TestCase):
         self.assertEqual(self.post(self.stage,{'order_id':ORDER,'previous':'À préparer','stage':'En préparation'}).status_code,409)
 
     def test_kitchen_page_is_dedicated_and_production_access_is_blocked(self):
+        self.cur.fetchone.return_value=(False,)
         response=self.client.get('/administration/uber-sandbox/kitchen',base_url=BASE)
         self.assertEqual(response.status_code,200)
         self.assertIn('data-mode="kitchen"',response.text)
@@ -132,7 +133,7 @@ class SandboxKitchenTests(unittest.TestCase):
         self.assertEqual(response.headers['Cache-Control'],'no-store')
         self.assertEqual(self.client.get('/administration/uber-sandbox/kitchen',base_url='https://caisse.bechefaa.fr').status_code,403)
         self.assertEqual(self.client.get(self.list,base_url='https://caisse.bechefaa.fr').status_code,403)
-        self.db.assert_not_called()
+        self.conn.commit.assert_not_called()
 
     def test_database_failure_is_not_mistaken_for_empty_kitchen(self):
         self.cur.execute.side_effect=RuntimeError('private credentials')
@@ -140,6 +141,52 @@ class SandboxKitchenTests(unittest.TestCase):
         self.assertEqual(response.status_code,503)
         self.assertNotIn('orders',response.json)
         self.assertNotIn('private credentials',response.text)
+
+
+    def test_html_contains_existing_order_and_options_without_javascript(self):
+        summary=copy.deepcopy(self.summary)
+        summary['items'][0]['options']=[{'title':'Sans oignons confits','quantity':1,'options':[]}]
+        self.cur.fetchone.return_value={'kitchen_exists':True}
+        self.cur.fetchall.return_value=[{'order_id':ORDER,'summary':summary,
+            'sent_at':datetime(2026,11,23,16,25,tzinfo=timezone.utc),'stage':'À préparer'}]
+        response=self.client.get('/administration/uber-sandbox/kitchen',base_url=BASE)
+        self.assertEqual(response.status_code,200)
+        # These assertions inspect the HTTP HTML before any browser script runs.
+        self.assertIn('data-uber-test-server-order="'+ORDER+'"',response.text)
+        self.assertIn('<h3>TEST · Uber 84A34</h3>',response.text)
+        self.assertIn('Classic Burger',response.text)
+        self.assertIn('Sans oignons confits',response.text)
+        self.assertIn('21,00 EUR',response.text)
+        self.assertIn('<details open id="uber-sandbox-pos"',response.text)
+        self.assertIn('<span data-uber-test-count>1</span>',response.text)
+        self.assertIn('action="/administration/uber-sandbox/kitchen/stage"',response.text)
+        self.conn.commit.assert_not_called()
+
+    def test_html_escapes_product_content_and_exposes_read_errors(self):
+        summary=copy.deepcopy(self.summary)
+        summary['items'][0]['title']='<img src=x onerror=bad()>'
+        self.cur.fetchone.return_value=(True,)
+        self.cur.fetchall.return_value=[(ORDER,summary,datetime.now(timezone.utc),'À préparer')]
+        response=self.client.get('/administration/uber-sandbox/kitchen',base_url=BASE)
+        self.assertIn('&lt;img src=x onerror=bad()&gt;',response.text)
+        self.assertNotIn('<img src=x',response.text)
+        self.cur.execute.side_effect=RuntimeError('private-db-credentials')
+        response=self.client.get('/administration/uber-sandbox/kitchen',base_url=BASE)
+        self.assertEqual(response.status_code,503)
+        self.assertNotIn('private-db-credentials',response.text)
+
+    def test_preparation_form_works_without_javascript_and_checks_csrf(self):
+        self.cur.fetchone.return_value=(ORDER,)
+        url='/administration/uber-sandbox/kitchen/stage'
+        data={'order_id':ORDER,'previous':'À préparer','stage':'En préparation','csrf':'csrf'}
+        response=self.client.post(url,base_url=BASE,data=data)
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers['Location'],'/administration/uber-sandbox/kitchen')
+        self.assertEqual(self.cur.execute.call_args.args[1],('En préparation',STORE_ID,ORDER,'À préparer'))
+        self.db.reset_mock()
+        data['csrf']='wrong'
+        self.assertEqual(self.client.post(url,base_url=BASE,data=data).status_code,403)
+        self.db.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

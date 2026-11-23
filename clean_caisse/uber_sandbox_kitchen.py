@@ -3,7 +3,7 @@ import hmac
 import json
 import secrets
 
-from flask import Response, jsonify, request, session
+from flask import Response, jsonify, redirect, render_template_string, request, session
 
 from .uber_sandbox_accept import canonical_id, fetch_order, notified_orders
 from .uber_sandbox_link import STORE_ID, UberFailure, get_token
@@ -20,9 +20,9 @@ def sandbox_csrf():
     return session.setdefault('uber_sandbox_csrf', secrets.token_urlsafe(32))
 
 
-def valid_csrf():
+def valid_csrf(form=False):
     expected = session.get('uber_sandbox_csrf', '')
-    supplied = request.headers.get('X-Uber-Test-CSRF', '')
+    supplied = request.form.get('csrf', '') if form else request.headers.get('X-Uber-Test-CSRF', '')
     return bool(expected and supplied and hmac.compare_digest(expected.encode(), supplied.encode()))
 
 
@@ -31,6 +31,41 @@ def reply(status=200, **values):
     response.status_code = status
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+SERVER_CARDS = """
+{% macro line(item) %}<li>{{ item.quantity }} × {{ item.title }}{% if item.get('removed') %} (retiré){% endif %}{% if item.total_price %} — {{ amount(item.total_price) }}{% endif %}
+{% if item.options %}<ul>{% for option in item.options %}{{ line(option) }}{% endfor %}</ul>{% endif %}</li>{% endmacro %}
+{% for snapshot in rows %}{% set order=snapshot.order %}<article data-uber-test-server-order="{{ order.id }}">
+<h3>TEST · Uber {{ order.display_id }}</h3><p>Préparation TEST : {{ snapshot.stage }}</p>
+<ul>{% for item in order['items'] %}{{ line(item) }}{% endfor %}</ul>
+{% if order.charges.total %}<p>Total restaurant Uber : {{ amount(order.charges.total) }}</p>{% endif %}
+{% if snapshot.stage in transitions %}<form method="post" action="/administration/uber-sandbox/kitchen/stage">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="order_id" value="{{ order.id }}">
+<input type="hidden" name="previous" value="{{ snapshot.stage }}"><input type="hidden" name="stage" value="{{ transitions[snapshot.stage] }}">
+<button type="submit">{{ 'Commencer la préparation TEST' if snapshot.stage == 'À préparer' else 'Terminer la préparation TEST' }}</button></form>{% endif %}
+</article>{% else %}<p>Aucune commande envoyée dans la cuisine de test.</p>{% endfor %}
+"""
+
+
+def read_kitchen_orders(db):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('uber_sandbox_kitchen_orders') IS NOT NULL AS kitchen_exists")
+            row = cur.fetchone()
+            exists = row['kitchen_exists'] if hasattr(row, 'keys') else row[0]
+            rows = []
+            if exists:
+                cur.execute('''SELECT order_id, summary, sent_at, stage FROM uber_sandbox_kitchen_orders
+                    WHERE store_id = %s ORDER BY sent_at DESC, order_id DESC LIMIT 20''', (STORE_ID,))
+                for row in cur.fetchall():
+                    row = dict(row) if hasattr(row, 'keys') else dict(zip(('order_id','summary','sent_at','stage'),row))
+                    summary = row['summary']
+                    if (not isinstance(summary, dict) or summary.get('store_id') != STORE_ID
+                        or summary.get('id') != row['order_id'] or row['stage'] not in (*TRANSITIONS, 'Terminée')):
+                        raise ValueError('invalid kitchen snapshot')
+                    rows.append({'order':summary, 'stage':row['stage'], 'sent_at':row['sent_at'].isoformat()})
+    return rows
 
 
 def register_uber_sandbox_kitchen(app, db):
@@ -46,7 +81,16 @@ def register_uber_sandbox_kitchen(app, db):
         <h1>Cuisine Uber — TEST</h1>
         <p>Commandes d’essai uniquement. Les étapes de préparation restent locales à cette page de test.</p>
         <p><a href="/pos">Retour à la caisse de préproduction</a></p>'''
-        response = Response(html + panel(kitchen=True) + '</body></html>', content_type='text/html; charset=utf-8')
+        try:
+            rows = read_kitchen_orders(db)
+            cards = render_template_string(SERVER_CARDS, rows=rows, csrf=sandbox_csrf(), transitions=TRANSITIONS,
+                amount=lambda value: f"{value['amount'] / 100:.2f} {value['currency_code']}".replace('.', ','))
+        except Exception:
+            return Response('Lecture de la cuisine de test indisponible. Réessayez dans quelques instants.', status=503)
+        content = panel(kitchen=True).replace('<details id="uber-sandbox-pos"', '<details open id="uber-sandbox-pos"', 1)
+        content = content.replace('<span data-uber-test-count>…</span>', '<span data-uber-test-count>' + str(len(rows)) + '</span>', 1)
+        content = content.replace('<div data-uber-test-orders></div>', '<div data-uber-test-orders>' + cards + '</div>', 1)
+        response = Response(html + content + '</body></html>', content_type='text/html; charset=utf-8')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
         return response
@@ -106,22 +150,7 @@ def register_uber_sandbox_kitchen(app, db):
         if not sandbox_allowed():
             return reply(403, ok=False, error='sandbox_session_required')
         try:
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT to_regclass('uber_sandbox_kitchen_orders') IS NOT NULL AS kitchen_exists")
-                    row = cur.fetchone()
-                    exists = row['kitchen_exists'] if hasattr(row, 'keys') else row[0]
-                    rows = []
-                    if exists:
-                        cur.execute('''SELECT order_id, summary, sent_at, stage FROM uber_sandbox_kitchen_orders
-                            WHERE store_id = %s ORDER BY sent_at DESC, order_id DESC LIMIT 20''', (STORE_ID,))
-                        for row in cur.fetchall():
-                            row = dict(row) if hasattr(row, 'keys') else dict(zip(('order_id','summary','sent_at','stage'),row))
-                            summary = row['summary']
-                            if (not isinstance(summary, dict) or summary.get('store_id') != STORE_ID
-                                or summary.get('id') != row['order_id'] or row['stage'] not in (*TRANSITIONS, 'Terminée')):
-                                raise ValueError('invalid kitchen snapshot')
-                            rows.append({'order':summary, 'stage':row['stage'], 'sent_at':row['sent_at'].isoformat()})
+            rows = read_kitchen_orders(db)
             return reply(ok=True, read_only=True, orders=rows, csrf=sandbox_csrf(), store_id=STORE_ID)
         except Exception:
             return reply(503, ok=False, error='sandbox_kitchen_unavailable')
@@ -130,7 +159,9 @@ def register_uber_sandbox_kitchen(app, db):
     def uber_sandbox_kitchen_stage():
         if not sandbox_allowed() or not valid_csrf():
             return reply(403, ok=False, error='sandbox_session_or_csrf_required')
-        data = request.get_json(silent=True)
+        return advance_stage(request.get_json(silent=True))
+
+    def advance_stage(data):
         if not isinstance(data, dict):
             return reply(400, ok=False, error='invalid_transition')
         order_id, previous, next_stage = data.get('order_id'), data.get('previous'), data.get('stage')
@@ -150,3 +181,15 @@ def register_uber_sandbox_kitchen(app, db):
             return reply(ok=True, stage=next_stage)
         except Exception:
             return reply(503, ok=False, error='sandbox_kitchen_unavailable')
+
+    @app.post('/administration/uber-sandbox/kitchen/stage')
+    def uber_sandbox_kitchen_stage_form():
+        if not sandbox_allowed() or not valid_csrf(form=True):
+            return Response('Session de caisse de test expirée. Rouvrez la page cuisine.', status=403)
+        result = advance_stage(dict(request.form))
+        if result.status_code == 200:
+            response = redirect('/administration/uber-sandbox/kitchen', code=303)
+        else:
+            response = Response('Préparation non modifiée. Actualisez la page cuisine de test avant de réessayer.', status=result.status_code)
+        response.headers['Cache-Control'] = 'no-store'
+        return response

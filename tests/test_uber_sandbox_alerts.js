@@ -5,14 +5,14 @@ const code=source.match(/<script id="uber-sandbox-pos-script">([\s\S]*?)<\/scrip
 class Element{
  constructor(tag='div'){this.tag=tag;this.children=[];this.handlers={};this.dataset={};this.hidden=false;this.textContent='';}
  appendChild(el){this.children.push(el);return el;}
- replaceChildren(){this.children=[];}
+ replaceChildren(...items){this.children=items;}
  addEventListener(name,fn){this.handlers[name]=fn;}
  set innerHTML(value){throw Error('HTML insertion is forbidden in sandbox panel');}
 }
 function all(el){return [el,...el.children.flatMap(all)];}
 async function run(mode){
  const root=new Element('details');root.dataset.mode=mode;
- const selectors={};for(const name of ['count','status','orders','refresh','audio','arrival'])selectors['[data-uber-test-'+name+']']=new Element();
+ const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival'])selectors['[data-uber-test-'+name+']']=new Element();
  root.querySelector=key=>selectors[key];let poll,beeps=0,rows=[],stage='À préparer';const calls=[];
  class Audio{
   constructor(){this.state='suspended';this.currentTime=0;this.destination={};}
@@ -57,6 +57,8 @@ async function run(mode){
   await labels().find(el=>el.textContent==='Envoyer dans la cuisine de test').handlers.click();await flush();
   assert.ok(calls.some(c=>c.url==='/api/uber/sandbox/kitchen/dispatch'&&c.options.method==='POST'));
  }
+ await poll();await flush();
+ assert.equal(selectors['[data-uber-test-action-status]'].textContent,'Action test effectuée','automatic refresh must preserve the last action result');
  assert.deepEqual(untouchedCart,{items:['restaurant burger'],table:'7'});
  assert.ok(calls.every(c=>c.url.startsWith('/api/uber/sandbox/')),'only isolated sandbox endpoints may be called');
  assert.ok(calls.every(c=>!c.url.includes('send-kitchen')&&!c.url.includes('print')),'never trigger POS print interception');
