@@ -23,7 +23,7 @@ _PANEL = r'''
 #uber-test-doing .uber-test-kitchen-card{border-left-color:#2563eb}
 #uber-test-done .uber-test-kitchen-card{border-left-color:#16a34a}
 .uber-test-kitchen-card h3{font-size:20px;color:#176138}
-#uber-sandbox-arrival{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483000;max-width:calc(100vw - 24px);width:max-content;background:#ffd21f;color:#111;border:2px solid #fff3a6;border-radius:10px;padding:14px 20px;font:900 18px/1.4 Arial,sans-serif;box-shadow:0 8px 26px #0006;text-align:center;cursor:pointer}
+#uber-sandbox-arrival{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483000;max-width:calc(100vw - 24px);width:max-content;background:#06C167;color:#000;border:2px solid #048848;border-radius:10px;padding:14px 20px;font:900 18px/1.4 Arial,sans-serif;box-shadow:0 8px 26px #0006;text-align:center;cursor:pointer}
 #uber-sandbox-arrival[hidden]{display:none!important}
 </style>
 <details id="uber-sandbox-pos" data-mode="__MODE__"><summary>__TITLE__ · <span data-uber-test-count>…</span></summary>
