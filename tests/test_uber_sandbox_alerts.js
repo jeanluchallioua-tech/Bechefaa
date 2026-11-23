@@ -10,10 +10,11 @@ class Element{
  set innerHTML(value){throw Error('HTML insertion is forbidden in sandbox panel');}
 }
 function all(el){return [el,...el.children.flatMap(all)];}
-async function run(mode){
- const root=new Element('details');root.dataset.mode=mode;
+async function run(mode,board=false){
+ const root=new Element('details');root.dataset.mode=mode;root.dataset.board=board?'true':'false';
+ const columns={todo:new Element(),doing:new Element(),done:new Element()};
  const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival'])selectors['[data-uber-test-'+name+']']=new Element();
- root.querySelector=key=>selectors[key];let poll,beeps=0,rows=[],stage='À préparer';const calls=[];
+ root.querySelector=key=>selectors[key];let poll,beeps=0,rows=[],stage='À préparer',dispatched=false;const calls=[];
  class Audio{
   constructor(){this.state='suspended';this.currentTime=0;this.destination={};}
   async resume(){this.state='running';}
@@ -22,15 +23,16 @@ async function run(mode){
  }
  const fixture={id:'01460685-2d3d-4d79-af00-4eaba3384a34',display_id:'84A34',current_state:'ACCEPTED',
   items:[{quantity:1,title:'Classic <script>bad()</script>',options:[{title:'Sans tomate',quantity:1,options:[]}]}],charges:{total:{amount:2100,currency_code:'EUR'}}};
- const document={hidden:false,getElementById:id=>id==='uber-sandbox-pos'?root:null,createElement:tag=>new Element(tag),addEventListener(){}};
+ const document={hidden:false,getElementById:id=>id==='uber-sandbox-pos'?root:columns[id.replace('uber-test-','')]||null,createElement:tag=>new Element(tag),addEventListener(){}};
  const fetch=async(url,options)=>{
   calls.push({url,options});
   if(options.method==='POST'){
    assert.equal(options.headers['X-Uber-Test-CSRF'],'csrf-test');
    if(url.endsWith('/stage'))stage=JSON.parse(options.body).stage;
+   if(url.endsWith('/dispatch'))dispatched=true;
    return{ok:true,json:async()=>({ok:true,message:'Action test effectuée'})};
   }
-  return{ok:true,json:async()=>({ok:true,csrf:'csrf-test',orders:rows.map(order=>({order,stage,imported_at:'2026-11-23T17:00:00Z',sent_at:'2026-11-23T17:00:00Z'}))})};
+  return{ok:true,json:async()=>({ok:true,csrf:'csrf-test',orders:rows.map(order=>({order,stage,kitchen_stage:dispatched?stage:null,imported_at:'2026-11-23T17:00:00Z',sent_at:'2026-11-23T17:00:00Z'}))})};
  };
  const untouchedCart={items:['restaurant burger'],table:'7'};
  const context={document,fetch,window:{AudioContext:Audio,addEventListener(){}},location:{search:''},URLSearchParams,
@@ -45,17 +47,20 @@ async function run(mode){
  assert.match(selectors['[data-uber-test-arrival]'].textContent,/84A34/);
  assert.equal(root.open,true);
  assert.equal(selectors['[data-uber-test-count]'].textContent,'1');
- const labels=()=>all(selectors['[data-uber-test-orders]']);
+ const labels=()=>board?Object.values(columns).flatMap(all):all(selectors['[data-uber-test-orders]']);
+ if(board)assert.equal(columns.todo.children.length,1);
  assert.ok(labels().some(el=>el.textContent.includes('Classic <script>bad()</script>')),'product labels are inserted as literal text');
  await poll();await flush();assert.equal(beeps,6,'duplicate poll must not sound again');
  if(mode==='kitchen'){
   await labels().find(el=>el.textContent==='Commencer la préparation TEST').handlers.click();await flush();
-  assert.equal(stage,'En préparation');
+  assert.equal(stage,'En préparation');if(board){assert.equal(columns.todo.children.length,0);assert.equal(columns.doing.children.length,1);}
   await labels().find(el=>el.textContent==='Terminer la préparation TEST').handlers.click();await flush();
-  assert.equal(stage,'Terminée');assert.equal(beeps,6,'stage changes must not repeat arrival sound');
+  assert.equal(stage,'Terminée');if(board){assert.equal(columns.doing.children.length,0);assert.equal(columns.done.children.length,1);}assert.equal(beeps,6,'stage changes must not repeat arrival sound');
  }else{
   await labels().find(el=>el.textContent==='Envoyer dans la cuisine de test').handlers.click();await flush();
   assert.ok(calls.some(c=>c.url==='/api/uber/sandbox/kitchen/dispatch'&&c.options.method==='POST'));
+  stage='Terminée';await poll();await flush();assert.ok(labels().some(el=>el.textContent==='Préparation TEST : Terminée'));
+  assert.ok(labels().some(el=>el.tag==='button'&&el.disabled&&el.textContent==='Déjà envoyée en cuisine — Terminée'));
  }
  await poll();await flush();
  assert.equal(selectors['[data-uber-test-action-status]'].textContent,'Action test effectuée','automatic refresh must preserve the last action result');
@@ -63,4 +68,4 @@ async function run(mode){
  assert.ok(calls.every(c=>c.url.startsWith('/api/uber/sandbox/')),'only isolated sandbox endpoints may be called');
  assert.ok(calls.every(c=>!c.url.includes('send-kitchen')&&!c.url.includes('print')),'never trigger POS print interception');
 }
-(async()=>{await run('pos');await run('kitchen');console.log('Sandbox POS and kitchen alerts: arrival, deduplication, transitions and cart isolation passed.');})().catch(error=>{console.error(error);process.exitCode=1;});
+(async()=>{await run('pos');await run('kitchen');await run('kitchen',true);console.log('Sandbox POS and kitchen alerts: arrival, deduplication, transitions and cart isolation passed.');})().catch(error=>{console.error(error);process.exitCode=1;});

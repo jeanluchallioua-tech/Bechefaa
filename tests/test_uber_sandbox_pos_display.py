@@ -103,13 +103,15 @@ class SandboxPosDisplayTests(unittest.TestCase):
         self.conn.commit.assert_not_called()
 
     def test_list_queries_only_current_store_and_labels_import_time(self):
-        self.cur.fetchone.return_value={'display_exists':True}
+        self.cur.fetchone.side_effect=[{'display_exists':True}, {'kitchen_exists':False}]
         self.cur.fetchall.return_value=[{'imported_at':datetime(2026,11,23,17,tzinfo=timezone.utc),'summary':self.summary}]
         response=self.client.get(self.list_path+'?store_id=other',base_url=BASE)
         self.assertEqual(response.status_code,200)
         self.assertEqual(response.json['orders'][0]['order']['display_id'],'84A34')
         self.assertEqual(response.json['orders'][0]['imported_at'],'2026-11-23T17:00:00+00:00')
-        self.assertEqual(self.cur.execute.call_args.args[1],(STORE_ID,))
+        store_queries=[c for c in self.cur.execute.call_args_list if len(c.args)>1]
+        self.assertTrue(store_queries)
+        self.assertTrue(all(c.args[1]==(STORE_ID,) for c in store_queries))
         self.assertTrue(all(c.args[0].startswith('SELECT') for c in self.cur.execute.call_args_list))
         self.conn.commit.assert_not_called()
         self.assertEqual(response.headers['Cache-Control'],'no-store')
@@ -147,6 +149,27 @@ class SandboxPosDisplayTests(unittest.TestCase):
                 response=self.client.get('/administration/uber-sandbox/orders',base_url=BASE)
             self.assertEqual(response.status_code,200)
             self.assertEqual('Afficher cette commande dans la caisse de test' in response.text,should_show)
+
+
+    def test_pos_reads_finished_kitchen_stage_without_importing_a_sale(self):
+        self.cur.fetchone.return_value={'display_exists':True}
+        self.cur.fetchall.return_value=[{'imported_at':datetime(2026,11,23,17,tzinfo=timezone.utc),'summary':self.summary}]
+        with patch('clean_caisse.uber_sandbox_kitchen.read_kitchen_orders',return_value=[{'order':self.summary,'stage':'Terminée'}]):
+            response=self.client.get(self.list_path,base_url=BASE)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json['orders'][0]['kitchen_stage'],'Terminée')
+        self.assertTrue(response.json['kitchen_status_available'])
+        self.conn.commit.assert_not_called()
+
+    def test_kitchen_read_failure_keeps_existing_pos_order_visible(self):
+        self.cur.fetchone.return_value={'display_exists':True}
+        self.cur.fetchall.return_value=[{'imported_at':datetime(2026,11,23,17,tzinfo=timezone.utc),'summary':self.summary}]
+        with patch('clean_caisse.uber_sandbox_kitchen.read_kitchen_orders',side_effect=RuntimeError('private')):
+            response=self.client.get(self.list_path,base_url=BASE)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(len(response.json['orders']),1)
+        self.assertFalse(response.json['kitchen_status_available'])
+        self.assertNotIn('private',response.text)
 
 
 if __name__=='__main__': unittest.main()

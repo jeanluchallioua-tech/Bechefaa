@@ -19,6 +19,9 @@ class SandboxKitchenTests(unittest.TestCase):
         self.cur=self.conn.cursor.return_value.__enter__.return_value
         app=Flask(__name__)
         app.secret_key='test-only'
+        @app.get('/cuisine-preparation')
+        def main_kitchen():
+            return '<html><body><h1>Écran cuisine</h1><div id="todo" class="cards"></div><div id="doing" class="cards"></div><div id="done" class="cards"></div><script>const nativeKitchenUnchanged=true;</script></body></html>'
         register_uber_webhook_phase6(app,self.db)
         self.client=app.test_client()
         with self.client.session_transaction(base_url=BASE) as s:
@@ -187,6 +190,28 @@ class SandboxKitchenTests(unittest.TestCase):
         data['csrf']='wrong'
         self.assertEqual(self.client.post(url,base_url=BASE,data=data).status_code,403)
         self.db.assert_not_called()
+
+
+    def test_existing_kitchen_url_contains_test_order_in_correct_column(self):
+        self.cur.fetchone.return_value=(True,)
+        self.cur.fetchall.return_value=[(ORDER,self.summary,datetime.now(timezone.utc),'Terminée')]
+        response=self.client.get('/cuisine-preparation',base_url=BASE)
+        self.assertEqual(response.status_code,200)
+        self.assertIn('const nativeKitchenUnchanged=true;',response.text)
+        self.assertIn('data-board="true"',response.text)
+        self.assertIn('data-uber-test-server-order="'+ORDER+'"',response.text)
+        self.assertGreater(response.text.index('data-uber-test-server-order="'+ORDER+'"'),response.text.index('id="uber-test-done"'))
+        self.assertNotIn('data-uber-test-server-order=',response.text.split('id="uber-test-done"')[0])
+        self.conn.commit.assert_not_called()
+        production=self.client.get('/cuisine-preparation',base_url='https://caisse.bechefaa.fr')
+        self.assertNotIn('uber-test-done',production.text)
+
+    def test_board_preparation_form_returns_to_existing_kitchen_screen(self):
+        self.cur.fetchone.return_value=(ORDER,)
+        response=self.client.post('/administration/uber-sandbox/kitchen/stage',base_url=BASE,
+            data={'order_id':ORDER,'previous':'À préparer','stage':'En préparation','csrf':'csrf','return_to':'board'})
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers['Location'],'/cuisine-preparation')
 
 
 if __name__=='__main__':unittest.main()

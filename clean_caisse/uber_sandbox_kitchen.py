@@ -1,6 +1,7 @@
 """Local sandbox kitchen workflow. No POS sale, Uber write or printer call."""
 import hmac
 import json
+import re
 import secrets
 
 from flask import Response, jsonify, redirect, render_template_string, request, session
@@ -36,13 +37,14 @@ def reply(status=200, **values):
 SERVER_CARDS = """
 {% macro line(item) %}<li>{{ item.quantity }} × {{ item.title }}{% if item.get('removed') %} (retiré){% endif %}{% if item.total_price %} — {{ amount(item.total_price) }}{% endif %}
 {% if item.options %}<ul>{% for option in item.options %}{{ line(option) }}{% endfor %}</ul>{% endif %}</li>{% endmacro %}
-{% for snapshot in rows %}{% set order=snapshot.order %}<article data-uber-test-server-order="{{ order.id }}">
+{% for snapshot in rows %}{% set order=snapshot.order %}<article class="card uber-test-kitchen-card" data-uber-test-server-order="{{ order.id }}">
 <h3>TEST · Uber {{ order.display_id }}</h3><p>Préparation TEST : {{ snapshot.stage }}</p>
 <ul>{% for item in order['items'] %}{{ line(item) }}{% endfor %}</ul>
 {% if order.charges.total %}<p>Total restaurant Uber : {{ amount(order.charges.total) }}</p>{% endif %}
 {% if snapshot.stage in transitions %}<form method="post" action="/administration/uber-sandbox/kitchen/stage">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="order_id" value="{{ order.id }}">
 <input type="hidden" name="previous" value="{{ snapshot.stage }}"><input type="hidden" name="stage" value="{{ transitions[snapshot.stage] }}">
+{% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
 <button type="submit">{{ 'Commencer la préparation TEST' if snapshot.stage == 'À préparer' else 'Terminer la préparation TEST' }}</button></form>{% endif %}
 </article>{% else %}<p>Aucune commande envoyée dans la cuisine de test.</p>{% endfor %}
 """
@@ -188,8 +190,41 @@ def register_uber_sandbox_kitchen(app, db):
             return Response('Session de caisse de test expirée. Rouvrez la page cuisine.', status=403)
         result = advance_stage(dict(request.form))
         if result.status_code == 200:
-            response = redirect('/administration/uber-sandbox/kitchen', code=303)
+            target = '/cuisine-preparation' if request.form.get('return_to') == 'board' else '/administration/uber-sandbox/kitchen'
+            response = redirect(target, code=303)
         else:
             response = Response('Préparation non modifiée. Actualisez la page cuisine de test avant de réessayer.', status=result.status_code)
         response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.after_request
+    def uber_sandbox_main_kitchen(response):
+        if (not sandbox_allowed() or request.path != '/cuisine-preparation'
+            or response.status_code != 200 or response.mimetype != 'text/html' or response.is_streamed):
+            return response
+        html = response.get_data(as_text=True)
+        if 'id="uber-test-todo"' in html:
+            return response
+        try:
+            rows = read_kitchen_orders(db)
+            for stage, target in (('À préparer','todo'), ('En préparation','doing'), ('Terminée','done')):
+                cards = render_template_string(SERVER_CARDS,
+                    rows=[row for row in rows if row['stage'] == stage], csrf=sandbox_csrf(),
+                    transitions=TRANSITIONS, return_to='board',
+                    amount=lambda value: f"{value['amount'] / 100:.2f} {value['currency_code']}".replace('.', ','))
+                if not any(row['stage'] == stage for row in rows):
+                    cards = ''
+                container = '<div id="uber-test-' + target + '" class="cards">' + cards + '</div>'
+                pattern = r'(<div\b[^>]*\bid=["\x27]' + target + r'["\x27][^>]*>\s*</div>)'
+                html, matched = re.subn(pattern, lambda match: match.group(1) + container, html, count=1)
+                if matched != 1:
+                    raise ValueError('kitchen column missing')
+            from .uber_sandbox_test_panel import panel
+            controls = panel(kitchen=True).replace('data-mode="kitchen"', 'data-mode="kitchen" data-board="true"', 1)
+            controls = controls.replace('<span data-uber-test-count>…</span>', '<span data-uber-test-count>' + str(len(rows)) + '</span>', 1)
+            response.set_data(html.replace('</body>', controls + '</body>', 1))
+            response.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            app.logger.error('Uber sandbox main kitchen display failed')
+            response.set_data(html.replace('</body>', '<p role="alert">Affichage Uber TEST indisponible. Les commandes habituelles restent accessibles.</p></body>', 1))
         return response

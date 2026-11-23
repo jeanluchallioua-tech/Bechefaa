@@ -93,7 +93,19 @@ def register_uber_sandbox_pos_display(app, db):
                             if not isinstance(summary, dict) or summary.get('store_id') != STORE_ID:
                                 raise ValueError('invalid sandbox snapshot')
                             rows.append({'imported_at': imported_at.isoformat(), 'order': summary})
+            kitchen_status_available = True
+            kitchen_stages = {}
+            if rows:
+                try:
+                    from .uber_sandbox_kitchen import read_kitchen_orders
+                    kitchen_stages = {snapshot['order']['id']: snapshot['stage']
+                        for snapshot in read_kitchen_orders(db)}
+                except Exception:
+                    kitchen_status_available = False
+            for snapshot in rows:
+                snapshot['kitchen_stage'] = kitchen_stages.get(snapshot['order']['id'])
             return result(ok=True, orders=rows, store_id=STORE_ID,
+                kitchen_status_available=kitchen_status_available,
                 csrf=session.setdefault('uber_sandbox_csrf', secrets.token_urlsafe(32)))
         except Exception:
             return result(503, ok=False, error='sandbox_display_unavailable')

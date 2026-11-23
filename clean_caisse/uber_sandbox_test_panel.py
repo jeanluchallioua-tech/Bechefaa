@@ -18,6 +18,11 @@ _PANEL = r'''
 #uber-sandbox-pos p,#uber-sandbox-pos li{font:16px/1.45 Arial,sans-serif;margin:6px 0}
 #uber-sandbox-pos ul{padding-left:24px;margin:6px 0}
 #uber-sandbox-pos button{font:16px Arial,sans-serif;cursor:pointer;padding:10px;margin:4px}
+#uber-sandbox-pos[data-board="true"] [data-uber-test-orders]{display:none}
+.column:has(#uber-test-todo article) #todo>.empty,.column:has(#uber-test-doing article) #doing>.empty,.column:has(#uber-test-done article) #done>.empty{display:none}
+#uber-test-doing .uber-test-kitchen-card{border-left-color:#2563eb}
+#uber-test-done .uber-test-kitchen-card{border-left-color:#16a34a}
+.uber-test-kitchen-card h3{font-size:20px;color:#176138}
 #uber-sandbox-pos .uber-test-arrival{background:#fff3a4;border:2px solid #b77a00;padding:12px;font-weight:bold}
 </style>
 <details id="uber-sandbox-pos" data-mode="__MODE__"><summary>__TITLE__ · <span data-uber-test-count>…</span></summary>
@@ -31,7 +36,7 @@ _PANEL = r'''
 (function(){
 'use strict';
 const root=document.getElementById('uber-sandbox-pos');if(!root)return;
-const kitchen=root.dataset.mode==='kitchen';
+const kitchen=root.dataset.mode==='kitchen',board=root.dataset.board==='true';
 const count=root.querySelector('[data-uber-test-count]'),status=root.querySelector('[data-uber-test-status]'),list=root.querySelector('[data-uber-test-orders]'),button=root.querySelector('[data-uber-test-refresh]'),audioButton=root.querySelector('[data-uber-test-audio]'),arrival=root.querySelector('[data-uber-test-arrival]');
 const actionStatus=root.querySelector('[data-uber-test-action-status]');
 let audio=null,csrf='',busy=false,initialized=false,armed=false;const seen=new Set();
@@ -47,12 +52,12 @@ async function refresh(){if(busy)return;busy=true;button.disabled=true;try{
  if(!response.ok)throw new Error('lecture indisponible');const data=await response.json();if(!data.ok||!Array.isArray(data.orders))throw new Error('réponse invalide');csrf=data.csrf||'';
  const ids=data.orders.map(snapshot=>snapshot.order.id),newIds=initialized?ids.filter(id=>!seen.has(id)):[];ids.forEach(id=>seen.add(id));initialized=true;
  const cards=[];
- data.orders.forEach(snapshot=>{const order=snapshot.order,card=document.createElement('article');text('h3','TEST · Uber '+String(order.display_id||order.id.slice(-5)),card);text('p',kitchen?'Préparation TEST : '+snapshot.stage:'État lu à l’import : '+String(order.current_state),card);const ul=document.createElement('ul');card.appendChild(ul);order.items.forEach(v=>item(v,ul,0));text('p','Total restaurant Uber : '+money(order.charges.total),card);text('p',(kitchen?'Envoyée le ':'Importée le ')+new Date(kitchen?snapshot.sent_at:snapshot.imported_at).toLocaleString('fr-FR'),card);
- if(csrf){if(kitchen){const next=snapshot.stage==='À préparer'?'En préparation':(snapshot.stage==='En préparation'?'Terminée':null);if(next){const stageButton=text('button',next==='En préparation'?'Commencer la préparation TEST':'Terminer la préparation TEST',card);stageButton.type='button';stageButton.addEventListener('click',()=>action('/api/uber/sandbox/kitchen/stage',{order_id:order.id,previous:snapshot.stage,stage:next},stageButton));}}else{const sendButton=text('button','Envoyer dans la cuisine de test',card);sendButton.type='button';sendButton.addEventListener('click',()=>action('/api/uber/sandbox/kitchen/dispatch',{order_id:order.id},sendButton));}}
- const a=document.createElement('a');a.textContent='Relire l’état actuel chez Uber';a.href='/administration/uber-sandbox/orders?order_id='+encodeURIComponent(order.id);card.appendChild(a);cards.push(card);});list.replaceChildren(...cards);count.textContent=String(data.orders.length);status.textContent=data.orders.length?'':(kitchen?'Aucune commande envoyée dans la cuisine de test.':'Aucune commande importée dans ce bloc de test.');notify(newIds);
+ data.orders.forEach(snapshot=>{const order=snapshot.order,card=document.createElement('article');card.className=board?'card uber-test-kitchen-card':'';card.dataset.uberTestStage=snapshot.stage||'';text('h3','TEST · Uber '+String(order.display_id||order.id.slice(-5)),card);text('p',kitchen?'Préparation TEST : '+snapshot.stage:'État lu à l’import : '+String(order.current_state),card);if(!kitchen)text('p',data.kitchen_status_available===false?'Préparation TEST : lecture indisponible':'Préparation TEST : '+(snapshot.kitchen_stage||'Non envoyée en cuisine'),card);const ul=document.createElement('ul');card.appendChild(ul);order.items.forEach(v=>item(v,ul,0));text('p','Total restaurant Uber : '+money(order.charges.total),card);text('p',(kitchen?'Envoyée le ':'Importée le ')+new Date(kitchen?snapshot.sent_at:snapshot.imported_at).toLocaleString('fr-FR'),card);
+ if(csrf){if(kitchen){const next=snapshot.stage==='À préparer'?'En préparation':(snapshot.stage==='En préparation'?'Terminée':null);if(next){const stageButton=text('button',next==='En préparation'?'Commencer la préparation TEST':'Terminer la préparation TEST',card);stageButton.type='button';stageButton.addEventListener('click',()=>action('/api/uber/sandbox/kitchen/stage',{order_id:order.id,previous:snapshot.stage,stage:next},stageButton));}}else{const sendButton=text('button',snapshot.kitchen_stage?'Déjà envoyée en cuisine — '+snapshot.kitchen_stage:'Envoyer dans la cuisine de test',card);sendButton.type='button';sendButton.disabled=Boolean(snapshot.kitchen_stage)||data.kitchen_status_available===false;sendButton.addEventListener('click',()=>action('/api/uber/sandbox/kitchen/dispatch',{order_id:order.id},sendButton));}}
+ const a=document.createElement('a');a.textContent='Relire l’état actuel chez Uber';a.href='/administration/uber-sandbox/orders?order_id='+encodeURIComponent(order.id);card.appendChild(a);cards.push(card);});if(board){for(const [stage,id] of [['À préparer','todo'],['En préparation','doing'],['Terminée','done']]){const target=document.getElementById('uber-test-'+id);if(target)target.replaceChildren(...cards.filter(card=>card.dataset.uberTestStage===stage));}}else list.replaceChildren(...cards);count.textContent=String(data.orders.length);status.textContent=data.orders.length?'':(kitchen?'Aucune commande envoyée dans la cuisine de test.':'Aucune commande importée dans ce bloc de test.');notify(newIds);
 }catch(error){status.textContent='Lecture indisponible. Cliquez sur Actualiser pour réessayer.';}finally{busy=false;button.disabled=false;}}
 button.addEventListener('click',refresh);refresh();const poll=setInterval(refresh,5000);window.addEventListener('pagehide',()=>clearInterval(poll),{once:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
-if(kitchen||new URLSearchParams(location.search).has('uber_test_import'))root.open=true;
+if((kitchen&&!board)||new URLSearchParams(location.search).has('uber_test_import'))root.open=true;
 })();
 </script>
 '''
