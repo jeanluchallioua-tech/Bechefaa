@@ -12,10 +12,12 @@ def register_uber_webhook_phase6(app, db):
     from .uber_sandbox_order_read import register_uber_sandbox_order_read
     from .uber_sandbox_accept import register_uber_sandbox_accept
     from .uber_sandbox_pos_display import register_uber_sandbox_pos_display
+    from .uber_sandbox_kitchen import register_uber_sandbox_kitchen
     register_uber_sandbox_link(app)
     register_uber_sandbox_order_read(app, db)
     register_uber_sandbox_accept(app, db)
     register_uber_sandbox_pos_display(app, db)
+    register_uber_sandbox_kitchen(app, db)
 
     @app.post('/api/uber/webhook')
     def uber_webhook_phase6():
