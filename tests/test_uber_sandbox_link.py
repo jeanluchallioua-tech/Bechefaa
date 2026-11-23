@@ -141,6 +141,21 @@ class UberSandboxLinkTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 502)
                 self.assertIn(expected, response.text)
 
+    def test_order_manager_requires_explicit_start_mode_and_exact_test_store(self):
+        start = self.client.post('/administration/uber-sandbox/start',
+            data={'csrf':'unit-csrf', 'mode':'order_manager'})
+        state = parse_qs(urlsplit(start.headers['Location']).query)['state'][0]
+        with patch('clean_caisse.uber_sandbox_link.call_uber', side_effect=[
+                {'access_token':'private-token'}, {'stores':[{'store_id':STORE_ID}]}, {}]) as network:
+            response = self.callback(state)
+            self.assertEqual(response.status_code,200)
+            self.assertIn('is_order_manager=true',network.call_args.args[0])
+            self.assertIn('/'+STORE_ID+'/pos_data?',network.call_args.args[0])
+            self.assertEqual(network.call_args.args[1],'POST')
+            self.assertIn('automatique reste désactivée',response.text)
+        self.assertEqual(self.client.post('/administration/uber-sandbox/start',
+            data={'csrf':'unit-csrf','mode':'production'}).status_code,400)
+
 
 if __name__ == '__main__':
     unittest.main()

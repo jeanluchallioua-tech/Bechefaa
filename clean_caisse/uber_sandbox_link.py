@@ -88,7 +88,8 @@ def register_uber_sandbox_link(app):
         <form method="post" action="/administration/uber-sandbox/check"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Vérifier la liaison du restaurant</button></form>
         <form method="post" action="/administration/uber-sandbox/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Autoriser la liaison sur Uber</button></form>
         <p>Connectez-vous avec le nouveau compte restaurant fourni par Uber : <b>bechefaa+test+store1@gmail.com</b>. La liaison concerne exclusivement ce nouveau restaurant de test.</p>
-        <p>La réception des webhooks est disponible. La récupération et l’acceptation des commandes sont encore en développement. Aucun test effectué ici ne crée de vente dans la caisse.</p>
+        <p>La réception des webhooks et la lecture des commandes sont disponibles. L’acceptation des commandes de test se fait uniquement par un clic manuel. Aucun test effectué ici ne crée de vente dans la caisse.</p>
+        <p><a href="/administration/uber-sandbox/orders">Contrôler et accepter une commande de test</a></p>
         <p><a href="/administration/uber-sandbox/menu">Préparer et envoyer la carte de test</a></p>
         <p><a href="/api/uber/sandbox/store-diagnostic">Diagnostic de l’accès à la boutique test</a></p>
         <a href="/pos">Retour à la caisse</a></html>''', store=STORE_ID, callback=CALLBACK,
@@ -170,7 +171,10 @@ def register_uber_sandbox_link(app):
         if not os.environ.get('BECHEFAA_UBER_CLIENT_SECRET'):
             return page('La clé Uber est absente de la configuration serveur.', 503)
         state = secrets.token_urlsafe(32)
-        session['uber_sandbox_oauth'] = {'state': state, 'created': time.time(), 'store_id': STORE_ID}
+        mode = request.form.get('mode', 'observe')
+        if mode not in ('observe', 'order_manager'):
+            return page('Mode de liaison invalide.', 400)
+        session['uber_sandbox_oauth'] = {'state': state, 'created': time.time(), 'store_id': STORE_ID, 'mode': mode}
         return redirect(AUTH + '/authorize?' + urlencode({
             'client_id': CLIENT_ID, 'response_type': 'code', 'redirect_uri': CALLBACK,
             'scope': 'eats.pos_provisioning', 'state': state,
@@ -196,11 +200,15 @@ def register_uber_sandbox_link(app):
                 raise UberFailure('Autorisation reçue. Étape : recherche des restaurants du compte de test. ' + str(error)) from None
             if not any(isinstance(s, dict) and (s.get('store_id') or s.get('id')) == STORE_ID for s in stores.get('stores', [])):
                 raise UberFailure('Ce compte Uber n’autorise pas notre restaurant de test. Utilisez le compte fourni par Uber.')
-            # Observe-only until order retrieval and acceptance are implemented.
+            # Order management is requested only by the explicit manual-test
+            # authorization button. Ordinary linking stays observe-only.
+            manager = pending.get('mode') == 'order_manager'
             try:
-                call_uber(API + '/pos_data?' + urlencode({'is_order_manager': 'false', 'integrator_store_id': 'bechefaa-test'}), 'POST', token=token, body={})
+                call_uber(API + '/pos_data?' + urlencode({'is_order_manager': 'true' if manager else 'false', 'integrator_store_id': 'bechefaa-test'}), 'POST', token=token, body={})
             except UberFailure as error:
                 raise UberFailure('Restaurant de test retrouvé. Étape : activation de la liaison. ' + str(error)) from None
+            if manager:
+                return page('Uber a reçu la demande de gestion du restaurant test. Ouvrez « Contrôler et accepter une commande de test » pour vérifier les droits. L’acceptation automatique reste désactivée.')
             return page('Uber a accepté la demande de liaison du restaurant de test. Cliquez sur « Vérifier la liaison du restaurant » pour confirmer son état.')
         except UberFailure as error:
             return page(str(error), 502)
