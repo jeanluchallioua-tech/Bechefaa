@@ -1,6 +1,7 @@
 """Read-only receipt previews from isolated Uber TEST snapshots."""
 from copy import deepcopy
 from decimal import Decimal
+from datetime import datetime
 
 from flask import Response, render_template_string, session
 
@@ -25,7 +26,7 @@ def receipt_order(summary):
             name = str(value.get('title') or '').strip()
             if value.get('removed') and not name.lower().startswith('sans '):
                 name = 'Sans ' + name
-            if value.get('quantity', 1) != 1:
+            if not value.get('removed') and value.get('quantity', 1) != 1:
                 name = str(value['quantity']) + ' x ' + name
             if name:
                 result.append({'name': name})
@@ -41,8 +42,26 @@ def receipt_order(summary):
         total = euros(item.get('total_price'))
         items.append({'name': str(item.get('title') or ''), 'qty': qty,
                       'unit_price': total / qty, 'options': options(item.get('options'))})
-    return {'id': summary['id'], 'source': 'LIVRAISON', 'sales_channel': 'UBER_EATS',
-            'customer_name': 'TEST UBER #' + str(summary.get('display_id') or summary['id'][-5:]),
+    customer = summary.get('customer') or {}
+    delivery = summary.get('delivery') or {}
+    name = ' '.join(customer.get(key) or '' for key in ('first_name','last_name')).strip()
+    created_at = None
+    try:
+        placed = datetime.fromisoformat(summary['placed_at'])
+        if placed.utcoffset() is not None:
+            created_at = placed.timestamp()
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    fulfillment = summary.get('fulfillment_type')
+    source = 'A EMPORTER' if fulfillment == 'PICK_UP' else 'LIVRAISON'
+    return {'id': summary['id'], 'source': source, 'sales_channel': 'UBER_EATS',
+            'uber_test': True, 'receipt_reference': 'TEST UBER #' + str(summary.get('display_id') or summary['id'][-5:]),
+            'service_label': 'À EMPORTER UBER EATS' if fulfillment == 'PICK_UP' else 'LIVRAISON UBER EATS',
+            'customer_name': name or 'Client non communiqué par Uber',
+            'created_at': created_at, 'phone': customer.get('phone') or '',
+            'address': delivery.get('address') or '',
+            'delivery_details': {**{key:delivery.get(key) or '' for key in ('building','apartment','instructions')},
+                                 'phone_code':customer.get('phone_code') or ''},
             'payment': 'UBER TEST — HORS VENTES', 'tax_rate': 10,
             'total_ttc': euros(summary['charges'].get('total')), 'items': items}
 
@@ -55,7 +74,8 @@ PAGE = '''<!doctype html><html lang="fr"><meta charset="utf-8">
 <p>Aperçus uniquement : aucune vente, aucun envoi en cuisine, aucune impression.</p>
 <p>Les prix des articles comprennent leurs options. Le total est celui du restaurant transmis par Uber, hors frais client.
 TVA calculée selon la règle actuelle de la caisse (10 %). Uber ne fournit pas de ventilation de TVA dans les réponses reçues.
-L’identité du client et l’heure de création ne sont pas présentes dans cet import de test.</p>
+Le nom, le téléphone anonymisé et l’heure apparaissent lorsqu’Uber les transmet. Pour les livraisons assurées par Uber, l’adresse et les consignes ne sont normalement pas communiquées au restaurant.</p>
+{% if legacy %}<p>Ancien import : réimportez cette même commande depuis la gestion Uber pour récupérer les données client disponibles. Inutile de passer une nouvelle commande.</p>{% endif %}
 <div class="tickets">{% for kind,title in [('kitchen','Ticket cuisine'),('client','Ticket client')] %}
 <section><h2>{{ title }}</h2><img alt="{{ title }} Uber TEST" src="/administration/uber-sandbox/receipts/{{ order_id }}/{{ kind }}.png"></section>{% endfor %}</div>
 <p><a href="/administration/uber-sandbox/orders?order_id={{ order_id }}">Retour à la gestion Uber</a></p></html>'''
@@ -105,7 +125,7 @@ def register_uber_sandbox_receipts(app, db):
             if kind:
                 from .receipt_photo_layout import receipt_png
                 return Response(receipt_png(order, kind, identity), mimetype='image/png')
-            return Response(render_template_string(PAGE, order_id=order_id, ref=summary.get('display_id') or order_id[-5:]), mimetype='text/html')
+            return Response(render_template_string(PAGE, order_id=order_id, ref=summary.get('display_id') or order_id[-5:], legacy=summary.get('receipt_metadata_version') != 1), mimetype='text/html')
         except Exception:
             app.logger.error('Uber TEST receipt preview unavailable')
             return Response('Aperçu indisponible : vérifiez les montants de la commande importée.', status=503)

@@ -40,9 +40,8 @@ def register_uber_sandbox_pos_display(app, db):
             order, _ = fetch_order(order_id, token)
             if order['current_state'] not in ('ACCEPTED', 'FINISHED'):
                 return Response('Cette commande n’est pas acceptée chez Uber. Aucun import effectué.', status=409)
-            # The projection from order_summary contains no customer credentials,
-            # address or phone. This separate table is never read by sales,
-            # accounting, kitchen, stock or printing paths.
+            # Store only the allowlisted receipt projection, never credentials or
+            # raw customer/courier data. No POS sale or payment is created.
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute('''CREATE TABLE IF NOT EXISTS uber_sandbox_display_orders (

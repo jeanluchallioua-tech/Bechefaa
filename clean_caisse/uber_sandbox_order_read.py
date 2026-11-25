@@ -1,5 +1,6 @@
 """Read one notified sandbox order; never import or accept an order."""
 from uuid import UUID
+from datetime import datetime
 
 from flask import jsonify, request, session
 
@@ -13,6 +14,37 @@ def money(value):
     if type(amount) is not int or not isinstance(currency, str):
         return None
     return {'amount': amount, 'currency_code': currency}
+
+
+def customer_fields(order):
+    """Keep only documented receipt fields, never raw eater or courier objects."""
+    def text(value, limit=100):
+        return value.strip()[:limit] if isinstance(value, str) else ''
+    eater = order.get('eater')
+    eater = eater if isinstance(eater, dict) else {}
+    customer = {key: text(eater.get(key)) for key in ('first_name', 'last_name', 'phone', 'phone_code')}
+    delivery = {}
+    if order.get('type') == 'DELIVERY_BY_RESTAURANT':
+        raw = eater.get('delivery')
+        raw = raw if isinstance(raw, dict) else {}
+        location = raw.get('location')
+        location = location if isinstance(location, dict) else {}
+        # Store and courier locations must never become the customer's address.
+        delivery = {'address': text(location.get('street_address'), 1000),
+                    'apartment': text(location.get('unit_number')),
+                    'building': text(location.get('business_name')),
+                    'instructions': text(raw.get('notes'), 2000)}
+    placed_at = None
+    try:
+        value = order.get('placed_at')
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00')) if isinstance(value, str) else None
+        if parsed is not None and parsed.utcoffset() is not None:
+            placed_at = parsed.isoformat()
+    except (ValueError, OverflowError):
+        pass
+    return {'receipt_metadata_version': 1, 'customer': customer,
+            'delivery': delivery, 'placed_at': placed_at,
+            'fulfillment_type': text(order.get('type'))}
 
 
 def item_summary(item, depth=0):
@@ -66,6 +98,7 @@ def order_summary(order, order_id):
         'charges': {key: money(charges.get(key)) for key in
             ('sub_total', 'tax', 'total', 'total_fee', 'total_fee_tax')},
         'amounts_note': 'Montants de l’API restaurant Uber, distincts du total payé côté client et de ses éventuels frais.',
+        **customer_fields(order),
     }
 
 
@@ -122,3 +155,4 @@ def register_uber_sandbox_order_read(app, db):
                 message='Uber n’a pas renvoyé les détails attendus pour cette commande du restaurant de test.')
         return result(ok=True, order=summary,
             message='Commande test lue chez Uber. Aucune acceptation, vente ni impression déclenchée.')
+

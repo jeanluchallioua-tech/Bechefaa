@@ -9,6 +9,7 @@ from flask import Flask
 from clean_caisse.uber_sandbox_link import STORE_ID
 from clean_caisse.uber_sandbox_pos_display import PREPROD_HOST
 from clean_caisse.uber_sandbox_receipts import receipt_order, register_uber_sandbox_receipts
+from clean_caisse.uber_sandbox_order_read import customer_fields
 
 ORDER = '01460685-2d3d-4d79-af00-4eaba3384a34'
 BASE = 'https://' + PREPROD_HOST
@@ -87,6 +88,51 @@ class UberTestReceiptTests(unittest.TestCase):
         self.assertEqual(self.client.get(self.path,base_url=BASE).status_code,404)
         self.cur.fetchone.side_effect=[(True,),({'id':'wrong'},)]
         self.assertEqual(self.client.get(self.path,base_url=BASE).status_code,503)
+
+    def test_documented_customer_fields_preserve_initial_and_ignore_courier_and_store(self):
+        fields=customer_fields({'type':'DELIVERY_BY_UBER','placed_at':'2026-11-25T12:35:00Z',
+            'eater':{'first_name':'Jean','last_name':'D.','phone':'+331234','phone_code':'5678',
+                     'email':'not-needed','access_token':'never-store',
+                     'delivery':{'location':{'street_address':'Not provided for Uber delivery'}}},
+            'store':{'address':'Restaurant address'},'deliveries':[{'first_name':'Courier','phone':'courier-phone'}]})
+        self.assertEqual(fields['customer']['first_name'],'Jean')
+        self.assertEqual(fields['customer']['last_name'],'D.')
+        self.assertEqual(fields['delivery'],{})
+        self.assertEqual(fields['placed_at'],'2026-11-25T12:35:00+00:00')
+        self.assertNotIn('email',fields['customer'])
+        self.assertNotIn('never-store',str(fields));self.assertNotIn('Courier',str(fields))
+
+    def test_merchant_delivery_uses_documented_address_and_instructions_only(self):
+        fields=customer_fields({'type':'DELIVERY_BY_RESTAURANT',
+            'eater':{'delivery':{'location':{'street_address':'10 rue Test, 94120 Fontenay',
+                'unit_number':'3B','business_name':'Bâtiment A','latitude':48},'notes':'Code 1234, étage 3'}}})
+        self.assertEqual(fields['delivery']['instructions'],'Code 1234, étage 3')
+        self.assertEqual(fields['delivery']['address'],'10 rue Test, 94120 Fontenay')
+        self.assertNotIn('latitude',fields['delivery'])
+        self.assertIsNone(customer_fields({'placed_at':'2026-11-25T12:35:00'})['placed_at'])
+        self.assertIsNone(customer_fields({'placed_at':'invalid'})['placed_at'])
+
+    def test_customer_name_channel_and_creation_time_reach_both_ticket_renderers(self):
+        self.summary.update(customer_fields({'type':'DELIVERY_BY_UBER','placed_at':'2026-11-25T12:35:00Z',
+            'eater':{'first_name':'Jean','last_name':'D.','phone':'+331234','phone_code':'5678'}}))
+        order=receipt_order(self.summary)
+        self.assertEqual(order['customer_name'],'Jean D.')
+        self.assertEqual(order['service_label'],'LIVRAISON UBER EATS')
+        from clean_caisse.receipt_photo_layout import render_receipt
+        for kind in ('kitchen','client'):
+            with patch('clean_caisse.receipt_photo_layout.Paper') as paper:
+                render_receipt(order,kind,{'name':'BECHEFAA','siret':'123'})
+                lines=[str(c.args[0]) for c in paper.return_value.text.call_args_list if c.args]
+            self.assertIn('Jean D.',lines);self.assertIn('LIVRAISON UBER EATS',lines)
+            self.assertIn('TEST UBER #84A34',lines)
+            if kind=='kitchen':
+                self.assertIn('HEURE COMMANDE : 13:35',lines)
+                self.assertNotIn('Tel Uber : +331234',lines)
+            else:
+                self.assertIn('Commande : 25/11/2026 13:35',lines)
+                self.assertIn('Tel Uber : +331234',lines)
+                self.assertIn('Code appel Uber : 5678',lines)
+                self.assertNotIn('SIRET : 123',lines)
 
 
 if __name__=='__main__':unittest.main()

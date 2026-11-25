@@ -57,8 +57,9 @@ class SandboxPosDisplayTests(unittest.TestCase):
         sql,params=self.cur.execute.call_args.args
         self.assertIn('ON CONFLICT (store_id, order_id) DO UPDATE',sql)
         self.assertEqual(params[:2],(STORE_ID,ORDER))
-        self.assertNotIn('private-phone',params[2])
-        self.assertNotIn('private-name',params[2])
+        self.assertIn('private-phone',params[2])
+        self.assertIn('private-name',params[2])
+        self.assertNotIn('eater',params[2])
         self.assertIn('Sans tomate',params[2])
         self.conn.commit.assert_called_once()
 
@@ -176,12 +177,12 @@ class SandboxPosDisplayTests(unittest.TestCase):
     def test_kitchen_read_failure_keeps_existing_pos_order_visible(self):
         self.cur.fetchone.return_value={'display_exists':True}
         self.cur.fetchall.return_value=[{'imported_at':datetime(2026,11,23,17,tzinfo=timezone.utc),'summary':self.summary}]
-        with patch('clean_caisse.uber_sandbox_kitchen.read_kitchen_orders',side_effect=RuntimeError('private')):
+        with patch('clean_caisse.uber_sandbox_kitchen.read_kitchen_orders',side_effect=RuntimeError('private-db-error')):
             response=self.client.get(self.list_path,base_url=BASE)
         self.assertEqual(response.status_code,200)
         self.assertEqual(len(response.json['orders']),1)
         self.assertFalse(response.json['kitchen_status_available'])
-        self.assertNotIn('private',response.text)
+        self.assertNotIn('private-db-error',response.text)
 
 
 if __name__=='__main__': unittest.main()

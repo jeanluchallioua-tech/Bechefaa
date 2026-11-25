@@ -56,7 +56,7 @@ class OrderReadTests(unittest.TestCase):
         self.assertEqual(item['options'][0]['title'], '10 pièces')
         self.assertEqual(item['options'][0]['options'][0]['title'], 'Cœur cheddar')
         self.assertTrue(item['options'][1]['removed'])
-        self.assertNotIn('secret-phone', response.text)
+        self.assertEqual(response.json['order']['customer']['phone'], 'secret-phone')
         self.assertNotIn('eater', response.json['order'])
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         self.token.assert_called_once_with('client_credentials', scope='eats.store.orders.read')
@@ -115,3 +115,4 @@ class OrderReadTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

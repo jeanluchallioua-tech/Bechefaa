@@ -108,11 +108,24 @@ def render_receipt(order, kind, identity=None):
     identity = identity or {}
     p = Paper()
     mode = _service_label(order)
+    uber_test = order.get('uber_test') is True
+    heading = order.get('service_label') if uber_test else mode
+    heading = heading or mode
+    order_time = order_date_time = None
+    if uber_test and order.get('created_at') is not None:
+        try:
+            moment = datetime.fromtimestamp(float(order['created_at']), tz=ZoneInfo('Europe/Paris'))
+            order_time, order_date_time = moment.strftime('%H:%M'), moment.strftime('%d/%m/%Y %H:%M')
+        except (ValueError, TypeError, OverflowError, OSError):
+            pass
     p.gap(12)
     if kind == 'kitchen':
         p.text('BECHEFAA', columns=24, center=True, height=2)
         p.rule()
-        p.text(mode, columns=24, center=True, height=2, bold=True)
+        p.text(heading, columns=24, center=True, height=2, bold=True)
+        if uber_test:
+            p.text(order.get('receipt_reference') or 'TEST UBER', center=True, bold=True)
+            if order_time: p.text('HEURE COMMANDE : ' + order_time, center=True, bold=True)
         if order.get('table_number'):
             p.text('TABLE ' + str(order['table_number']), center=True, bold=True)
         if order.get('customer_name'):
@@ -140,12 +153,21 @@ def render_receipt(order, kind, identity=None):
             if identity.get('siret'): p.text('SIRET : ' + str(identity['siret']), center=True)
             if identity.get('vat_number'): p.text('TVA : ' + str(identity['vat_number']), center=True)
         p.rule()
-        p.text(mode, columns=24, center=True, bold=True)
+        p.text(heading, columns=24, center=True, bold=True)
+        if uber_test:
+            p.text(order.get('receipt_reference') or 'TEST UBER', center=True, bold=True)
+            if order_date_time: p.text('Commande : ' + order_date_time, center=True, bold=True)
         if order.get('table_number'): p.text('Table ' + str(order['table_number']), center=True)
         if order.get('customer_name'): p.text(order['customer_name'], center=True)
         if mode == 'LIVRAISON':
             for key in ('phone','address','postal_code','city'):
-                if order.get(key): p.text(order[key], center=True)
+                if order.get(key): p.text(('Tel Uber : ' if uber_test and key=='phone' else '') + str(order[key]), center=True)
+            if uber_test:
+                details = order.get('delivery_details') or {}
+                for key,label in (('phone_code','Code appel Uber'),('building','Bâtiment'),('apartment','Appartement'),('instructions','Consignes')):
+                    if details.get(key):
+                        for line in textwrap.wrap(label + ' : ' + str(details[key]), width=TEXT_COLUMNS, break_long_words=True, break_on_hyphens=False):
+                            p.text(line, center=True)
         p.rule()
         for item in order.get('items') or []:
             qty = item.get('qty') or 1
