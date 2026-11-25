@@ -18,6 +18,8 @@ def register_uber_webhook_phase6(app, db):
     register_uber_sandbox_accept(app, db)
     register_uber_sandbox_pos_display(app, db)
     register_uber_sandbox_kitchen(app, db)
+    from .uber_sandbox_receipts import register_uber_sandbox_receipts
+    register_uber_sandbox_receipts(app, db)
 
     @app.post('/api/uber/webhook')
     def uber_webhook_phase6():
@@ -104,4 +106,5 @@ def register_uber_webhook_phase6(app, db):
             webhook_path='/api/uber/webhook',
             order_processing_enabled=False,
         )
+
 
