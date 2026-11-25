@@ -31,7 +31,7 @@ PAGE = '''<!doctype html><html lang="fr"><meta charset="utf-8">
 {% if order.charges.total %}<p>Total restaurant transmis par Uber : <b>{{ amount(order.charges.total) }}</b></p>{% endif %}
 <p>{{ order.amounts_note }}</p>
 {% if can_accept %}<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="nonce" value="{{ nonce }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Accepter cette commande test chez Uber</button></form>{% else %}<p>Aucune acceptation disponible pour cette commande.</p>{% endif %}
-{% if order.current_state in ('ACCEPTED', 'FINISHED') %}<form method="post" action="/administration/uber-sandbox/pos-display/import"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Afficher cette commande dans la caisse de test</button></form><p>Affichage dans le bloc Uber Eats — TEST, hors ventes et statistiques.</p>{% endif %}</article>{% endif %}
+{% if order.current_state in ('ACCEPTED', 'FINISHED') %}<form method="post" action="/administration/uber-sandbox/pos-display/import"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="order_id" value="{{ order.id }}"><button>Importer cette commande dans la caisse déjà ouverte</button></form><p>La caisse déjà ouverte reçoit la commande automatiquement dans son bloc Uber Eats — TEST. Hors ventes et statistiques.</p>{% endif %}</article>{% endif %}
 {% if orders %}<h2>Notifications reçues</h2><ul>{% for id in orders %}<li><a href="?order_id={{ id }}">Commande {{ id[-5:] }}</a></li>{% endfor %}</ul>{% else %}<p>Aucune notification de commande reçue pour ce restaurant test.</p>{% endif %}
 <p><a href="/administration/uber-sandbox">Retour à la configuration Uber</a></p></html>'''
 
@@ -183,6 +183,9 @@ def register_uber_sandbox_accept(app, db):
                 session['uber_sandbox_accept_preview'] = dict(store_id=STORE_ID, order_id=order_id,
                     fingerprint=fingerprint(order), created=time.time(), nonce=nonce)
             message = ''
+            if session.get('uber_sandbox_imported_order') == order_id:
+                session.pop('uber_sandbox_imported_order', None)
+                message = 'Commande importée. Revenez dans votre onglet de caisse déjà ouvert, sans le recharger. Aucune nouvelle caisse ouverte ; aucune vente ni impression déclenchée.'
             if manager and not order_manager and order['current_state'] == 'CREATED':
                 message = 'Uber ne confirme pas notre application comme gestionnaire de cette commande. Aucune acceptation possible pour le moment.'
             return page(message, orders=ids, order=order, manager=manager, can_accept=can_accept, nonce=nonce)
@@ -191,3 +194,4 @@ def register_uber_sandbox_accept(app, db):
         except Exception:
             app.logger.error('Uber sandbox order preview failed')
             return page('Lecture des commandes de test indisponible. Aucune acceptation envoyée.', 503)
+

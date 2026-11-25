@@ -57,7 +57,8 @@ def register_uber_sandbox_pos_display(app, db):
                         SET summary = EXCLUDED.summary, imported_at = NOW()''',
                         (STORE_ID, order_id, json.dumps(order)))
                 conn.commit()
-            response = redirect('/pos?uber_test_import=' + order_id, code=303)
+            session['uber_sandbox_imported_order'] = order_id
+            response = redirect('/administration/uber-sandbox/orders?order_id=' + order_id, code=303)
         except UberFailure as error:
             response = Response('Import non effectué. ' + str(error), status=502)
         except Exception:
@@ -121,3 +122,4 @@ def register_uber_sandbox_pos_display(app, db):
             response.set_data(html.replace('</body>', PANEL + '</body>', 1))
             response.headers['Cache-Control'] = 'no-store'
         return response
+

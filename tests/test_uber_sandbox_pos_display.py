@@ -48,7 +48,7 @@ class SandboxPosDisplayTests(unittest.TestCase):
         with patch(M+'.notified_orders',return_value=[ORDER]), patch(M+'.get_token',return_value='token') as token, patch(M+'.fetch_order',return_value=(self.summary,True)) as fetch:
             response=self.post()
         self.assertEqual(response.status_code,303)
-        self.assertEqual(response.headers['Location'],'/pos?uber_test_import='+ORDER)
+        self.assertEqual(response.headers['Location'],'/administration/uber-sandbox/orders?order_id='+ORDER)
         token.assert_called_once_with('client_credentials',scope='eats.store.orders.read')
         fetch.assert_called_once_with(ORDER,'token')
         self.assertEqual(self.cur.execute.call_count,2)
@@ -61,6 +61,18 @@ class SandboxPosDisplayTests(unittest.TestCase):
         self.assertNotIn('private-name',params[2])
         self.assertIn('Sans tomate',params[2])
         self.conn.commit.assert_called_once()
+
+    def test_import_returns_to_management_with_confirmation_without_opening_pos(self):
+        with patch(M+'.notified_orders',return_value=[ORDER]), patch(M+'.get_token'), patch(M+'.fetch_order',return_value=(self.summary,True)):
+            response=self.post()
+        with patch('clean_caisse.uber_sandbox_accept.notified_orders',return_value=[ORDER]), patch('clean_caisse.uber_sandbox_accept.manager_status',return_value=True), patch('clean_caisse.uber_sandbox_accept.get_token'), patch('clean_caisse.uber_sandbox_accept.fetch_order',return_value=(self.summary,True)):
+            page=self.client.get(response.headers['Location'],base_url=BASE)
+        self.assertEqual(page.status_code,200)
+        self.assertIn('Commande importée. Revenez dans votre onglet de caisse déjà ouvert',page.text)
+        self.assertNotIn('window.open',page.text)
+        self.assertNotIn('target="_blank"',page.text)
+        with self.client.session_transaction(base_url=BASE) as state:
+            self.assertNotIn('uber_sandbox_imported_order',state)
 
     def test_guard_blocks_other_host_session_csrf_invalid_id_before_network(self):
         with patch(M+'.notified_orders') as notifications, patch(M+'.get_token') as token:
@@ -148,7 +160,7 @@ class SandboxPosDisplayTests(unittest.TestCase):
             with patch('clean_caisse.uber_sandbox_accept.notified_orders',return_value=[ORDER]), patch('clean_caisse.uber_sandbox_accept.manager_status',return_value=True), patch('clean_caisse.uber_sandbox_accept.get_token'), patch('clean_caisse.uber_sandbox_accept.call_uber',return_value=raw):
                 response=self.client.get('/administration/uber-sandbox/orders',base_url=BASE)
             self.assertEqual(response.status_code,200)
-            self.assertEqual('Afficher cette commande dans la caisse de test' in response.text,should_show)
+            self.assertEqual('Importer cette commande dans la caisse déjà ouverte' in response.text,should_show)
 
 
     def test_pos_reads_finished_kitchen_stage_without_importing_a_sale(self):
@@ -173,3 +185,4 @@ class SandboxPosDisplayTests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+
