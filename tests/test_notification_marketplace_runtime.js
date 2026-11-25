@@ -12,11 +12,11 @@ class Element{
  remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);}
 }
 function find(node,id){if(node.id===id)return node;for(const child of node.children){const result=find(child,id);if(result)return result;}return null;}
-async function runtime(page,prefs){
+async function runtime(page,prefs,blocked=false){
  const body=new Element('body'),cart=new Element('div');cart.id='cart';cart.textContent='Burger en cours';body.appendChild(cart);
  const calls=[],peaks=[],prints=[],timers=[];let oscillators=0;const toneStarts=[];
  class Audio{
-  constructor(){this.state='running';this.currentTime=0;this.destination={};}
+  constructor(){this.state=blocked?'suspended':'running';this.currentTime=0;this.destination={};}
   async resume(){this.state='running';}
   createOscillator(){oscillators++;return {type:'',frequency:{setValueAtTime(){}},connect(){},start(at){toneStarts.push(at);},stop(){}};}
   createGain(){return{gain:{setValueAtTime(){},exponentialRampToValueAtTime(value){peaks.push(value);}},connect(){}};}
@@ -29,7 +29,7 @@ async function runtime(page,prefs){
  fetch:async(url,options)=>{calls.push({url,options});return{ok:true,json:async()=>url==='/api/notification-settings'?{ok:true,...prefs}:{ok:true,orders:[]}};}};
  const code=raw.replace('__SOUND_POLICY__',policy).replace('__PAGE__',page).replace('__PRINT_ENABLED__',page==='pos'?'true':'false').replace('__TEST_MODE__','false')
   .replace('\n})();','\nwindow.testAccess={inspect,loadSoundSettings,unlock,resumeAlerts};\n})();');
- vm.runInNewContext(code,context);await flush();await context.window.testAccess.unlock(false);
+ vm.runInNewContext(code,context);await flush();if(!blocked)await context.window.testAccess.unlock(false);
  return{context,body,cart,calls,peaks,prints,timers,get oscillators(){return oscillators;},toneStarts,access:context.window.testAccess};
 }
 function order(id,channel){return{id,sales_channel:channel,status:'À préparer',customer_name:'Test',ticket_type:'Livraison',created_at:Date.now(),updated_at:Date.now()};}
@@ -62,6 +62,13 @@ function order(id,channel){return{id,sales_channel:channel,status:'À préparer'
  kitchen.access.inspect([order('roo-1','DELIVEROO'),order('uber-2','UBER EATS')]);assert.equal(kitchen.oscillators,6,'same order must not sound twice');
  const muted=await runtime('kitchen',{...prefs,ubereats_enabled:false});muted.access.inspect([order('muted-uber','UBEREATS')]);assert.equal(muted.oscillators,0);
  assert.deepEqual(kitchen.prints,[]);
+ const sharedKitchen=await runtime('kitchen',{...prefs,deliveroo_enabled:true});
+ sharedKitchen.context.window.bechefaaUberTestSound.notify();assert.equal(sharedKitchen.oscillators,3,'TEST kitchen uses normal unlocked audio without a separate TEST click');approx(Math.max(...sharedKitchen.peaks),.3);
+ assert.equal(await sharedKitchen.context.window.bechefaaUberTestSound.activate(),true);assert.equal(sharedKitchen.oscillators,6);
+ muted.context.window.bechefaaUberTestSound.notify();assert.equal(muted.oscillators,0,'TEST arrivals must respect Uber mute');assert.equal(await muted.context.window.bechefaaUberTestSound.activate(),false);
+ const locked=await runtime('kitchen',prefs,true);locked.context.window.bechefaaUberTestSound.notify();
+ assert.equal(locked.oscillators,0);assert.ok(find(locked.body,'bechefaa-audio-wait'),'blocked kitchen arrival must offer activation instead of silently disappearing');
+ assert.equal(await locked.context.window.bechefaaUberTestSound.activate(),true);assert.equal(locked.oscillators,3,'pending kitchen alert plays once on activation');assert.equal(find(locked.body,'bechefaa-audio-wait'),null);
  const mixed=await runtime('pos',{...prefs,deliveroo_enabled:true});
  Object.assign(mixed.context,{ORDER:[{name:'Burger comptoir',qty:2,unit_price:17.5,options:[{name:'Sans tomate'}]}],TICKET_TYPE:'Salle',MANUAL_DISCOUNT:10,renderOrder(){}});
  const draftScript=fs.readFileSync('clean_caisse/static/pos-active-cart.js','utf8');

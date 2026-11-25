@@ -96,6 +96,12 @@ def register_order_notifications_phase33(app):
    osc.connect(gain);gain.connect(ctx.destination);osc.start(start);osc.stop(start+duration+.02);
  }
  if(PAGE==='pos'){window.bechefaaNotifyDeliveroo=()=>beep('deliveroo');window.bechefaaNotifyUberEats=()=>beep('ubereats');}
+ // Sandbox cards share this screen's audio activation, pending alert and volumes.
+ window.bechefaaUberTestSound={notify:()=>beep('ubereats'),activate:async()=>{
+   const policy=notificationSoundPolicy(soundPreferences,PAGE,'ubereats');
+   if(!policy.enabled||policy.volume<=0)return false;
+   const pending=pendingBeep,ready=await unlock(false);if(ready&&!pending)beep('ubereats');return ready;
+ }};
  function beep(source='general'){
    try{
      const policy=notificationSoundPolicy(soundPreferences,PAGE,source);
