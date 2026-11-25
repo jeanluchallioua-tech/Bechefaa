@@ -13,7 +13,9 @@ _PANEL = r'''
 #uber-sandbox-pos[data-mode="kitchen"]{position:static;max-width:100%;margin:20px 0}
 #uber-sandbox-pos summary{padding:14px;cursor:pointer;font-weight:bold;background:#e7f6ec;border-radius:10px}
 #uber-sandbox-pos section{padding:14px;max-height:65vh;overflow:auto}
-#uber-sandbox-pos[data-mode="kitchen"] section{max-height:none}
+#uber-sandbox-pos[data-mode="kitchen"] section{max-height:60vh}
+#uber-sandbox-pos:not([open])>section{display:none!important}
+#uber-sandbox-pos [data-uber-test-close]{position:sticky;top:0;display:block;margin:0 0 10px auto;background:#18251d;color:white;border:0;border-radius:6px;z-index:1}
 #uber-sandbox-pos article{padding:12px 0;border-top:1px solid #ddd}
 #uber-sandbox-pos p,#uber-sandbox-pos li{font:16px/1.45 Arial,sans-serif;margin:6px 0}
 #uber-sandbox-pos ul{padding-left:24px;margin:6px 0}
@@ -27,7 +29,7 @@ _PANEL = r'''
 #uber-sandbox-arrival[hidden]{display:none!important}
 </style>
 <details id="uber-sandbox-pos" data-mode="__MODE__"><summary>__TITLE__ · <span data-uber-test-count>…</span></summary>
-<section><p>Commandes d’essai, hors ventes et statistiques. Aucune impression ni modification du panier en cours.</p>
+<section><button type="button" data-uber-test-close aria-label="Replier le panneau Uber TEST">Replier ✕</button><p>Commandes d’essai, hors ventes et statistiques. Aucune impression ni modification du panier en cours.</p>
 <button type="button" data-uber-test-refresh>Actualiser les commandes de test</button>
 <button type="button" data-uber-test-audio>Activer les alertes sonores Uber TEST</button>
 <p id="uber-sandbox-arrival" data-uber-test-arrival hidden role="alert" aria-live="assertive" tabindex="0" title="Cliquer pour fermer cette alerte"></p>
@@ -40,6 +42,9 @@ const root=document.getElementById('uber-sandbox-pos');if(!root)return;
 const kitchen=root.dataset.mode==='kitchen',board=root.dataset.board==='true';
 const count=root.querySelector('[data-uber-test-count]'),status=root.querySelector('[data-uber-test-status]'),list=root.querySelector('[data-uber-test-orders]'),button=root.querySelector('[data-uber-test-refresh]'),audioButton=root.querySelector('[data-uber-test-audio]'),arrival=root.querySelector('[data-uber-test-arrival]');
 const actionStatus=root.querySelector('[data-uber-test-action-status]');
+function fold(){root.open=false;}
+root.querySelector('[data-uber-test-close]').addEventListener('click',fold);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&root.open)fold();});
 // Marketplace arrival alerts are sound-only; command cards remain visible.
 arrival.addEventListener('click',()=>{arrival.hidden=true;});
 arrival.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();arrival.hidden=true;}});

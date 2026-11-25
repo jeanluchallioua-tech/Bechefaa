@@ -13,7 +13,7 @@ function all(el){return [el,...el.children.flatMap(all)];}
 async function run(mode,board=false,initialRecent=false,initialStage='À préparer',shared=false){
  const root=new Element('details');root.dataset.mode=mode;root.dataset.board=board?'true':'false';
  const columns={todo:new Element(),doing:new Element(),done:new Element()};
- const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival'])selectors['[data-uber-test-'+name+']']=new Element();
+ const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival','close'])selectors['[data-uber-test-'+name+']']=new Element();
  selectors['[data-uber-test-arrival]'].hidden=true;
  root.querySelector=key=>selectors[key];let poll,beeps=0,rows=[],stage=initialStage,dispatched=false;const calls=[];
  class Audio{
@@ -50,6 +50,7 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  if(initialRecent&&initialStage==='Terminée'){assert.equal(selectors['[data-uber-test-arrival]'].hidden,true,'finished order must not create a new arrival banner');assert.equal(beeps,0);return;}
  if(initialRecent){assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);assert.equal(beeps,shared?3:0,'shared audio handles arrivals without a separate TEST activation');}
  const initialBeeps=beeps;await selectors['[data-uber-test-audio]'].handlers.click();assert.equal(beeps,initialBeeps+3);
+ root.open=true;selectors['[data-uber-test-close]'].handlers.click();assert.equal(root.open,false);
  const expectedRef=initialRecent?'85B35':'84A34';
  rows=[initialRecent?{...fixture,id:'01460685-2d3d-4d79-af00-4eaba3385b35',display_id:'85B35'}:fixture];await poll();await flush();
  assert.equal(beeps,initialBeeps+6,'new polled order must sound after audio activation');
@@ -57,11 +58,12 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  assert.equal(selectors['[data-uber-test-arrival]'].textContent,'');
  if(mode==='pos'||board)assert.notEqual(root.open,true,'arrival must not open a panel over cashier work');
  assert.equal(selectors['[data-uber-test-count]'].textContent,'1');
+ root.open=true;selectors['[data-uber-test-close]'].handlers.click();assert.equal(root.open,false,'explicit fold button must close the TEST panel');
  const labels=()=>board?Object.values(columns).flatMap(all):all(selectors['[data-uber-test-orders]']);
  if(board)assert.equal(columns.todo.children.length,1);
  assert.ok(labels().some(el=>el.textContent.includes('Classic <script>bad()</script>')),'product labels are inserted as literal text');
  selectors['[data-uber-test-arrival]'].handlers.click();assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);
- await poll();await flush();assert.equal(beeps,initialBeeps+6,'duplicate poll must not sound again');
+ await poll();await flush();assert.equal(root.open,false,'polling must not reopen folded TEST controls');assert.equal(beeps,initialBeeps+6,'duplicate poll must not sound again');
  assert.equal(selectors['[data-uber-test-arrival]'].hidden,true,'dismissed banner must not reopen on a duplicate poll');
  if(mode==='kitchen'){
   await labels().find(el=>el.textContent==='Commencer la préparation TEST').handlers.click();await flush();
