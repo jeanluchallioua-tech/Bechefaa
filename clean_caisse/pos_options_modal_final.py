@@ -194,6 +194,9 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
      overlay.classList.add('open');
    }
    function closeOptions(){overlay.classList.remove('open')}
+   window.bechefaaProductDraft={isOpen:()=>overlay.classList.contains('open'),restore:()=>{
+     if(typeof renderOptions==='function')renderOptions();openOptions((typeof currentProduct!=='undefined'&&currentProduct)?currentProduct.name:'Options produit');
+   }};
    closeBtn.addEventListener('click',closeOptions);
    overlay.addEventListener('click',e=>{if(e.target===overlay)closeOptions()});
    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOptions()});
@@ -217,7 +220,7 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
  })
 })();
 </script>
-<script src="/static/pos-pending-edit.js?v=2" defer></script>
+<script src="/static/pos-pending-edit.js?v=3" defer></script>
 '''
 
     def pos_options_modal_view(*args, **kwargs):
@@ -236,3 +239,4 @@ html.bechefaa-tablet .pos-final-options-overlay #options .action.add{
 
     app.view_functions["pos"] = pos_options_modal_view
     app._bechefaa_pos_options_modal_final = True
+

@@ -56,7 +56,7 @@ console.log('PASS saved summary, duplicate clicks, same order edit, network fail
         final = Path('clean_caisse/pos_options_modal_final.py').read_text()
         self.assertNotIn('finishUpsellAndSave', final)
         self.assertNotIn('openUpsellPhase', final)
-        self.assertIn('/static/pos-pending-edit.js?v=2', final)
+        self.assertIn('/static/pos-pending-edit.js?v=3', final)
         dark = Path('clean_caisse/pos_reference_dark.py').read_text()
         self.assertNotIn('setTimeout(openUpsell', dark)
         self.assertNotIn("upsell=document.createElement", dark)
@@ -72,3 +72,4 @@ console.log('PASS saved summary, duplicate clicks, same order edit, network fail
 
 if __name__ == '__main__':
     unittest.main()
+

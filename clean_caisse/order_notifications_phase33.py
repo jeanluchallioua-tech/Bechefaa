@@ -2,17 +2,19 @@
 
 Correctif isolé : aucune écriture PostgreSQL, aucun changement de commande/ticket/TVA.
 - Cuisine et Caisse utilisent des marqueurs de dernière commande distincts.
-- Sur /pos, seules les commandes provenant du SITE déclenchent l'alerte Caisse.
+- Sur /pos, seul SITE affiche un bandeau ; Deliveroo et Uber Eats restent sonores.
+- Les arrivées SITE/Deliveroo/Uber déclenchent le pack Epson, avec sauvegarde du panier.
 - Les commandes saisies directement en Caisse restent silencieuses sur /pos,
   mais déclenchent normalement la notification Cuisine après envoi.
 - Le son Caisse et Cuisine est activé par défaut et se déverrouille automatiquement
   à la première interaction normale avec l'écran, sans bouton supplémentaire.
 - La Cuisine ne mémorise que les commandes réellement au statut À préparer afin
   d'éviter de perdre le son si le polling voit l'ordre entre création et envoi cuisine.
-- Le volume et l'activation Caisse/Cuisine sont pilotés depuis Administration.
+- Activation et volume par écran et par marketplace sont pilotés depuis Administration.
 """
 from flask import request
 from .notification_settings_phase6 import register_notification_settings_phase6
+from .notification_sound_policy_phase6 import SOUND_POLICY_JS
 
 
 def register_order_notifications_phase33(app):
@@ -34,6 +36,7 @@ def register_order_notifications_phase33(app):
 <script>
 (function(){
  const PAGE='__PAGE__';
+ __SOUND_POLICY__
  const SOUND_KEY='bechefaa_phase33_sound';
  function safeSet(key,value){try{localStorage.setItem(key,value)}catch(_){}}
  const PENDING_NOTICE='bechefaa_pending_notice_'+PAGE;
@@ -42,19 +45,19 @@ def register_order_notifications_phase33(app):
  let seen={};try{seen=JSON.parse(localStorage.getItem(LAST_KEY)||'{}')}catch(e){}
  if(!seen||typeof seen!=='object'||Array.isArray(seen))seen={};
  let initialized=Object.keys(seen).length>0;
- let pendingBeep=false;
- let audioCtx=null;
+ let pendingBeep=false,pendingSource='general';
+ let audioCtx=null,soundUntil=0;
  let wanted=true;
  let unlocking=false;
  let soundSettings={enabled:true,volume:.82};
+ let soundPreferences={};
  safeSet(SOUND_KEY,'1');
 
  async function loadSoundSettings(){
    try{
      const r=await fetch('/api/notification-settings',{cache:'no-store'}),d=await r.json();
      if(!r.ok||!d||!d.ok)return;
-     if(PAGE==='pos')soundSettings={enabled:!!d.pos_enabled,volume:Math.max(0,Math.min(1,Number(d.pos_volume||0)/100))};
-     else soundSettings={enabled:!!d.kitchen_enabled,volume:Math.max(0,Math.min(1,Number(d.kitchen_volume||0)/100))};
+     soundPreferences=d;soundSettings=notificationSoundPolicy(d,PAGE);
      updateButton();
    }catch(e){}
  }
@@ -80,7 +83,7 @@ def register_order_notifications_phase33(app):
    unlocking=false;
    if(ctx.state!=='running'){updateButton();return false}
    wanted=true;safeSet(SOUND_KEY,'1');updateButton();
-   if(test||pendingBeep)beep();
+   if(test||pendingBeep)beep(pendingBeep?pendingSource:'general');
    return true;
  }
  function tone(ctx,start,freq,duration,volume){
@@ -92,20 +95,21 @@ def register_order_notifications_phase33(app):
    gain.gain.exponentialRampToValueAtTime(.001,start+duration);
    osc.connect(gain);gain.connect(ctx.destination);osc.start(start);osc.stop(start+duration+.02);
  }
- // Reuse the configured POS beep for Deliveroo; never add a separate sound.
- if(PAGE==='pos')window.bechefaaNotifyDeliveroo=()=>{beep();};
- function beep(){
+ if(PAGE==='pos'){window.bechefaaNotifyDeliveroo=()=>beep('deliveroo');window.bechefaaNotifyUberEats=()=>beep('ubereats');}
+ function beep(source='general'){
    try{
-     const ctx=getCtx();if(!soundSettings.enabled||soundSettings.volume<=0||!wanted)return;
-     if(!ctx||ctx.state!=='running'){pendingBeep=true;updateButton();return;}
+     const policy=notificationSoundPolicy(soundPreferences,PAGE,source);
+     if(!policy.enabled||policy.volume<=0||!wanted)return;const ctx=getCtx();
+     if(!ctx||ctx.state!=='running'){pendingBeep=true;pendingSource=source;updateButton();return;}
      pendingBeep=false;updateButton();
-     const t=ctx.currentTime+.015,v=soundSettings.volume;
+     const t=Math.max(ctx.currentTime+.015,soundUntil),v=policy.volume;soundUntil=t+.90;
      tone(ctx,t,920,.22,v*.88);tone(ctx,t+.28,1080,.22,v*.95);tone(ctx,t+.56,920,.30,v);
    }catch(e){}
  }
  function updateButton(){
    let button=document.getElementById('bechefaa-audio-wait');
-   if(!pendingBeep||isAudioReady()||!soundSettings.enabled||soundSettings.volume<=0){if(button)button.remove();return;}
+   const policy=notificationSoundPolicy(soundPreferences,PAGE,pendingSource);
+   if(!pendingBeep||isAudioReady()||!policy.enabled||policy.volume<=0){if(button)button.remove();return;}
    if(!button){button=document.createElement('button');button.id='bechefaa-audio-wait';button.type='button';button.style.cssText='position:fixed;bottom:14px;left:14px;z-index:2147483001;max-width:calc(100vw - 28px);padding:12px;background:#ffd21f;color:#111;border:2px solid white;border-radius:10px;font-weight:900';button.textContent='Alerte reçue — toucher pour activer le son';button.onclick=()=>unlock(true);document.body.appendChild(button);}
  }
  function installButton(){
@@ -133,7 +137,7 @@ def register_order_notifications_phase33(app):
    try{
      const p=ctx.resume();
      if(p&&typeof p.then==='function'){
-       p.then(()=>{wanted=true;safeSet(SOUND_KEY,'1');updateButton();if(pendingBeep)beep();}).catch(()=>updateButton());
+       p.then(()=>{wanted=true;safeSet(SOUND_KEY,'1');updateButton();if(pendingBeep)beep(pendingSource);}).catch(()=>updateButton());
      }else{
        wanted=true;safeSet(SOUND_KEY,'1');updateButton();
      }
@@ -153,44 +157,41 @@ def register_order_notifications_phase33(app):
  window.addEventListener('focus',retryUnlockIfAllowed);
  document.addEventListener('visibilitychange',function(){if(!document.hidden)retryUnlockIfAllowed();});
 
- let siteNoticeTimer=null;
- function scheduleSiteNoticeDismiss(el){
-   if(siteNoticeTimer)clearTimeout(siteNoticeTimer);
-   siteNoticeTimer=setTimeout(()=>{
-     el.classList.remove('show');
-     try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}
-     siteNoticeTimer=null;
-   },8000);
- }
  function ensureSiteNotice(){
    if(PAGE!=='pos')return null;
    let el=document.getElementById('phase6-site-order-notice');if(el)return el;
    el=document.createElement('span');el.id='phase6-site-order-notice';el.setAttribute('role','button');el.setAttribute('aria-live','assertive');el.tabIndex=0;function dismiss(){el.classList.remove('show');try{sessionStorage.removeItem(PENDING_NOTICE)}catch(_){}}el.addEventListener('click',dismiss);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')dismiss();});document.body.appendChild(el);return el;
  }
  function showSiteNotice(order,simulation=false){
-   if(PAGE!=='pos')return;
+   if(PAGE!=='pos'||notificationChannel(order)!=='site')return;
    const el=ensureSiteNotice();if(!el)return;
    const name=String(order.customer_name||'Client').trim();
    const mode=String(order.ticket_type||'').toLowerCase().includes('livraison')?'Livraison':'À emporter';
-   el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE SITE — ')+name+' • '+mode;
+   const channelLabel=notificationChannel(order)==='ubereats'?'UBER EATS':'SITE';
+   el.textContent=(simulation?'TEST — ':'⚡ NOUVELLE COMMANDE '+channelLabel+' — ')+name+' • '+mode;
    el.classList.remove('show');void el.offsetWidth;el.classList.add('show');
-   scheduleSiteNoticeDismiss(el);
-   if(!simulation){try{sessionStorage.setItem(PENDING_NOTICE,JSON.stringify({order:{id:order.id,customer_name:order.customer_name,ticket_type:order.ticket_type},at:Date.now()}))}catch(_){}}
+   if(!simulation){try{sessionStorage.setItem(PENDING_NOTICE,JSON.stringify({order:{id:order.id,customer_name:order.customer_name,ticket_type:order.ticket_type,sales_channel:order.sales_channel,source:order.source},at:Date.now()}))}catch(_){}}
  }
 
  const SITE_PRINT_KEY='bechefaa_site_prints_v2';
+ const PRINT_QUEUE_KEY='bechefaa_incoming_print_queue_v1';
+ let printQueue={};try{printQueue=JSON.parse(localStorage.getItem(PRINT_QUEUE_KEY)||'{}')||{};}catch(_){}
+ if(typeof printQueue!=='object'||Array.isArray(printQueue))printQueue={};
  let printing=false,printTimer=null;
- function autoPrintSiteOrder(order){
+ function autoPrintIncomingOrder(order){
    if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
    let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
-   if(printed[order.id])return;
+   if(printed[order.id]){delete printQueue[order.id];safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));return;}
    if(typeof window.bechefaaPrintOrderPack!=='function')return;
    printing=true;
-   // Reserve this launch before leaving the page for Epson; other orders remain pending.
-   printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
-   Promise.resolve(window.bechefaaPrintOrderPack(order.id)).catch(e=>{
+   Promise.resolve().then(()=>typeof window.bechefaaPrepareIncomingPrint==='function'?window.bechefaaPrepareIncomingPrint():undefined).then(()=>{
+     printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
+     delete printQueue[order.id];safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
+     return window.bechefaaPrintOrderPack(order.id);
+   }).catch(e=>{
      delete printed[order.id];safeSet(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
-     const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée';el.classList.add('show');}
+     printQueue[order.id]={id:order.id,num:order.num};safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
+     const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée : '+String(e.message||e);el.classList.add('show');}
    });
  }
 
@@ -198,7 +199,7 @@ def register_order_notifications_phase33(app):
    const known=simulation?{}:seen;
    const wasInitialized=simulation?false:initialized;
    const active=(orders||[]).filter(o=>o.id&&['À préparer','En préparation','Prête','Terminée'].includes(String(o.status||'').trim()));
-   const eligible=PAGE==='pos'?active.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE'):active.filter(o=>String(o.status||'').trim()==='À préparer');
+   const eligible=PAGE==='pos'?active.filter(o=>String(o.sales_channel||'').toUpperCase()==='SITE'||notificationChannel(o)==='ubereats'):active.filter(o=>String(o.status||'').trim()==='À préparer');
    const fresh=[];
    for(const order of eligible){
      if(known[order.id])continue;
@@ -212,13 +213,24 @@ def register_order_notifications_phase33(app):
      const entries=Object.entries(known).sort((a,b)=>b[1]-a[1]).slice(0,500);
      seen=Object.fromEntries(entries);safeSet(LAST_KEY,JSON.stringify(seen));
    }
-   if(fresh.length){if(PAGE==='pos')showSiteNotice(fresh[fresh.length-1],simulation);beep();}
+   if(fresh.length){
+     if(PAGE==='pos'){const site=fresh.filter(order=>notificationChannel(order)==='site');if(site.length)showSiteNotice(site[site.length-1],simulation);}
+     const audible=fresh.map(order=>notificationSoundPolicy(soundPreferences,PAGE,notificationChannel(order)))
+       .filter(policy=>policy.enabled&&policy.volume>0).sort((a,b)=>b.volume-a.volume);
+     if(audible.length)beep(audible[0].channel);
+   }
    if(PRINT_ENABLED&&!simulation){
-     // Retry unlaunched recent orders on return from Epson, not merely the newest order.
-     const toPrint=eligible.filter(o=>String(o.status||'').trim()==='À préparer').filter(o=>{
-       const ts=Number(o.updated_at||o.created_at||0);return ts>0&&Date.now()-ts<10*60*1000;
+     // Reserve every new marketplace/SITE admission, then serialize Epson
+     // launches on return. Drafts are saved before each automatic navigation.
+     const incoming=active.filter(o=>['site','deliveroo','ubereats'].includes(notificationChannel(o)));
+     const toPrint=incoming.filter(o=>{
+       if(printQueue[o.id])return true;
+       const ts=Number(o.updated_at||o.created_at||0);
+       return String(o.status||'').trim()==='À préparer'&&ts>0&&Date.now()-ts<600000;
      }).sort((a,b)=>Number(a.num)-Number(b.num));
-     if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintSiteOrder(order);if(printing)break;}},1200);
+     for(const order of toPrint)printQueue[order.id]={id:order.id,num:order.num};
+     safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
+     if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintIncomingOrder(order);if(printing)break;}},1200);
    }
    return fresh.length;
  }
@@ -254,13 +266,16 @@ def register_order_notifications_phase33(app):
  window.addEventListener('bechefaa:print-return',resumeAlerts);
  window.addEventListener('pageshow',resumeAlerts);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeAlerts();});
- try{const pending=JSON.parse(sessionStorage.getItem(PENDING_NOTICE)||'null');if(pending&&pending.order&&Date.now()-pending.at<15*60*1000){showSiteNotice(pending.order);pendingBeep=true;updateButton();}}catch(_){}
+ try{const pending=JSON.parse(sessionStorage.getItem(PENDING_NOTICE)||'null');if(pending&&pending.order&&notificationChannel(pending.order)==='site'&&Date.now()-pending.at<15*60*1000){showSiteNotice(pending.order);pendingBeep=true;pendingSource=notificationChannel(pending.order);updateButton();}}catch(_){}
 
  installButton();ensureSiteNotice();loadSoundSettings();poll();setInterval(poll,4000);setInterval(loadSoundSettings,10000);
 })();
 </script>
-'''.replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false').replace('__TEST_MODE__', 'true' if request.args.get('test_notifications') == '1' else 'false')
+'''.replace('__SOUND_POLICY__', SOUND_POLICY_JS).replace('__PAGE__', page).replace('__PRINT_ENABLED__', 'true' if request.path == '/pos' else 'false').replace('__TEST_MODE__', 'true' if request.args.get('test_notifications') == '1' else 'false')
         html = html.replace("</body>", addon + "</body>")
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+
+
+

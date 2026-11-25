@@ -103,6 +103,11 @@ def register_service_mode_ui_phase42(app):
      return nativeFetch(input,init);
    };
 
+   window.bechefaaServiceDraft={
+     read:()=>({mode:chosenMode,table:selectedTable}),
+     restore:value=>{if(!value||!['salle','emporter','livraison'].includes(value.mode))return;
+       chosenMode=value.mode;selectedTable=chosenMode==='salle'&&Number(value.table)>=1&&Number(value.table)<=9?Number(value.table):null;paint();}
+   };
    document.addEventListener('bechefaa:new-order',clearChoice);
    clearChoice();
  });
@@ -113,3 +118,4 @@ def register_service_mode_ui_phase42(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

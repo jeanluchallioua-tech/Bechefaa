@@ -82,7 +82,12 @@
       } catch (error) { alert(error.message); }
       finally { state.busy = false; renderOrder(); }
     }
-    async function savePending() {
+    let pendingSave=null;
+    function savePending() {
+      if(pendingSave)return pendingSave;
+      pendingSave=savePendingWork().finally(()=>{pendingSave=null;});return pendingSave;
+    }
+    async function savePendingWork() {
       if (!state.editing || state.busy) return;
       if (!ORDER.length) { alert('La commande doit contenir au moins un article.'); return; }
       state.busy = true; renderOrder();
@@ -157,9 +162,14 @@
     });
     new MutationObserver(decorate).observe(message, {childList:true,subtree:true});
     decorate();
-    window.bechefaaPendingEdit = {open, save:savePending, isEditing:() => !!state.editing};
+    window.bechefaaPendingEdit = {open, save:savePending, isEditing:() => !!state.editing,
+      whenSaved:()=>pendingSave||Promise.resolve(),
+      draftContext:()=>state.editing?JSON.parse(JSON.stringify(state.editing)):null,
+      restoreDraftContext:order=>{if(order&&order.id&&order.status==='Enregistrée'&&!state.busy){state.editing=order;LAST_SAVED_ORDER=order;remember(order);}}
+    };
   }
   function ready() { setTimeout(install, 0); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
 })();
+

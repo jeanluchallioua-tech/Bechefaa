@@ -11,16 +11,7 @@ function saveDeliverooNotice(){
  try{sessionStorage.setItem(deliverooNoticeKey,JSON.stringify(deliverooNoticeState));}catch(_){}
 }
 function renderDeliverooNotice(banner){
- const pending=deliverooNoticeState.pending;
- banner.classList.toggle('visible',pending.length>0);
- banner.textContent=pending.length?'🛵 NOUVELLE COMMANDE DELIVEROO — '+pending.map(o=>o.ref?'réf. '+o.ref:'commande Deliveroo').join(', ')+' • Voir la cuisine / historique':'';
- if(!pending.length)return;
- // Remain visible independently of POS layout scrolling and overlays.
- Object.assign(banner.style,{position:'fixed',top:'64px',left:'12px',right:'12px',zIndex:'2147482999',cursor:'pointer'});
- banner.tabIndex=0;
- const dismiss=()=>{deliverooNoticeState.pending=[];saveDeliverooNotice();renderDeliverooNotice(banner);};
- banner.onclick=dismiss;
- banner.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();dismiss();}};
+ if(banner){banner.classList.remove('visible');banner.hidden=true;banner.textContent='';}
 }
 async function checkDeliveroo(){
  if(deliverooNoticeBusy)return;
@@ -29,8 +20,7 @@ async function checkDeliveroo(){
   const r=await fetch('/api/orders/history',{cache:'no-store'}),d=await r.json();
   if(!r.ok||!d.ok||!Array.isArray(d.orders))return;
   const banner=document.getElementById('deliveroo-alert');
-  // Retry next poll rather than silently consume an alert that could not render.
-  if(!banner)return;
+  // Sound does not depend on a visual banner.
   const orders=d.orders.filter(o=>o.id&&String(o.sales_channel||o.source||'').toUpperCase()==='DELIVEROO'
     &&['À préparer','En préparation','Prête'].includes(String(o.status||'').trim()));
   const ids=new Set(orders.map(o=>String(o.id)));
@@ -53,3 +43,4 @@ checkDeliveroo();setInterval(checkDeliveroo,5000);
 window.addEventListener('pageshow',checkDeliveroo);
 window.addEventListener('focus',checkDeliveroo);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkDeliveroo();});
+

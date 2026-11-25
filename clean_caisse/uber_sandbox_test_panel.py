@@ -40,7 +40,7 @@ const root=document.getElementById('uber-sandbox-pos');if(!root)return;
 const kitchen=root.dataset.mode==='kitchen',board=root.dataset.board==='true';
 const count=root.querySelector('[data-uber-test-count]'),status=root.querySelector('[data-uber-test-status]'),list=root.querySelector('[data-uber-test-orders]'),button=root.querySelector('[data-uber-test-refresh]'),audioButton=root.querySelector('[data-uber-test-audio]'),arrival=root.querySelector('[data-uber-test-arrival]');
 const actionStatus=root.querySelector('[data-uber-test-action-status]');
-document.body.appendChild(arrival);
+// Marketplace arrival alerts are sound-only; command cards remain visible.
 arrival.addEventListener('click',()=>{arrival.hidden=true;});
 arrival.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();arrival.hidden=true;}});
 const noticeKey='bechefaa_uber_test_notices_v1_'+root.dataset.mode+'_'+(board?'board':'panel');
@@ -51,7 +51,7 @@ function money(value){return value&&Number.isInteger(value.amount)?(value.amount
 function item(value,parent,depth){if(depth>8)return;const line=text('li',String(value.quantity)+' × '+String(value.title)+(value.removed?' (retiré)':'')+(value.total_price?' — '+money(value.total_price):''),parent);if(Array.isArray(value.options)&&value.options.length){const options=document.createElement('ul');line.appendChild(options);value.options.forEach(v=>item(v,options,depth+1));}}
 function beep(){if(!armed||!audio||audio.state!=='running')return;try{[0,.50,1].forEach(delay=>{const oscillator=audio.createOscillator(),gain=audio.createGain(),at=audio.currentTime+delay;oscillator.type='square';oscillator.frequency.value=1040;gain.gain.setValueAtTime(0,at);gain.gain.linearRampToValueAtTime(1,at+.02);gain.gain.setValueAtTime(1,at+.32);gain.gain.linearRampToValueAtTime(0,at+.40);oscillator.connect(gain);gain.connect(audio.destination);oscillator.start(at);oscillator.stop(at+.42);});}catch(error){status.textContent='Le son est indisponible ; l’alerte visuelle reste active.';}}
 audioButton.addEventListener('click',async()=>{try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw new Error('audio unavailable');if(!audio)audio=new Audio();await audio.resume();if(audio.state!=='running')throw new Error('audio blocked');armed=true;audioButton.textContent='Alertes sonores Uber TEST activées';audioButton.disabled=true;beep();}catch(error){status.textContent='Son non activé. Vérifiez le volume et réessayez. Les alertes visuelles restent actives.';}});
-function notify(ids){if(!ids.length)return;arrival.textContent='⚡ NOUVELLE COMMANDE UBER EATS — TEST · '+ids.map(id=>id.slice(-5).toUpperCase()).join(', ');arrival.hidden=false;ids.forEach(id=>notified.add(id));try{sessionStorage.setItem(noticeKey,JSON.stringify([...notified].slice(-500)));}catch(error){}root.open=true;beep();}
+function notify(ids){if(!ids.length)return;ids.forEach(id=>notified.add(id));try{sessionStorage.setItem(noticeKey,JSON.stringify([...notified].slice(-500)));}catch(error){}beep();}
 async function action(url,payload,target){target.disabled=true;actionStatus.textContent='Mise à jour de la commande de test…';try{const response=await fetch(url,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Uber-Test-CSRF':csrf},body:JSON.stringify(payload)});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.message||'Action non effectuée. Actualisez et réessayez.');await refresh();actionStatus.textContent=data.message||'État de préparation mis à jour dans la cuisine de test.';if(!kitchen){target.disabled=true;target.textContent='Envoyée dans la cuisine de test';}}catch(error){actionStatus.textContent=error.message;target.disabled=false;}}
 async function refresh(){if(busy)return;busy=true;button.disabled=true;try{
  const response=await fetch(kitchen?'/api/uber/sandbox/kitchen-display':'/api/uber/sandbox/pos-display',{cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});
@@ -71,3 +71,4 @@ if((kitchen&&!board)||new URLSearchParams(location.search).has('uber_test_import
 })();
 </script>
 '''
+

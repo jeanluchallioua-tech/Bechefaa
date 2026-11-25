@@ -45,16 +45,16 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  vm.runInNewContext(code,context);
  const flush=()=>new Promise(resolve=>setImmediate(resolve));await flush();
  assert.equal(selectors['[data-uber-test-count]'].textContent,initialRecent?'1':'0');
- assert.equal(selectors['[data-uber-test-arrival]'].parentNode,body,'banner must live outside scrolling or collapsed panels');
+ assert.equal(selectors['[data-uber-test-arrival]'].hidden,true,'Uber arrival must not show a visual banner');
  if(initialRecent&&initialStage==='Terminée'){assert.equal(selectors['[data-uber-test-arrival]'].hidden,true,'finished order must not create a new arrival banner');assert.equal(beeps,0);return;}
- if(initialRecent){assert.equal(selectors['[data-uber-test-arrival]'].hidden,false);assert.equal(beeps,0,'initial visual banner does not bypass audio activation');}
+ if(initialRecent){assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);assert.equal(beeps,0,'initial visual banner does not bypass audio activation');}
  await selectors['[data-uber-test-audio]'].handlers.click();assert.equal(beeps,3);
  const expectedRef=initialRecent?'85B35':'84A34';
  rows=[initialRecent?{...fixture,id:'01460685-2d3d-4d79-af00-4eaba3385b35',display_id:'85B35'}:fixture];await poll();await flush();
  assert.equal(beeps,6,'new polled order must sound after audio activation');
- assert.equal(selectors['[data-uber-test-arrival]'].hidden,false);
- assert.ok(selectors['[data-uber-test-arrival]'].textContent.includes(expectedRef));
- assert.equal(root.open,true);
+ assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);
+ assert.equal(selectors['[data-uber-test-arrival]'].textContent,'');
+ if(mode==='pos'||board)assert.notEqual(root.open,true,'arrival must not open a panel over cashier work');
  assert.equal(selectors['[data-uber-test-count]'].textContent,'1');
  const labels=()=>board?Object.values(columns).flatMap(all):all(selectors['[data-uber-test-orders]']);
  if(board)assert.equal(columns.todo.children.length,1);
@@ -80,3 +80,4 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  assert.ok(calls.every(c=>!c.url.includes('send-kitchen')&&!c.url.includes('print')),'never trigger POS print interception');
 }
 (async()=>{await run('pos');await run('kitchen');await run('kitchen',true);await run('kitchen',true,true);await run('kitchen',true,true,'Terminée');console.log('Sandbox POS and kitchen alerts: arrival, deduplication, transitions and cart isolation passed.');})().catch(error=>{console.error(error);process.exitCode=1;});
+

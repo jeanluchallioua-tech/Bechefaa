@@ -109,6 +109,8 @@ def register_pos_service_launcher_phase6(app):
    current.addEventListener('click',openModes);
    document.getElementById('svc-close').addEventListener('click',closeModal);
    document.addEventListener('bechefaa:new-order',()=>{current.classList.remove('show');openModes()});
+   document.addEventListener('bechefaa:draft-restored',event=>{const service=event.detail&&event.detail.service;
+     if(service&&service.mode){setCurrent(service.mode==='salle'?'SUR PLACE · TABLE '+service.table:(service.mode==='livraison'?'LIVRAISON':'À EMPORTER'));closeModal();}});
    openModes();
  });
 })();
@@ -118,3 +120,4 @@ def register_pos_service_launcher_phase6(app):
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

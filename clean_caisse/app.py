@@ -902,11 +902,7 @@ async function checkDeliveroo(){
  deliverooSeen=ids;
  if(fresh.length){
   const banner=document.getElementById('deliveroo-alert');
-  if(banner){
-   banner.classList.add('visible');
-   banner.onclick=()=>banner.classList.remove('visible');
-   banner.textContent='🛵 NOUVELLE COMMANDE DELIVEROO — '+fresh.map(o=>o.platform_reference?'réf. '+o.platform_reference:'commande Deliveroo').join(', ')+' • Voir la cuisine / historique';
-  }
+  if(banner){banner.hidden=true;banner.classList.remove('visible');banner.textContent='';}
   // Same configured POS sound as site orders; one beep per visible alert.
   if(typeof window.bechefaaNotifyDeliveroo==='function')window.bechefaaNotifyDeliveroo();
  }
@@ -1135,3 +1131,4 @@ def preproduction_catalog_import():
     return jsonify({"ok": True, "environment": "preproduction",
                     "categories": len(categories), "products": len(products),
                     "updatedAt": now})
+
