@@ -75,6 +75,24 @@ class UberTestReceiptTests(unittest.TestCase):
         self.assertEqual(order['items'][0]['unit_price'],21)
         self.conn.commit.assert_not_called()
 
+    def test_pack_returns_two_receipts_without_financial_writes(self):
+        response=self.client.get('/api/uber/sandbox/receipt-pack-xml/'+ORDER,base_url=BASE)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.mimetype,'text/xml')
+        self.assertEqual(response.text.count('<cut type="feed"/>'),2)
+        self.assertEqual(response.text.count('<?xml'),1)
+        self.assertNotIn('tmprintassistant',response.text)
+        self.assertEqual(response.headers['Cache-Control'],'no-store')
+        self.assertTrue(all(c.args[0].startswith('SELECT') for c in self.cur.execute.call_args_list))
+        self.conn.commit.assert_not_called()
+
+    def test_pack_host_auth_and_import_guards_precede_rendering(self):
+        path='/api/uber/sandbox/receipt-pack-xml/'+ORDER
+        self.assertEqual(self.client.get(path,base_url='https://caisse.bechefaa.fr').status_code,404)
+        with self.client.session_transaction(base_url=BASE) as s:s.clear()
+        self.assertEqual(self.client.get(path,base_url=BASE).status_code,403)
+        self.db.assert_not_called()
+
     def test_wrong_host_missing_session_and_invalid_id_do_not_touch_database(self):
         self.assertEqual(self.client.get(self.path,base_url='https://caisse.bechefaa.fr').status_code,404)
         self.assertEqual(self.client.get(self.path+'/other.png',base_url=BASE).status_code,404)

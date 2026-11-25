@@ -24,7 +24,7 @@ async function runtime(page,prefs,blocked=false){
  const storage=()=>{const data=new Map();return{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)}};
  const context={console,Date,URLSearchParams,location:{search:''},AbortController,Promise,localStorage:storage(),sessionStorage:storage(),navigator:{userAgent:'Android',userActivation:{hasBeenActive:true}},
  document:{body,hidden:false,querySelectorAll:()=>[],dispatchEvent(){},getElementById:id=>find(body,id),createElement:tag=>new Element(tag),addEventListener(){}},
- window:{AudioContext:Audio,addEventListener(){},bechefaaPrintOrderPack:id=>{prints.push(id);return Promise.resolve();}},
+ window:{AudioContext:Audio,addEventListener(){},bechefaaPrintOrderPack:id=>{prints.push(id);return Promise.resolve();},bechefaaPrintUberTestPack:id=>{prints.push('TEST:'+id);return Promise.resolve();}},
  setTimeout:(fn,delay)=>{const timer={fn,delay};timers.push(timer);return timer;},clearTimeout(){},setInterval(){},
  fetch:async(url,options)=>{calls.push({url,options});return{ok:true,json:async()=>url==='/api/notification-settings'?{ok:true,...prefs}:{ok:true,orders:[]}};}};
  const code=raw.replace('__SOUND_POLICY__',policy).replace('__PAGE__',page).replace('__PRINT_ENABLED__',page==='pos'?'true':'false').replace('__TEST_MODE__','false')
@@ -51,7 +51,7 @@ function order(id,channel){return{id,sales_channel:channel,status:'À préparer'
  assert.equal(find(pos.body,'phase6-site-order-notice').textContent,'','Uber must not display an arrival banner');
  for(const timer of pos.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
  assert.deepEqual(pos.prints,['uber-1'],'an incoming Uber order must automatically print its ticket pack');
- pos.access.resumeAlerts();await flush();
+ pos.access.resumeAlerts({type:'bechefaa:print-return'});await flush();
  pos.peaks.length=0;pos.access.inspect([order('uber-1','UBER_EATS'),order('site-1','SITE')]);approx(Math.max(...pos.peaks),.8);
  for(const timer of pos.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
  assert.deepEqual(pos.prints,['uber-1','site-1'],'SITE printing remains enabled without duplicate Uber printing');
@@ -78,7 +78,7 @@ function order(id,channel){return{id,sales_channel:channel,status:'À préparer'
  assert.equal(typeof prepare,'function');mixed.context.window.bechefaaPrepareIncomingPrint=async()=>{snapshots++;await prepare();};
  const batch=[order('mixed-site','SITE'),order('mixed-roo','DELIVEROO'),order('mixed-uber','UBEREATS')];
  for(let n=0;n<3;n++){
-   mixed.access.resumeAlerts();await flush();mixed.access.inspect(batch);
+   mixed.access.resumeAlerts({type:'bechefaa:print-return'});await flush();mixed.access.inspect(batch);
    for(const timer of mixed.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
  }
  assert.deepEqual(mixed.prints,['mixed-site','mixed-roo','mixed-uber'],'all simultaneous arrivals must print once, regardless of channel');
@@ -89,6 +89,27 @@ function order(id,channel){return{id,sales_channel:channel,status:'À préparer'
  assert.equal(persisted.items[0].name,'Burger comptoir');assert.equal(persisted.items[0].options[0].name,'Sans tomate');
  assert.match(find(mixed.body,'phase6-site-order-notice').textContent,/SITE/);
  assert.doesNotMatch(find(mixed.body,'phase6-site-order-notice').textContent,/UBER|DELIVEROO/);
+ const testId='4b54b4f9-7bc7-4f78-b25c-1d9ea41006b6';
+ assert.equal(mixed.context.window.bechefaaQueueUberTestPrint(testId),true);
+ for(const timer of mixed.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
+ assert.equal(mixed.prints.length,3,'TEST must wait for the running normal Epson pack');
+ mixed.access.resumeAlerts({type:'visibilitychange'});await flush();
+ for(const timer of mixed.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
+ assert.equal(mixed.prints.length,3,'merely focusing another tab must not release the Epson queue');
+ mixed.access.resumeAlerts({type:'bechefaa:print-return'});await flush();
+ for(const timer of mixed.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();
+ assert.equal(mixed.prints[3],'TEST:'+testId);assert.equal(snapshots,4);assert.equal(mixed.context.ORDER.length,1);
+ mixed.context.window.bechefaaQueueUberTestPrint(testId);
+ mixed.access.resumeAlerts({type:'bechefaa:print-return'});await flush();
+ for(const timer of mixed.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();assert.equal(mixed.prints.length,4,'same TEST snapshot must not print twice');
+ mixed.context.navigator.userAgent='Windows';assert.equal(mixed.context.window.bechefaaQueueUberTestPrint(testId,true),false,'PC must never launch physical TEST printing');
+ const failedPrint=await runtime('pos',prefs);let attempts=0;
+ failedPrint.context.window.bechefaaPrintUberTestPack=()=>{attempts++;throw Error('TEST XML missing');};
+ failedPrint.context.window.bechefaaQueueUberTestPrint(testId);
+ for(const timer of failedPrint.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();assert.equal(attempts,1);
+ assert.equal(failedPrint.context.window.bechefaaQueueUberTestPrint(testId),false,'failed TEST print must pause instead of retrying on every poll');
+ failedPrint.access.resumeAlerts({type:'bechefaa:print-return'});await flush();for(const timer of failedPrint.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();assert.equal(attempts,1);
+ assert.equal(failedPrint.context.window.bechefaaQueueUberTestPrint(testId,true),true);for(const timer of failedPrint.timers.filter(timer=>timer.delay===1200))timer.fn();await flush();assert.equal(attempts,2,'explicit retry remains available');
  const times=pos.toneStarts;for(let n=3;n<times.length;n+=3)assert.ok(times[n]>=times[n-3]+.9-1e-8,'successive alert packs must not overlap');
  console.log('Marketplace notification policies, live hooks, channel muting, kitchen alerts, cart preservation and all-channel automatic printing passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

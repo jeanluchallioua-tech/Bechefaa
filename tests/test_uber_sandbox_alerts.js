@@ -10,19 +10,19 @@ class Element{
  set innerHTML(value){throw Error('HTML insertion is forbidden in sandbox panel');}
 }
 function all(el){return [el,...el.children.flatMap(all)];}
-async function run(mode,board=false,initialRecent=false,initialStage='À préparer',shared=false){
+async function run(mode,board=false,initialRecent=false,initialStage='À préparer',shared=false,printing=false){
  const root=new Element('details');root.dataset.mode=mode;root.dataset.board=board?'true':'false';
  const columns={todo:new Element(),doing:new Element(),done:new Element()};
- const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival','close'])selectors['[data-uber-test-'+name+']']=new Element();
+ const selectors={};for(const name of ['count','status','action-status','orders','refresh','audio','arrival','close','print-auto'])selectors['[data-uber-test-'+name+']']=new Element();
  selectors['[data-uber-test-arrival]'].hidden=true;
- root.querySelector=key=>selectors[key];let poll,beeps=0,rows=[],stage=initialStage,dispatched=false;const calls=[];
+ root.querySelector=key=>selectors[key];const printRequests=[];let poll,beeps=0,rows=[],stage=initialStage,dispatched=false;const calls=[];
  class Audio{
   constructor(){this.state='suspended';this.currentTime=0;this.destination={};}
   async resume(){this.state='running';}
   createOscillator(){beeps++;return{frequency:{},connect(){},start(){},stop(){}};}
   createGain(){return{gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){}};}
  }
- const fixture={id:'01460685-2d3d-4d79-af00-4eaba3384a34',display_id:'84A34',current_state:'ACCEPTED',
+ const fixture={placed_at:new Date(Date.now()-5000).toISOString(),id:'01460685-2d3d-4d79-af00-4eaba3384a34',display_id:'84A34',current_state:'ACCEPTED',
   items:[{quantity:1,title:'Classic <script>bad()</script>',options:[{title:'Sans tomate',quantity:1,options:[]}]}],charges:{total:{amount:2100,currency_code:'EUR'}}};
  if(initialRecent)rows=[fixture];
  const body=new Element('body');
@@ -40,8 +40,9 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  const untouchedCart={items:['restaurant burger'],table:'7'};
  const savedNotices=new Map();
  const sessionStorage={getItem:key=>savedNotices.get(key)||null,setItem:(key,value)=>savedNotices.set(key,value)};
- const context={document,fetch,sessionStorage,window:{AudioContext:Audio,addEventListener(){}},location:{search:''},URLSearchParams,
+ const context={document,fetch,sessionStorage,localStorage:{getItem:key=>savedNotices.get(key)||null,setItem:(key,value)=>savedNotices.set(key,value),removeItem:key=>savedNotices.delete(key)},navigator:{userAgent:printing?'Android':'Windows'},window:{AudioContext:Audio,addEventListener(){}},location:{search:''},URLSearchParams,
   setInterval:fn=>{poll=fn;return 1;},clearInterval(){},console,untouchedCart};
+ if(printing)context.window.bechefaaQueueUberTestPrint=(id,manual=false)=>{printRequests.push({id,manual});return true;};
  if(shared)context.window.bechefaaUberTestSound={notify:()=>{beeps+=3;},activate:async()=>{beeps+=3;return true;}};
  vm.runInNewContext(code,context);
  const flush=()=>new Promise(resolve=>setImmediate(resolve));await flush();
@@ -51,14 +52,16 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
  if(initialRecent){assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);assert.equal(beeps,shared?3:0,'shared audio handles arrivals without a separate TEST activation');}
  const initialBeeps=beeps;await selectors['[data-uber-test-audio]'].handlers.click();assert.equal(beeps,initialBeeps+3);
  root.open=true;selectors['[data-uber-test-close]'].handlers.click();assert.equal(root.open,false);
+ if(printing){selectors['[data-uber-test-print-auto]'].handlers.click();await poll();await flush();assert.equal(printRequests.length,0,'enabling auto printing must not print old TEST orders');}
  const expectedRef=initialRecent?'85B35':'84A34';
- rows=[initialRecent?{...fixture,id:'01460685-2d3d-4d79-af00-4eaba3385b35',display_id:'85B35'}:fixture];await poll();await flush();
+ rows=[initialRecent?{...fixture,id:'01460685-2d3d-4d79-af00-4eaba3385b35',display_id:'85B35',placed_at:new Date(Date.now()+1000).toISOString()}:fixture];await poll();await flush();
  assert.equal(beeps,initialBeeps+6,'new polled order must sound after audio activation');
  assert.equal(selectors['[data-uber-test-arrival]'].hidden,true);
  assert.equal(selectors['[data-uber-test-arrival]'].textContent,'');
  if(mode==='pos'||board)assert.notEqual(root.open,true,'arrival must not open a panel over cashier work');
  assert.equal(selectors['[data-uber-test-count]'].textContent,'1');
  root.open=true;selectors['[data-uber-test-close]'].handlers.click();assert.equal(root.open,false,'explicit fold button must close the TEST panel');
+ if(printing)assert.ok(printRequests.some(job=>!job.manual&&job.id.endsWith('85b35')),'new TEST order after activation must join Epson queue');
  const labels=()=>board?Object.values(columns).flatMap(all):all(selectors['[data-uber-test-orders]']);
  if(board)assert.equal(columns.todo.children.length,1);
  assert.ok(labels().some(el=>el.textContent.includes('Classic <script>bad()</script>')),'product labels are inserted as literal text');
@@ -76,11 +79,12 @@ async function run(mode,board=false,initialRecent=false,initialStage='À prépar
   stage='Terminée';await poll();await flush();assert.ok(labels().some(el=>el.textContent==='Préparation TEST : Terminée'));
   assert.ok(labels().some(el=>el.tag==='button'&&el.disabled&&el.textContent==='Déjà envoyée en cuisine — Terminée'));
  }
+ if(printing){await labels().find(el=>el.textContent==='Imprimer les deux tickets TEST').handlers.click();assert.ok(printRequests.some(job=>job.manual),'manual print can use an existing TEST order');}
  await poll();await flush();
- assert.equal(selectors['[data-uber-test-action-status]'].textContent,'Action test effectuée','automatic refresh must preserve the last action result');
+ assert.equal(selectors['[data-uber-test-action-status]'].textContent,printing?'Impression TEST en attente — deux tickets, hors ventes.':'Action test effectuée','automatic refresh must preserve the last action result');
  assert.deepEqual(untouchedCart,{items:['restaurant burger'],table:'7'});
  assert.ok(calls.every(c=>c.url.startsWith('/api/uber/sandbox/')),'only isolated sandbox endpoints may be called');
  assert.ok(calls.every(c=>!c.url.includes('send-kitchen')&&!c.url.includes('print')),'never trigger POS print interception');
 }
-(async()=>{await run('pos',false,true,'À préparer',true);await run('kitchen',true,true,'À préparer',true);await run('pos');await run('kitchen');await run('kitchen',true);await run('kitchen',true,true);await run('kitchen',true,true,'Terminée');console.log('Sandbox POS and kitchen alerts: arrival, deduplication, transitions and cart isolation passed.');})().catch(error=>{console.error(error);process.exitCode=1;});
+(async()=>{await run('pos',false,true,'À préparer',false,true);await run('pos',false,true,'À préparer',true);await run('kitchen',true,true,'À préparer',true);await run('pos');await run('kitchen');await run('kitchen',true);await run('kitchen',true,true);await run('kitchen',true,true,'Terminée');console.log('Sandbox POS and kitchen alerts: arrival, deduplication, transitions and cart isolation passed.');})().catch(error=>{console.error(error);process.exitCode=1;});
 

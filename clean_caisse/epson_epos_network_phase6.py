@@ -642,6 +642,15 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
  }
 
  window.bechefaaPrintOrderPack=printOrderPack;
+ if(location.hostname==='app-fad0809f-954d-47e7-983d-afb7c3867cd0.cleverapps.io'){
+   window.bechefaaPrintUberTestPack=async function(orderId){
+     if(!/Android/i.test(navigator.userAgent||''))throw new Error('Impression TEST réservée à la tablette Android du restaurant.');
+     status('work','Epson : préparation cuisine + client Uber TEST…');
+     const response=await nativeFetch('/api/uber/sandbox/receipt-pack-xml/'+encodeURIComponent(orderId),{cache:'no-store',credentials:'same-origin'});
+     if(!response.ok)throw new Error('Tickets Uber TEST indisponibles. Réimportez la commande pour vérifier ses montants.');
+     return openPrintAssistant(await response.text(),'uber-test-pack',orderId);
+   };
+ }
 
  async function printKitchen(orderId){
    if(!orderId)return true;
@@ -747,3 +756,4 @@ border-radius:8px;padding:7px 10px;font:700 11px Arial,sans-serif;box-shadow:0 2
         response.set_data(html)
         response.content_length = len(response.get_data())
         return response
+

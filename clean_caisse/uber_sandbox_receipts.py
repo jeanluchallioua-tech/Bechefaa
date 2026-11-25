@@ -116,12 +116,15 @@ def register_uber_sandbox_receipts(app, db):
 
     def preview(order_id, kind=None):
         try:
-            if kind is not None and kind not in ('kitchen', 'client'):
+            if kind is not None and kind not in ('kitchen', 'client', 'pack'):
                 return Response('Ticket introuvable.', status=404)
             summary, identity, status = load(order_id)
             if status != 200:
                 return Response('Aperçu réservé aux commandes importées dans la caisse de test.', status=status)
             order = receipt_order(summary)
+            if kind == 'pack':
+                from .epson_epos_network_phase6 import _combined_xml
+                return Response(_combined_xml(order, identity), mimetype='text/xml')
             if kind:
                 from .receipt_photo_layout import receipt_png
                 return Response(receipt_png(order, kind, identity), mimetype='image/png')
@@ -138,6 +141,14 @@ def register_uber_sandbox_receipts(app, db):
 
     @app.get('/administration/uber-sandbox/receipts/<order_id>/<kind>.png')
     def uber_test_receipt_image(order_id, kind):
+        if kind not in ('kitchen', 'client'):
+            return Response('Ticket introuvable.', status=404)
         response = preview(order_id, kind)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.get('/api/uber/sandbox/receipt-pack-xml/<order_id>')
+    def uber_test_receipt_pack(order_id):
+        response = preview(order_id, 'pack')
         response.headers['Cache-Control'] = 'no-store'
         return response

@@ -186,20 +186,35 @@ def register_order_notifications_phase33(app):
  let printing=false,printTimer=null;
  function autoPrintIncomingOrder(order){
    if(!PRINT_ENABLED||PAGE!=='pos'||!/Android/i.test(navigator.userAgent||'')||!order||!order.id||printing)return;
-   let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')}catch(e){}
+   let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')||{};}catch(e){}
    if(printed[order.id]){delete printQueue[order.id];safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));return;}
-   if(typeof window.bechefaaPrintOrderPack!=='function')return;
+   const launch=order.test_receipt?window.bechefaaPrintUberTestPack:window.bechefaaPrintOrderPack;
+   if(typeof launch!=='function')return;
    printing=true;
    Promise.resolve().then(()=>typeof window.bechefaaPrepareIncomingPrint==='function'?window.bechefaaPrepareIncomingPrint():undefined).then(()=>{
      printed[order.id]=Date.now();safeSet(SITE_PRINT_KEY,JSON.stringify(printed));
      delete printQueue[order.id];safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
-     return window.bechefaaPrintOrderPack(order.id);
+     return launch(order.receipt_id||order.id);
    }).catch(e=>{
      delete printed[order.id];safeSet(SITE_PRINT_KEY,JSON.stringify(printed));printing=false;
-     printQueue[order.id]={id:order.id,num:order.num};safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
+     if(order.test_receipt)order.failed=true;printQueue[order.id]=order;safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
      const el=ensureSiteNotice();if(el){el.textContent='Impression impossible — commande conservée : '+String(e.message||e);el.classList.add('show');}
    });
  }
+
+ function schedulePrintQueue(){
+   if(!PRINT_ENABLED||PAGE!=='pos'||printing||printTimer)return;
+   printTimer=setTimeout(()=>{printTimer=null;for(const job of Object.values(printQueue)){if(job.failed)continue;autoPrintIncomingOrder(job);if(printing)break;}},1200);
+ }
+ if(PAGE==='pos')window.bechefaaQueueUberTestPrint=function(id,manual=false){
+   if(!PRINT_ENABLED||!/Android/i.test(navigator.userAgent||'')||!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id))return false;
+   const key='uber-test:'+id;let printed={};try{printed=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')||{};}catch(_){}
+   if(printed[key]&&!manual)return true;
+   if(!manual&&printQueue[key])return !printQueue[key].failed;
+   if(manual&&printing)return false;
+   if(manual){delete printed[key];safeSet(SITE_PRINT_KEY,JSON.stringify(printed));}
+   printQueue[key]={id:key,receipt_id:id,test_receipt:true};safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));schedulePrintQueue();return true;
+ };
 
  function inspect(orders,{simulation=false}={}){
    const known=simulation?{}:seen;
@@ -234,9 +249,10 @@ def register_order_notifications_phase33(app):
        const ts=Number(o.updated_at||o.created_at||0);
        return String(o.status||'').trim()==='À préparer'&&ts>0&&Date.now()-ts<600000;
      }).sort((a,b)=>Number(a.num)-Number(b.num));
-     for(const order of toPrint)printQueue[order.id]={id:order.id,num:order.num};
+     let already={};try{already=JSON.parse(localStorage.getItem(SITE_PRINT_KEY)||'{}')||{};}catch(_){}
+     for(const order of toPrint)if(!already[order.id])printQueue[order.id]={id:order.id,num:order.num};
      safeSet(PRINT_QUEUE_KEY,JSON.stringify(printQueue));
-     if(!printing&&!printTimer&&toPrint.length)printTimer=setTimeout(()=>{printTimer=null;for(const order of toPrint){autoPrintIncomingOrder(order);if(printing)break;}},1200);
+     schedulePrintQueue();
    }
    return fresh.length;
  }
@@ -268,7 +284,7 @@ def register_order_notifications_phase33(app):
    // Rendering errors must not be reported as a lost server connection.
    if(orders){try{inspect(orders);}catch(e){console.error('Affichage des alertes impossible',e);}}
  }
- function resumeAlerts(){if(document.hidden)return;printing=false;retryUnlockIfAllowed();loadSoundSettings();poll();}
+ function resumeAlerts(event){if(document.hidden)return;if(event&&['bechefaa:print-return','pageshow'].includes(event.type))printing=false;retryUnlockIfAllowed();loadSoundSettings();poll();schedulePrintQueue();}
  window.addEventListener('bechefaa:print-return',resumeAlerts);
  window.addEventListener('pageshow',resumeAlerts);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeAlerts();});
