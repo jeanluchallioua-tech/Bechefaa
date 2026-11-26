@@ -291,4 +291,4 @@ register_deliveroo_production_menu_phase6(app, db)
 
 # Read-only Google Ads administration.
 from clean_caisse.google_ads_admin import register_google_ads_admin
-register_google_ads_admin(app)
+register_google_ads_admin(app, db)
