@@ -289,3 +289,6 @@ register_selective_reset_phase6(app, db)
 
 from clean_caisse.active_cart_protection_phase6 import register_active_cart_protection_phase6
 register_active_cart_protection_phase6(app)
+
+from clean_caisse.google_ads_admin import register_google_ads_admin
+register_google_ads_admin(app)
