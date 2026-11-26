@@ -291,4 +291,4 @@ from clean_caisse.active_cart_protection_phase6 import register_active_cart_prot
 register_active_cart_protection_phase6(app)
 
 from clean_caisse.google_ads_admin import register_google_ads_admin
-register_google_ads_admin(app)
+register_google_ads_admin(app, db)
