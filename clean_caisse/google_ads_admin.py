@@ -1,6 +1,6 @@
 """Read-only Google Ads administration, isolated from checkout and POS."""
 from flask import Response, request, session, redirect, render_template_string
-from .google_ads_reporting import report
+from .google_ads_reporting import report, PERIODS
 
 LINKS = (
     ("Commande en ligne", "/"),
@@ -20,10 +20,12 @@ main{max-width:1100px;margin:auto;padding:22px}.grid{display:grid;grid-template-
 article,section{background:white;border:1px solid #e5eaf1;border-radius:14px;padding:20px;margin-bottom:16px}
 article small{color:#607086}article strong{display:block;font-size:26px;margin-top:12px}
 h1,h2{margin-top:0}li{margin:12px 0}a{color:#145bb0}code{overflow-wrap:anywhere}
+form{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:16px}form label{display:grid;gap:6px}form input,form select,form button{font:inherit;padding:9px;border:1px solid #cbd5e1;border-radius:8px}form button{background:#14213d;color:white;cursor:pointer}
 </style></head><body><header>BÉCHÉFAA • Administration <a href="/administration">Retour</a></header>
 <main><h1>Google Ads</h1><p>Suivi publicitaire en lecture seule. Les données non disponibles ne sont pas assimilées à zéro.</p>
+<section><form method="get" action="/administration/google-ads"><label>Période<select name="period" id="ads-period">{% for key,label in periods.items() %}<option value="{{ key }}"{% if key == period %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label>Du (personnalisée)<input type="date" name="start" value="{{ start }}"></label><label>Au (personnalisée)<input type="date" name="end" value="{{ end }}"></label><button type="submit">Actualiser</button></form><p>{{ api_status }}</p></section>
 <div class="grid"><article><small>Budget journalier de référence (manuel)</small><strong>10 €</strong></article>
-{% for label in metrics %}<article><small>{{ label }}</small><strong>{{ values[label] if values else "—" }}</strong><small>{{ "14 derniers jours complets" if values else "API non connectée ou données indisponibles" }}</small></article>{% endfor %}</div>
+{% for label in metrics %}<article><small>{{ label }}</small><strong>{{ values.get(label, "—") if values else "—" }}</strong><small>{{ periods.get(period, "Période invalide") if values else "API non connectée ou données indisponibles" }}</small></article>{% endfor %}</div>
 <section><h2>Diagnostic technique</h2><p>Conteneur prévu : <code>GTM-5CLSV6BG</code></p>
 <p>Destination prévue : <code>AW-18595709642</code></p><p>Événement : <code>bechefaa_purchase</code></p>
 <p>Configuration de référence uniquement : la réception effective des achats et le consentement restent à vérifier.</p>
@@ -36,10 +38,14 @@ def register_google_ads_admin(app):
     def google_ads_admin():
         if session.get("caisse_auth") is not True:
             return redirect("/", code=303)
-        status, data = report()
-        values = None if data is None else {label: ("—" if value is None else (f"{value:.2f}" + (" ×" if label == "ROAS" else "" if label == "Conversions attribuées" else " €")).replace(".", ",")) for label, value in data.items()}
+        period = request.args.get("period", "TODAY")
+        start = request.args.get("start", "")
+        end = request.args.get("end", "")
+        status, data = report(period, start, end)
+        values = None if data is None else {label: ("—" if value is None else ((f"{value:.0f}" if label in ("Impressions", "Clics") else f"{value:.2f}") + (" ×" if label == "ROAS" else "" if label in ("Conversions attribuées", "Impressions", "Clics") else " €")).replace(".", ",")) for label, value in data.items()}
         response = Response(render_template_string(PAGE, links=LINKS, values=values,
-            metrics=("Dépenses", "Conversions attribuées", "Valeur des conversions", "Coût par acquisition", "Panier moyen attribué", "ROAS"),
+            periods=PERIODS, period=period, start=start, end=end,
+            metrics=("Impressions", "Clics", "Coût moyen par clic", "Dépenses", "Conversions attribuées", "Valeur des conversions", "Coût par acquisition", "Panier moyen attribué", "ROAS"),
             api_status=status), content_type="text/html; charset=utf-8")
         response.headers["Cache-Control"] = "no-store"
         return response
