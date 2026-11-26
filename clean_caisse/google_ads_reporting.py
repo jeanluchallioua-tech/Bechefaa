@@ -90,6 +90,12 @@ def report(period='LAST_14_DAYS', start=None, end=None):
         clicks = sum(int(row.get("metrics", {}).get("clicks", 0)) for row in costs)
         data = summarize(cost, count, value)
         data.update({"Impressions": impressions, "Clics": clicks, "Coût moyen par clic": cost / clicks if clicks else None})
+        data["_daily_costs"] = None
+        try:
+            daily_rows = query("SELECT campaign.id, segments.date, metrics.cost_micros FROM campaign" + where)
+            data["_daily_costs"] = {r["segments"]["date"]: int(r.get("metrics", {}).get("costMicros", 0))/1000000 for r in daily_rows}
+        except Exception:
+            pass
         # Optional budget reporting must never hide the core campaign statistics.
         data["_budget"] = None
         try:
