@@ -45,10 +45,24 @@ def report():
         customers = query("SELECT customer.currency_code FROM customer LIMIT 1")
         if not customers or customers[0]["customer"]["currencyCode"] != "EUR":
             return "Devise du compte non confirmée en EUR", None
+        campaigns = query("SELECT campaign.id, campaign.name, campaign.status FROM campaign WHERE campaign.status != 'REMOVED'")
+        available = [str(row["campaign"]["id"]) for row in campaigns]
+        if campaign not in available:
+            if len(available) == 1:
+                campaign = available[0]
+            else:
+                return "Campagne non identifiée — sélectionner un ID de campagne valide", None
+        actions = query("SELECT conversion_action.id, conversion_action.category, conversion_action.status, conversion_action.resource_name FROM conversion_action")
+        matches = [row["conversionAction"] for row in actions if str(row["conversionAction"]["id"]) == action and row["conversionAction"].get("category") == "PURCHASE" and row["conversionAction"].get("status") != "REMOVED"]
+        if len(matches) != 1:
+            return "Action de conversion Achat non confirmée — vérifier son identifiant", None
+        resource = matches[0]["resourceName"]
+        if not re.fullmatch(r"customers/[0-9]+/conversionActions/[0-9]+", resource):
+            return "Référence de conversion invalide", None
         where = " WHERE campaign.id = " + campaign + " AND segments.date DURING LAST_14_DAYS"
         costs = query("SELECT campaign.id, metrics.cost_micros FROM campaign" + where)
         rows = query("SELECT campaign.id, segments.conversion_action, metrics.conversions, metrics.conversions_value FROM campaign" + where +
-                     " AND segments.conversion_action = 'customers/" + customer + "/conversionActions/" + action + "'")
+                     " AND segments.conversion_action = '" + resource + "'")
         cost = sum(int(row.get("metrics", {}).get("costMicros", 0)) for row in costs) / 1000000
         count = sum(float(row.get("metrics", {}).get("conversions", 0)) for row in rows)
         value = sum(float(row.get("metrics", {}).get("conversionsValue", 0)) for row in rows)
