@@ -84,6 +84,10 @@ def register_history_identity_phase44(app):
 #list .order .p44-ticket-badge{display:none!important}
 #list .order>.p41-pay-btn,#list .order>.p44-refund-action-btn{display:none!important}
 #list .order .btn:not(.edit):not(.locked){min-width:74px;padding:9px 12px}
+.history-origin-label{display:inline-block;margin-top:5px;padding:3px 8px;border-radius:6px;background:#eef2f6;color:#475569;font-size:12px;font-weight:800}
+.history-origin-label[data-origin="SITE INTERNET"]{background:#dbeafe;color:#1d4ed8}
+.history-origin-label[data-origin="DELIVEROO"]{background:#ccfbf1;color:#0f766e}
+.history-origin-label[data-origin="UBER EATS"]{background:#dcfce7;color:#166534}
 .history-clean-date{font-size:11px;color:#98a2b3;margin-top:4px}
 .history-clean-overlay{display:none;position:fixed;inset:0;z-index:18000;background:rgba(15,23,42,.62);padding:18px;align-items:center;justify-content:center}
 .history-clean-overlay.open{display:flex}
@@ -119,11 +123,27 @@ def register_history_identity_phase44(app):
     for(const b of buttons){const oc=b.getAttribute('onclick')||'';let m=oc.match(/viewOrder\('([^']+)'\)/);if(!m)m=oc.match(/editOrder\('([^']+)'\)/);if(m)return m[1]}
     return null;
   }
+  function channelLabel(o){
+    const channel=String(o.sales_channel||'').trim().toUpperCase();
+    const source=String(o.source||'').trim().toUpperCase();
+    if(channel==='SITE'||source==='SITE')return 'SITE INTERNET';
+    if(channel==='DELIVEROO'||source==='DELIVEROO')return 'DELIVEROO';
+    if(['UBER','UBER_EATS','UBEREATS','UBER EATS'].includes(channel)||['UBER','UBER_EATS','UBEREATS','UBER EATS'].includes(source))return 'UBER EATS';
+    if(['CAISSE','POS','RESTAURANT'].includes(channel))return 'CAISSE';
+    return '';
+  }
   function decorateCards(){
     document.querySelectorAll('#list .order').forEach(card=>{
       const id=oid(card);if(!id)return;
       const o=(window.ORDERS||ORDERS||[]).find(x=>String(x.id)===String(id));if(!o)return;
       const info=card.querySelector('.info');if(!info)return;
+      const label=channelLabel(o);
+      let badge=info.querySelector('.history-origin-label');
+      if(label){
+        if(!badge){badge=document.createElement('span');badge.className='history-origin-label';info.appendChild(badge);}
+        if(badge.textContent!==label)badge.textContent=label;
+        if(badge.dataset.origin!==label)badge.dataset.origin=label;
+      }else if(badge){badge.remove();}
       let date=info.querySelector('.history-clean-date');if(!date){date=document.createElement('div');date.className='history-clean-date';info.appendChild(date)}
       const dateLabel=dt(o.created_at);if(date.textContent!==dateLabel)date.textContent=dateLabel;
       const view=[...card.querySelectorAll('.btn')].find(b=>String(b.textContent||'').trim()==='Voir');
@@ -164,7 +184,7 @@ def register_history_identity_phase44(app):
       fetch('/api/orders/'+encodeURIComponent(id),{cache:'no-store'}).then(async r=>{if(!r.ok)return;const d=await r.json();if(d.ok&&d.order&&previewId===String(id))showDeliveryAddress({...o,...d.order});}).catch(()=>{});
       restore();actions.innerHTML='';
       title.textContent=(typeof historyIdentity==='function'?historyIdentity(o):String(o.customer_name||'Commande'));
-      sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':o.ticket_type].filter(Boolean).join(' · ');
+      sub.textContent=[dt(o.created_at),o.status,o.table_number?'Salle':o.ticket_type,channelLabel(o)].filter(Boolean).join(' · ');
       const arr=o.items||[];
       lines.innerHTML=arr.length?arr.map(i=>'<div class="history-clean-line"><div class="history-clean-line-top"><span>'+esc(i.qty+'× '+i.name)+'</span><span>'+euro(Number(i.unit_price||0)*Number(i.qty||0))+'</span></div>'+(i.options_text?'<div class="history-clean-opt">'+esc(i.options_text)+'</div>':'')+'</div>').join(''):'<div class="history-clean-empty">Aucun article</div>';
       total.textContent=euro(o.total);
