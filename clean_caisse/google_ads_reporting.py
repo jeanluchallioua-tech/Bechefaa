@@ -4,7 +4,8 @@ import os
 import re
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 PERIODS = {'TODAY': 'Aujourd’hui', 'YESTERDAY': 'Hier', 'LAST_7_DAYS': '7 derniers jours complets', 'LAST_14_DAYS': '14 derniers jours complets', 'LAST_30_DAYS': '30 derniers jours complets', 'CUSTOM': 'Période personnalisée'}
 
@@ -59,7 +60,7 @@ def report(period='LAST_14_DAYS', start=None, end=None):
         def query(q):
             batches = _post(endpoint, json.dumps({"query": q}).encode(), headers)
             return [row for batch in batches for row in batch.get("results", [])]
-        customers = query("SELECT customer.currency_code FROM customer LIMIT 1")
+        customers = query("SELECT customer.currency_code, customer.time_zone FROM customer LIMIT 1")
         if not customers or customers[0]["customer"]["currencyCode"] != "EUR":
             return "Devise du compte non confirmée en EUR", None
         campaigns = query("SELECT campaign.id, campaign.name, campaign.status FROM campaign WHERE campaign.status != 'REMOVED'")
@@ -85,12 +86,27 @@ def report(period='LAST_14_DAYS', start=None, end=None):
         cost = sum(int(row.get("metrics", {}).get("costMicros", 0)) for row in costs) / 1000000
         count = sum(float(row.get("metrics", {}).get("conversions", 0)) for row in rows)
         value = sum(float(row.get("metrics", {}).get("conversionsValue", 0)) for row in rows)
-        if not costs:
-            return "Connectée — aucune donnée de campagne sur la période — Campagne : " + identity, None
         impressions = sum(int(row.get("metrics", {}).get("impressions", 0)) for row in costs)
         clicks = sum(int(row.get("metrics", {}).get("clicks", 0)) for row in costs)
         data = summarize(cost, count, value)
         data.update({"Impressions": impressions, "Clics": clicks, "Coût moyen par clic": cost / clicks if clicks else None})
+        # Optional budget reporting must never hide the core campaign statistics.
+        data["_budget"] = None
+        try:
+            budget_rows = query("SELECT campaign.id, campaign_budget.amount_micros, campaign_budget.explicitly_shared, campaign_budget.period FROM campaign WHERE campaign.id = " + campaign)
+            budget = budget_rows[0]["campaignBudget"]
+            if budget.get("period") != "DAILY" or budget.get("explicitlyShared") or "amountMicros" not in budget:
+                raise ValueError("Budget non quotidien ou partagé")
+            daily = int(budget["amountMicros"]) / 1000000
+            today = datetime.now(ZoneInfo(customers[0]["customer"]["timeZone"])).date()
+            first = today.replace(day=1)
+            monthly_rows = query("SELECT campaign.id, segments.date, metrics.cost_micros FROM campaign WHERE campaign.id = " + campaign + " AND segments.date DURING THIS_MONTH")
+            by_day = {row["segments"]["date"]: int(row.get("metrics", {}).get("costMicros", 0))/1000000 for row in monthly_rows}
+            days = [{"date": (first + timedelta(days=i)).isoformat(), "cost": by_day.get((first + timedelta(days=i)).isoformat(), 0)} for i in range(today.day)]
+            spent = sum(row["cost"] for row in days)
+            data["_budget"] = {"daily": daily, "spent": spent, "reference": daily*30.4, "remaining": max(0, daily*30.4-spent), "average": spent/today.day, "today": days[-1]["cost"], "days": days}
+        except Exception:
+            pass
         return "Connectée — " + PERIODS[period] + " — Campagne : " + identity, data
     except Exception:
         return "Lecture Google Ads impossible — vérifier les autorisations et identifiants", None
