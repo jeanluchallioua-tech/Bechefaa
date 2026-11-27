@@ -643,6 +643,22 @@ def compare_deliveroo_prices(desired, remote):
             "upload_performed": False}
 
 
+def prepare_deliveroo_price_patch(desired, remote):
+    """Prepare a local candidate only; never publish or mutate the input."""
+    from copy import deepcopy
+    diff = compare_deliveroo_prices(desired, remote)
+    if diff["missing_remote"] or diff["extra_remote"]:
+        raise ValueError("Catalogues divergents : publication automatique bloquee")
+    candidate = deepcopy(remote)
+    prices = {change["id"]: change["new_cents"] for change in diff["changes"]}
+    for item in candidate.get("menu", candidate)["items"]:
+        if item["id"] in prices:
+            if item["price_info"].get("overrides"):
+                raise ValueError("Tarifs specifiques : verification manuelle requise")
+            item["price_info"]["price"] = prices[item["id"]]
+    return {"candidate": candidate, **diff}
+
+
 def register_deliveroo_menu_builder_phase6(app, db):
     @app.get("/api/deliveroo/menu-preview-phase6")
     def deliveroo_menu_preview_phase6():
