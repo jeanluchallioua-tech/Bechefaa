@@ -36,7 +36,7 @@ def register_product_admin_phase2(app,db):
      return jsonify({'ok':True,'pending':[],'publication_enabled':False})
     rows=conn.execute("""SELECT product_id,desired_price::text AS desired_price,
       revision,state,updated_at::text AS updated_at
-      FROM deliveroo_price_sync_queue WHERE state='pending'
+      FROM deliveroo_price_sync_queue WHERE state IN ('pending','submitted','uncertain','failed')
       ORDER BY updated_at,product_id""").fetchall()
    return jsonify({'ok':True,'pending':[dict(row) for row in rows],'publication_enabled':False})
   except Exception:
