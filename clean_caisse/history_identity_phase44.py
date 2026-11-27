@@ -35,7 +35,9 @@ def register_history_identity_phase44(app):
     return generic||!customer?label:label+' — '+customer;
   }
   const label=source==='LIVRAISON'||source==='DELIVERY'?'LIVRAISON':'À EMPORTER';
-  return generic||!customer?label:label+' — '+customer;
+  const origin=channel==='SITE'||source==='SITE'?'SITE':['UBER','UBER_EATS','UBEREATS','UBER EATS'].includes(channel)?'UBER EATS':['RESTO','CAISSE','POS','RESTAURANT'].includes(channel)?'CAISSE':'';
+  const identity=generic||!customer?label:label+' — '+customer;
+  return origin?origin+' · '+identity:identity;
 }
 '''
         if marker in html and "function historyIdentity(o)" not in html:
