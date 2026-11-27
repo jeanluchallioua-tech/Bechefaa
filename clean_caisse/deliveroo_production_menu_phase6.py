@@ -425,13 +425,15 @@ def register_deliveroo_production_menu_phase6(app, db):
                         hours = data.get('opening_hours')
                         if isinstance(hours, dict):
                             result['opening_hours'] = {
-                                day: [{k: p[k] for k in ('local_start_time', 'local_end_time')
+                                day: [{k: p[k] for k in ('local_start_time', 'local_end_time', 'start_time', 'end_time', 'start', 'end', 'opens_at', 'closes_at', 'open', 'close')
                                        if isinstance(p.get(k), str) and re.fullmatch(r'\\d{2}:\\d{2}(?::\\d{2})?', p[k])}
                                       for p in periods if isinstance(p, dict)]
                                 for day, periods in hours.items()
                                 if day in ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')
                                 and isinstance(periods, list)
                             }
+                        if isinstance(hours, dict):
+                            result['period_fields'] = sorted({k for periods in hours.values() if isinstance(periods, list) for p in periods if isinstance(p, dict) for k in p if re.fullmatch(r'[a-zA-Z_]{1,40}', k)})
                 except ProviderFailure as exc:
                     result[key + '_http_status'] = exc.status
                 except Exception:
