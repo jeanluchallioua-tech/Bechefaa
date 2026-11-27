@@ -27,6 +27,21 @@ def register_product_admin_phase2(app,db):
  def save(conn,data):
   conn.execute("UPDATE catalog_admin_v2 SET data_json=%s::jsonb, updated_at=%s WHERE id=1",(json.dumps(data,ensure_ascii=False),int(time.time()*1000)));conn.commit()
 
+ @app.get('/api/admin/products/deliveroo-price-sync')
+ def deliveroo_price_sync_status():
+  try:
+   with db() as conn:
+    exists=conn.execute("SELECT to_regclass('deliveroo_price_sync_queue') AS relation").fetchone()
+    if not exists or not exists['relation']:
+     return jsonify({'ok':True,'pending':[],'publication_enabled':False})
+    rows=conn.execute("""SELECT product_id,desired_price::text AS desired_price,
+      revision,state,updated_at::text AS updated_at
+      FROM deliveroo_price_sync_queue WHERE state='pending'
+      ORDER BY updated_at,product_id""").fetchall()
+   return jsonify({'ok':True,'pending':[dict(row) for row in rows],'publication_enabled':False})
+  except Exception:
+   return jsonify({'ok':False,'error':'Etat de synchronisation indisponible'}),500
+
  @app.get('/api/admin/products')
  def admin_products():
   try:
