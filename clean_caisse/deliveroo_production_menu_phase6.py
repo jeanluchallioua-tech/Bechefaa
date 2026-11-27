@@ -401,6 +401,46 @@ def register_deliveroo_production_menu_phase6(app, db):
         except Exception:
             return jsonify(ok=False,error='Diagnostic indisponible. Aucun envoi effectué.',upload_performed=False),503
 
+    @app.get('/api/deliveroo/production-site-hours')
+    def production_site_hours():
+        try:
+            dest = target()
+            client = app.config['BECHEFAA_DELIVEROO_MENU_TRANSPORT']
+            token = client.token()
+            base = API_HOST + '/site/v1/brands/' + urllib.parse.quote(dest['brand_id'], safe='') + '/sites'
+            result = {'read_only': True, 'target': dest, 'site_access': None}
+            for key, url in (
+                ('permissions', base),
+                ('hours', base + '/' + urllib.parse.quote(dest['site_id'], safe='') + '/opening_hours'),
+            ):
+                try:
+                    data = client.send(url, 'GET', token=token, stage=key)
+                    result[key + '_http_status'] = 200
+                    if key == 'permissions':
+                        sites = data.get('sites', [])
+                        site = next((s for s in sites if s.get('location_id') == dest['site_id']), {})
+                        access = site.get('api_access') or {}
+                        result['site_access'] = access.get('site') if isinstance(access.get('site'), bool) else None
+                    else:
+                        hours = data.get('opening_hours')
+                        if isinstance(hours, dict):
+                            result['opening_hours'] = {
+                                day: [{k: p[k] for k in ('local_start_time', 'local_end_time')
+                                       if isinstance(p.get(k), str) and re.fullmatch(r'\\d{2}:\\d{2}(?::\\d{2})?', p[k])}
+                                      for p in periods if isinstance(p, dict)]
+                                for day, periods in hours.items()
+                                if day in ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')
+                                and isinstance(periods, list)
+                            }
+                except ProviderFailure as exc:
+                    result[key + '_http_status'] = exc.status
+                except Exception:
+                    result[key + '_error'] = 'lecture_non_confirmee'
+            result['ok'] = 'opening_hours' in result and result['site_access'] is not None
+            return jsonify(result)
+        except Exception:
+            return jsonify(ok=False, read_only=True, error='Diagnostic indisponible.'),503
+
     @app.post('/api/deliveroo/production-menu-publish')
     def production_menu_publish():
         if request.headers.get('Origin') != 'https://caisse.bechefaa.fr':
