@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 
 from flask import jsonify, request, Response
 
-from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview, compare_deliveroo_prices
+from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview, compare_deliveroo_prices, prepare_deliveroo_price_patch
 
 
 def _oauth_token():
@@ -2206,7 +2206,13 @@ def register_deliveroo_menu_upload_phase6(app, db):
         try:
             preview = build_deliveroo_menu_preview(db)
             result = compare_deliveroo_prices(preview["payload"], remote.get_json()["response"])
-            return jsonify({"ok": True, "markup_percentage": preview["markup_percentage"], **result})
+            try:
+                prepare_deliveroo_price_patch(preview["payload"], remote.get_json()["response"])
+                readiness = {"candidate_prepared": True, "block_reason": None}
+            except ValueError as exc:
+                readiness = {"candidate_prepared": False, "block_reason": str(exc)}
+            return jsonify({"ok": True, "markup_percentage": preview["markup_percentage"],
+                            **result, **readiness, "publication_enabled": False})
         except (ValueError, KeyError, TypeError, AttributeError):
             return jsonify({"ok": False, "error": "Format du menu incompatible", "upload_performed": False}), 422
 
