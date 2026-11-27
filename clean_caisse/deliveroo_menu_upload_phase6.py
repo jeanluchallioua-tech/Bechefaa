@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 
 from flask import jsonify, request, Response
 
-from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview
+from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview, compare_deliveroo_prices
 
 
 def _oauth_token():
@@ -2192,6 +2192,23 @@ def register_deliveroo_menu_upload_phase6(app, db):
                 "error":"Scenario 17 Deliveroo impossible",
                 "detail":str(exc)
             }),500
+
+    @app.post("/api/deliveroo/price-diagnostic-phase6")
+    def deliveroo_price_diagnostic_phase6():
+        # Reuse the existing V3 read path; never publish from this endpoint.
+        if (os.environ.get("BECHEFAA_DELIVEROO_API_URL") or "https://api-sandbox.developers.deliveroo.com").rstrip("/") != "https://api-sandbox.developers.deliveroo.com":
+            return jsonify({"ok": False, "error": "Sandbox uniquement"}), 403
+        if (os.environ.get("BECHEFAA_DELIVEROO_AUTH_URL") or "https://auth-sandbox.developers.deliveroo.com").rstrip("/") != "https://auth-sandbox.developers.deliveroo.com":
+            return jsonify({"ok": False, "error": "Sandbox uniquement"}), 403
+        remote, status = deliveroo_scenario17_get_menu_v3_phase6()
+        if status != 200:
+            return remote, status
+        try:
+            preview = build_deliveroo_menu_preview(db)
+            result = compare_deliveroo_prices(preview["payload"], remote.get_json()["response"])
+            return jsonify({"ok": True, "markup_percentage": preview["markup_percentage"], **result})
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return jsonify({"ok": False, "error": "Format du menu incompatible", "upload_performed": False}), 422
 
     @app.get("/administration/deliveroo-upload")
     def deliveroo_upload_page_phase6():
