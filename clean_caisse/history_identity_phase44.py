@@ -89,7 +89,7 @@ def register_history_identity_phase44(app):
 #list .order>.p41-pay-btn,#list .order>.p44-refund-action-btn{display:none!important}
 #list .order .btn:not(.edit):not(.locked){min-width:74px;padding:9px 12px}
 .history-origin-label{display:inline-block;margin-top:5px;padding:3px 8px;border-radius:6px;background:#eef2f6;color:#475569;font-size:12px;font-weight:800}
-.history-origin-label[data-origin="SITE INTERNET"]{background:#dbeafe;color:#1d4ed8}
+.history-origin-label[data-origin="SITE"]{background:#dbeafe;color:#1d4ed8}
 .history-origin-label[data-origin="DELIVEROO"]{background:#ccfbf1;color:#0f766e}
 .history-origin-label[data-origin="UBER EATS"]{background:#dcfce7;color:#166534}
 .history-clean-date{font-size:11px;color:#98a2b3;margin-top:4px}
@@ -130,10 +130,10 @@ def register_history_identity_phase44(app):
   function channelLabel(o){
     const channel=String(o.sales_channel||'').trim().toUpperCase();
     const source=String(o.source||'').trim().toUpperCase();
-    if(channel==='SITE'||source==='SITE')return 'SITE INTERNET';
+    if(channel==='SITE'||source==='SITE')return 'SITE';
     if(channel==='DELIVEROO'||source==='DELIVEROO')return 'DELIVEROO';
     if(['UBER','UBER_EATS','UBEREATS','UBER EATS'].includes(channel)||['UBER','UBER_EATS','UBEREATS','UBER EATS'].includes(source))return 'UBER EATS';
-    if(['CAISSE','POS','RESTAURANT'].includes(channel))return 'CAISSE';
+    if(['CAISSE','POS','RESTAURANT','RESTO'].includes(channel))return 'CAISSE';
     return '';
   }
   function decorateCards(){
