@@ -659,6 +659,14 @@ def prepare_deliveroo_price_patch(desired, remote):
     return {"candidate": candidate, **diff}
 
 
+def verify_deliveroo_price_publication(expected, remote):
+    """Confirm observed prices, independently of the provider job status."""
+    diff = compare_deliveroo_prices(expected, remote)
+    confirmed = not (diff["changes"] or diff["missing_remote"] or diff["extra_remote"])
+    return {**diff, "prices_confirmed": confirmed,
+            "verification_state": "confirmed" if confirmed else "pending_or_mismatch"}
+
+
 def register_deliveroo_menu_builder_phase6(app, db):
     @app.get("/api/deliveroo/menu-preview-phase6")
     def deliveroo_menu_preview_phase6():
