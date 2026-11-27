@@ -958,6 +958,31 @@ table('Tickets Deliveroo',data.tickets||[],[['Numéro','num'],['Identifiant POS'
             app.logger.exception("Deliveroo diagnostic read failed")
             return jsonify({"ok": False, "error": "Lecture impossible"}), 500
 
+    @app.get("/api/admin/deliveroo/sandbox-site-hours")
+    def deliveroo_sandbox_site_hours():
+        auth_host = "https://auth-sandbox.developers.deliveroo.com"
+        api_host = "https://api-sandbox.developers.deliveroo.com"
+        if (
+            os.environ.get("BECHEFAA_DELIVEROO_AUTH_URL", auth_host).rstrip("/") != auth_host
+            or os.environ.get("BECHEFAA_DELIVEROO_API_URL", api_host).rstrip("/") != api_host
+        ):
+            return jsonify(ok=False, error="sandbox_required"), 409
+
+        site_url = api_host + "/site/v1/brands/bceaa87a-74db-434e-b548-6da7e7de67a6/sites/101"
+        stage = "oauth"
+        try:
+            token = _oauth_token()
+            stage = "opening_hours"
+            req = urllib.request.Request(
+                site_url + "/opening_hours",
+                headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=12) as response:
+                hours = json.load(response)["opening_hours"]
+            return jsonify(ok=True, environment="sandbox", opening_hours=hours)
+        except Exception as exc:
+            return jsonify(ok=False, stage=stage, provider_http_status=getattr(exc, "code", None)), 502
+
     @app.get("/api/deliveroo/status-phase6")
     def deliveroo_status_phase6():
         client_id=(os.environ.get("BECHEFAA_DELIVEROO_CLIENT_ID") or "").strip()
