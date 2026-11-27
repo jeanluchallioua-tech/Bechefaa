@@ -609,6 +609,40 @@ def build_deliveroo_menu_preview(db):
     }
 
 
+
+def compare_deliveroo_prices(desired, remote):
+    """Read-only comparison of V3 menu snapshots, in integer cents."""
+    def index(snapshot):
+        menu = snapshot.get("menu", snapshot)
+        items = menu.get("items")
+        if not isinstance(items, list):
+            raise ValueError("Liste items absente")
+        result = {}
+        for item in items:
+            key = item.get("id")
+            if not isinstance(key, str) or not key or key in result:
+                raise ValueError("Identifiant article absent ou duplique")
+            price = item.get("price_info", {}).get("price")
+            if type(price) is not int or price < 0:
+                raise ValueError("Prix invalide pour " + key)
+            result[key] = (price, item)
+        return result
+
+    local, current = index(desired), index(remote)
+    changes = []
+    for key in sorted(local.keys() & current.keys()):
+        new, item = local[key]
+        old, _ = current[key]
+        if new != old:
+            changes.append({"id": key, "plu": item.get("plu"),
+                            "name": item.get("name"), "old_cents": old,
+                            "new_cents": new})
+    return {"changes": changes,
+            "missing_remote": sorted(local.keys() - current.keys()),
+            "extra_remote": sorted(current.keys() - local.keys()),
+            "upload_performed": False}
+
+
 def register_deliveroo_menu_builder_phase6(app, db):
     @app.get("/api/deliveroo/menu-preview-phase6")
     def deliveroo_menu_preview_phase6():
