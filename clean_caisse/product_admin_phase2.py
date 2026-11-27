@@ -56,6 +56,18 @@ def register_product_admin_phase2(app,db):
     if values['category'] not in cats(data):return jsonify({'ok':False,'error':'Catégorie inconnue'}),400
     product=next((x for x in data['products'] if isinstance(x,dict) and str(x.get('id'))==product_id),None)
     if not product:return jsonify({'ok':False,'error':'Produit introuvable'}),404
+    old_price=Decimal(str(product.get('price',0)))
+    price_changed=old_price!=Decimal(str(values['price']))
+    if price_changed:
+     conn.execute("""CREATE TABLE IF NOT EXISTS deliveroo_price_sync_queue (
+      product_id TEXT PRIMARY KEY, desired_price NUMERIC(12,2) NOT NULL,
+      revision TEXT NOT NULL, state TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+     )""")
+     conn.execute("""INSERT INTO deliveroo_price_sync_queue(product_id,desired_price,revision,state)
+      VALUES (%s,%s,%s,'pending')
+      ON CONFLICT(product_id) DO UPDATE SET desired_price=EXCLUDED.desired_price,
+      revision=EXCLUDED.revision,state='pending',updated_at=now()""",
+      (product_id,Decimal(str(values['price'])),uuid.uuid4().hex))
     product.update(values);save(conn,data)
    return jsonify({'ok':True,'product':product})
   except Exception as e:return jsonify({'ok':False,'error':'Modification impossible','detail':str(e)}),500
