@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 
 from flask import jsonify, request, Response
 
-from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview, compare_deliveroo_prices, prepare_deliveroo_price_patch
+from .deliveroo_menu_builder_phase6 import build_deliveroo_menu_preview, prepare_deliveroo_price_patch, verify_deliveroo_price_publication
 
 
 def _oauth_token():
@@ -2205,7 +2205,7 @@ def register_deliveroo_menu_upload_phase6(app, db):
             return remote, status
         try:
             preview = build_deliveroo_menu_preview(db)
-            result = compare_deliveroo_prices(preview["payload"], remote.get_json()["response"])
+            result = verify_deliveroo_price_publication(preview["payload"], remote.get_json()["response"])
             try:
                 prepare_deliveroo_price_patch(preview["payload"], remote.get_json()["response"])
                 readiness = {"candidate_prepared": True, "block_reason": None}
