@@ -17,3 +17,15 @@ def transition(conn, product_id, revision, previous, next_state):
         (next_state, product_id, revision, previous),
     ).fetchone()
     return row is not None
+
+
+def confirm_observed_prices(conn, snapshot_rows, verification):
+    """Confirm only the captured revisions after a complete remote match."""
+    if verification.get("prices_confirmed") is not True:
+        return 0
+    count = 0
+    for row in snapshot_rows:
+        if row["state"] in ("pending", "submitted", "uncertain", "failed"):
+            count += int(transition(conn, row["product_id"], row["revision"],
+                                    row["state"], "confirmed"))
+    return count
